@@ -30,14 +30,12 @@ pub fn extract_palette(image: &DynamicImage) -> Vec<[f32; 3]> {
 
     for (_, _, Rgba([r, g, b, a])) in thumb.pixels() {
         // Skip transparent or near-transparent pixels
-        if a < 128 { continue; }
+        if a < 128 {
+            continue;
+        }
 
         // Quantise each channel to 32-value steps (256 / 8 = 32)
-        let key = (
-            (r / 32) * 32,
-            (g / 32) * 32,
-            (b / 32) * 32,
-        );
+        let key = ((r / 32) * 32, (g / 32) * 32, (b / 32) * 32);
         *buckets.entry(key).or_insert(0) += 1;
     }
 
@@ -47,15 +45,14 @@ pub fn extract_palette(image: &DynamicImage) -> Vec<[f32; 3]> {
 
     // Take the top 5 colours, skipping near-black and near-white
     // (these are common but not interesting for colouring a wallpaper)
-    sorted.iter()
+    sorted
+        .iter()
         .filter(|((r, g, b), _)| {
             let brightness = (*r as u32 + *g as u32 + *b as u32) / 3;
             brightness > 30 && brightness < 220 // skip very dark and very light
         })
         .take(5)
-        .map(|((r, g, b), _)| {
-            [*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0]
-        })
+        .map(|((r, g, b), _)| [*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0])
         .collect()
 }
 
@@ -74,15 +71,15 @@ pub fn lerp_colour(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
     // Key colours at different times of day
     let midnight = [0.02, 0.02, 0.08]; // deep blue-black
-    let dawn     = [0.6,  0.3,  0.2 ]; // warm orange
-    let noon     = [0.4,  0.6,  0.9 ]; // sky blue
-    let dusk     = [0.7,  0.3,  0.15]; // warm red-orange
+    let dawn = [0.6, 0.3, 0.2]; // warm orange
+    let noon = [0.4, 0.6, 0.9]; // sky blue
+    let dusk = [0.7, 0.3, 0.15]; // warm red-orange
 
     // time: 0.0 = midnight, 0.25 = 6am, 0.5 = noon, 0.75 = 6pm, 1.0 = midnight
     match time {
         t if t < 0.25 => lerp_colour(midnight, dawn, t / 0.25),
-        t if t < 0.5  => lerp_colour(dawn, noon, (t - 0.25) / 0.25),
+        t if t < 0.5 => lerp_colour(dawn, noon, (t - 0.25) / 0.25),
         t if t < 0.75 => lerp_colour(noon, dusk, (t - 0.5) / 0.25),
-        t             => lerp_colour(dusk, midnight, (t - 0.75) / 0.25),
+        t => lerp_colour(dusk, midnight, (t - 0.75) / 0.25),
     }
 }

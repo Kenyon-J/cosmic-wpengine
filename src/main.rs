@@ -14,17 +14,12 @@
 mod modules;
 
 use anyhow::Result;
-use tracing::info;
 use tokio::sync::mpsc;
+use tracing::info;
 
 use modules::{
-    config::Config,
-    state::AppState,
-    mpris::MprisWatcher,
-    audio::AudioCapture,
-    weather::WeatherWatcher,
-    renderer::Renderer,
-    wayland::WaylandSurface,
+    audio::AudioCapture, config::Config, mpris::MprisWatcher, renderer::Renderer, state::AppState,
+    wayland::WaylandManager, weather::WeatherWatcher,
 };
 
 #[tokio::main]
@@ -42,64 +37,58 @@ async fn main() -> Result<()> {
 
     // run_until drives the LocalSet on the current thread until the given
     // future completes. Everything inside here has access to spawn_local.
-    local.run_until(async move {
+    local
+        .run_until(async move {
+            // Load config from ~/.config/cosmic-wallpaper/config.toml
+            // If the file doesn't exist, we'll use sensible defaults
+            let config = Config::load_or_default()?;
+            info!("Config loaded: {:?}", config);
 
-        // Load config from ~/.config/cosmic-wallpaper/config.toml
-        // If the file doesn't exist, we'll use sensible defaults
-        let config = Config::load_or_default()?;
-        info!("Config loaded: {:?}", config);
+            // AppState is the shared "brain" of the application.
+            // It holds the current wallpaper mode, album art, audio data, weather, etc.
+            // All subsystems read from or write to this state.
+            let state = AppState::new(config.clone());
 
-        // AppState is the shared "brain" of the application.
-        // It holds the current wallpaper mode, album art, audio data, weather, etc.
-        // All subsystems read from or write to this state.
-        let state = AppState::new(config.clone());
+            // We use channels to communicate between subsystems.
+            // A channel is like a message queue — one side sends, the other receives.
+            // This keeps each subsystem independent and avoids shared mutable state.
+            let (event_tx, event_rx) = mpsc::channel(64);
 
-        // We use channels to communicate between subsystems.
-        // A channel is like a message queue — one side sends, the other receives.
-        // This keeps each subsystem independent and avoids shared mutable state.
-        let (event_tx, event_rx) = mpsc::channel(64);
+            // --- Spawn subsystems as independent async tasks ---
+            // Each task runs concurrently and sends events back via the channel.
 
-        // --- Spawn subsystems as independent async tasks ---
-        // Each task runs concurrently and sends events back via the channel.
+            // MPRIS uses spawn_local because PlayerFinder contains Rc (not thread-safe).
+            // spawn_local means "run this task on the same thread as the LocalSet".
+            let mpris_tx = event_tx.clone();
+            tokio::task::spawn_local(async move { MprisWatcher::run(mpris_tx).await });
 
-        // MPRIS uses spawn_local because PlayerFinder contains Rc (not thread-safe).
-        // spawn_local means "run this task on the same thread as the LocalSet".
-        let mpris_tx = event_tx.clone();
-        tokio::task::spawn_local(async move {
-            MprisWatcher::run(mpris_tx).await
-        });
+            // Audio and weather are fine with regular spawn — they don't use Rc.
+            let audio_tx = event_tx.clone();
+            tokio::spawn(async move { AudioCapture::run(audio_tx).await });
 
-        // Audio and weather are fine with regular spawn — they don't use Rc.
-        let audio_tx = event_tx.clone();
-        tokio::spawn(async move {
-            AudioCapture::run(audio_tx).await
-        });
+            let weather_tx = event_tx.clone();
+            let weather_config = config.weather.clone();
+            tokio::spawn(async move { WeatherWatcher::run(weather_tx, weather_config).await });
 
-        let weather_tx = event_tx.clone();
-        let weather_config = config.weather.clone();
-        tokio::spawn(async move {
-            WeatherWatcher::run(weather_tx, weather_config).await
-        });
+            // --- Set up Wayland surface ---
+            // This creates the layer surface that sits behind all your windows.
+            // It's what we'll draw the wallpaper onto.
+            let wayland_manager = WaylandManager::new()?;
 
-        // --- Set up Wayland surface ---
-        // This creates the layer surface that sits behind all your windows.
-        // It's what we'll draw the wallpaper onto.
-        let surface = WaylandSurface::new()?;
+            // --- Create the GPU renderer ---
+            // The renderer owns the wgpu device and draws each frame.
+            let mut renderer: Renderer = Renderer::new(&wayland_manager, state).await?;
 
-        // --- Create the GPU renderer ---
-        // The renderer owns the wgpu device and draws each frame.
-        let mut renderer: Renderer = Renderer::new(&surface, state).await?;
+            info!("All subsystems started. Entering render loop.");
 
-        info!("All subsystems started. Entering render loop.");
+            // --- Main render loop ---
+            // On each iteration we:
+            //   1. Process any pending events (new album art, audio frame, weather update)
+            //   2. Update the visual state
+            //   3. Draw a frame to the Wayland surface
+            renderer.run(event_rx, wayland_manager).await?;
 
-        // --- Main render loop ---
-        // On each iteration we:
-        //   1. Process any pending events (new album art, audio frame, weather update)
-        //   2. Update the visual state
-        //   3. Draw a frame to the Wayland surface
-        renderer.run(event_rx, surface).await?;
-
-        Ok(())
-
-    }).await
+            Ok(())
+        })
+        .await
 }

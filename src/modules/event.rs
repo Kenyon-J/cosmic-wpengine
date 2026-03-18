@@ -14,22 +14,22 @@ use image::DynamicImage;
 #[derive(Debug)]
 pub enum Event {
     // --- MPRIS Events ---
-
     /// A new track started playing. Contains metadata about the track.
     TrackChanged(TrackInfo),
 
     /// The player paused, stopped, or there's nothing playing.
     PlaybackStopped,
 
-    // --- Audio Events ---
+    /// The current playback position in the track.
+    PlaybackPosition(std::time::Duration),
 
+    // --- Audio Events ---
     /// A new frame of FFT frequency data is ready for the visualiser.
     /// The Vec<f32> contains amplitude values from low to high frequency,
     /// normalised to the range 0.0–1.0.
     AudioFrame(Vec<f32>),
 
     // --- Weather Events ---
-
     /// Fresh weather data has been fetched from the API.
     WeatherUpdated(WeatherData),
 }
@@ -48,6 +48,16 @@ pub struct TrackInfo {
     /// Dominant colours extracted from the album art.
     /// Used to tint the background even when not showing the full image.
     pub palette: Option<Vec<[f32; 3]>>,
+
+    /// Synced lyrics fetched from LRCLIB.
+    pub lyrics: Option<Vec<LyricLine>>,
+}
+
+/// A single line of synced lyrics.
+#[derive(Debug, Clone)]
+pub struct LyricLine {
+    pub start_time_secs: f32,
+    pub text: String,
 }
 
 /// Current weather conditions, fetched from the weather API.

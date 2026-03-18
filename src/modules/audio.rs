@@ -16,9 +16,9 @@
 // =============================================================================
 
 use anyhow::Result;
+use rustfft::{num_complex::Complex, FftPlanner};
 use tokio::sync::mpsc::Sender;
 use tracing::info;
-use rustfft::{FftPlanner, num_complex::Complex};
 
 use super::event::Event;
 
@@ -37,9 +37,7 @@ impl AudioCapture {
         let (audio_tx, mut audio_rx) = tokio::sync::mpsc::channel::<Vec<f32>>(8);
 
         // Spawn the PipeWire capture on a blocking thread
-        tokio::task::spawn_blocking(move || {
-            Self::run_pipewire_capture(audio_tx)
-        });
+        tokio::task::spawn_blocking(move || Self::run_pipewire_capture(audio_tx));
 
         // FFT planner — reused across frames for efficiency
         let mut planner = FftPlanner::<f32>::new();
@@ -47,7 +45,8 @@ impl AudioCapture {
 
         while let Some(samples) = audio_rx.recv().await {
             // Convert real samples to complex numbers (FFT requires complex input)
-            let mut buffer: Vec<Complex<f32>> = samples.iter()
+            let mut buffer: Vec<Complex<f32>> = samples
+                .iter()
                 .map(|&s| Complex { re: s, im: 0.0 })
                 .collect();
 
@@ -56,7 +55,8 @@ impl AudioCapture {
 
             // We only need the first half of the FFT output (the rest is a mirror)
             let half = FFT_SIZE / 2;
-            let magnitudes: Vec<f32> = buffer[..half].iter()
+            let magnitudes: Vec<f32> = buffer[..half]
+                .iter()
                 .map(|c| c.norm()) // magnitude = sqrt(re² + im²)
                 .collect();
 
@@ -76,22 +76,24 @@ impl AudioCapture {
 
     /// Runs the PipeWire capture loop on a blocking thread.
     /// Sends raw sample buffers back via the channel.
-    fn run_pipewire_capture(tx: tokio::sync::mpsc::Sender<Vec<f32>>) {
+    fn run_pipewire_capture(_tx: tokio::sync::mpsc::Sender<Vec<f32>>) {
         // NOTE: Full PipeWire setup requires creating a mainloop, context,
         // and stream. This is a simplified skeleton showing the structure.
         // The pipewire crate's examples show the full boilerplate.
 
-        use pipewire::main_loop::MainLoop;
         use pipewire::context::Context;
+        use pipewire::main_loop::MainLoop;
         use pipewire::properties::properties;
 
         let mainloop = MainLoop::new(None).expect("Failed to create PipeWire mainloop");
         let context = Context::new(&mainloop).expect("Failed to create PipeWire context");
-        let core = context.connect(None).expect("Failed to connect to PipeWire");
+        let _core = context
+            .connect(None)
+            .expect("Failed to connect to PipeWire");
 
         // Create a capture stream targeting the monitor (system mix)
         // This captures whatever is currently playing through your speakers
-        let props = properties! {
+        let _props = properties! {
             "media.type" => "Audio",
             "media.category" => "Capture",
             "media.role" => "Music",
@@ -100,7 +102,7 @@ impl AudioCapture {
         };
 
         // Buffer to accumulate samples before sending for FFT
-        let mut sample_buffer: Vec<f32> = Vec::with_capacity(FFT_SIZE);
+        let _sample_buffer: Vec<f32> = Vec::with_capacity(FFT_SIZE);
 
         // The actual stream setup and callback registration would go here.
         // In the callback, we'd push samples to sample_buffer and when

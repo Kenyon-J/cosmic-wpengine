@@ -9753,17 +9753,10 @@ extern "C" {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct spa_graph_link {
-    pub link: spa_list,
-    pub state: *mut spa_graph_state,
-    pub signal: ::std::option::Option<
-        unsafe extern "C" fn(data: *mut ::std::os::raw::c_void) -> ::std::os::raw::c_int,
-    >,
-    pub signal_data: *mut ::std::os::raw::c_void,
+    pub _address: u8,
 }
 #[test]
 fn bindgen_test_layout_spa_graph_link() {
-    const UNINIT: ::std::mem::MaybeUninit<spa_graph_link> = ::std::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<spa_graph_link>(),
         40usize,
@@ -9774,46 +9767,6 @@ fn bindgen_test_layout_spa_graph_link() {
         8usize,
         concat!("Alignment of ", stringify!(spa_graph_link))
     );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).link) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_link),
-            "::",
-            stringify!(link)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).state) as usize - ptr as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_link),
-            "::",
-            stringify!(state)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).signal) as usize - ptr as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_link),
-            "::",
-            stringify!(signal)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).signal_data) as usize - ptr as usize },
-        32usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_link),
-            "::",
-            stringify!(signal_data)
-        )
-    );
 }
 extern "C" {
     #[link_name = "spa_graph_link_trigger_libspa_rs"]
@@ -9822,15 +9775,10 @@ extern "C" {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct spa_graph {
-    pub flags: u32,
-    pub parent: *mut spa_graph_node,
-    pub state: *mut spa_graph_state,
-    pub nodes: spa_list,
+    pub _address: u8,
 }
 #[test]
 fn bindgen_test_layout_spa_graph() {
-    const UNINIT: ::std::mem::MaybeUninit<spa_graph> = ::std::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<spa_graph>(),
         40usize,
@@ -9840,46 +9788,6 @@ fn bindgen_test_layout_spa_graph() {
         ::std::mem::align_of::<spa_graph>(),
         8usize,
         concat!("Alignment of ", stringify!(spa_graph))
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph),
-            "::",
-            stringify!(flags)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).parent) as usize - ptr as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph),
-            "::",
-            stringify!(parent)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).state) as usize - ptr as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph),
-            "::",
-            stringify!(state)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).nodes) as usize - ptr as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph),
-            "::",
-            stringify!(nodes)
-        )
     );
 }
 #[repr(C)]
@@ -9950,30 +9858,10 @@ fn bindgen_test_layout_spa_graph_node_callbacks() {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct spa_graph_node {
-    #[doc = "< link in graph nodes list"]
-    pub link: spa_list,
-    #[doc = "< owner graph"]
-    pub graph: *mut spa_graph,
-    #[doc = "< list of input and output ports"]
-    pub ports: [spa_list; 2usize],
-    #[doc = "< list of links to next nodes"]
-    pub links: spa_list,
-    #[doc = "< node flags"]
-    pub flags: u32,
-    #[doc = "< state of the node"]
-    pub state: *mut spa_graph_state,
-    #[doc = "< link in graph"]
-    pub graph_link: spa_graph_link,
-    #[doc = "< subgraph or NULL"]
-    pub subgraph: *mut spa_graph,
-    pub callbacks: spa_callbacks,
-    #[doc = "< link for scheduler"]
-    pub sched_link: spa_list,
+    pub _address: u8,
 }
 #[test]
 fn bindgen_test_layout_spa_graph_node() {
-    const UNINIT: ::std::mem::MaybeUninit<spa_graph_node> = ::std::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<spa_graph_node>(),
         168usize,
@@ -9984,127 +9872,14 @@ fn bindgen_test_layout_spa_graph_node() {
         8usize,
         concat!("Alignment of ", stringify!(spa_graph_node))
     );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).link) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_node),
-            "::",
-            stringify!(link)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).graph) as usize - ptr as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_node),
-            "::",
-            stringify!(graph)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).ports) as usize - ptr as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_node),
-            "::",
-            stringify!(ports)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).links) as usize - ptr as usize },
-        56usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_node),
-            "::",
-            stringify!(links)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
-        72usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_node),
-            "::",
-            stringify!(flags)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).state) as usize - ptr as usize },
-        80usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_node),
-            "::",
-            stringify!(state)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).graph_link) as usize - ptr as usize },
-        88usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_node),
-            "::",
-            stringify!(graph_link)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).subgraph) as usize - ptr as usize },
-        128usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_node),
-            "::",
-            stringify!(subgraph)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).callbacks) as usize - ptr as usize },
-        136usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_node),
-            "::",
-            stringify!(callbacks)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).sched_link) as usize - ptr as usize },
-        152usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_node),
-            "::",
-            stringify!(sched_link)
-        )
-    );
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct spa_graph_port {
-    #[doc = "< link in node port list"]
-    pub link: spa_list,
-    #[doc = "< owner node"]
-    pub node: *mut spa_graph_node,
-    #[doc = "< port direction"]
-    pub direction: spa_direction,
-    #[doc = "< port id"]
-    pub port_id: u32,
-    #[doc = "< port flags"]
-    pub flags: u32,
-    #[doc = "< peer"]
-    pub peer: *mut spa_graph_port,
+    pub _address: u8,
 }
 #[test]
 fn bindgen_test_layout_spa_graph_port() {
-    const UNINIT: ::std::mem::MaybeUninit<spa_graph_port> = ::std::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<spa_graph_port>(),
         48usize,
@@ -10114,66 +9889,6 @@ fn bindgen_test_layout_spa_graph_port() {
         ::std::mem::align_of::<spa_graph_port>(),
         8usize,
         concat!("Alignment of ", stringify!(spa_graph_port))
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).link) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_port),
-            "::",
-            stringify!(link)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).node) as usize - ptr as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_port),
-            "::",
-            stringify!(node)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).direction) as usize - ptr as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_port),
-            "::",
-            stringify!(direction)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).port_id) as usize - ptr as usize },
-        28usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_port),
-            "::",
-            stringify!(port_id)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
-        32usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_port),
-            "::",
-            stringify!(flags)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).peer) as usize - ptr as usize },
-        40usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_graph_port),
-            "::",
-            stringify!(peer)
-        )
     );
 }
 extern "C" {
@@ -10897,16 +10612,10 @@ fn bindgen_test_layout_spa_pod_builder_callbacks() {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct spa_pod_builder {
-    pub data: *mut ::std::os::raw::c_void,
-    pub size: u32,
-    pub _padding: u32,
-    pub state: spa_pod_builder_state,
-    pub callbacks: spa_callbacks,
+    pub _address: u8,
 }
 #[test]
 fn bindgen_test_layout_spa_pod_builder() {
-    const UNINIT: ::std::mem::MaybeUninit<spa_pod_builder> = ::std::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<spa_pod_builder>(),
         48usize,
@@ -10916,56 +10625,6 @@ fn bindgen_test_layout_spa_pod_builder() {
         ::std::mem::align_of::<spa_pod_builder>(),
         8usize,
         concat!("Alignment of ", stringify!(spa_pod_builder))
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).data) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_pod_builder),
-            "::",
-            stringify!(data)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).size) as usize - ptr as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_pod_builder),
-            "::",
-            stringify!(size)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr)._padding) as usize - ptr as usize },
-        12usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_pod_builder),
-            "::",
-            stringify!(_padding)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).state) as usize - ptr as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_pod_builder),
-            "::",
-            stringify!(state)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).callbacks) as usize - ptr as usize },
-        32usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_pod_builder),
-            "::",
-            stringify!(callbacks)
-        )
     );
 }
 extern "C" {
@@ -14197,18 +13856,10 @@ pub type spa_source_func_t = ::std::option::Option<unsafe extern "C" fn(source: 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct spa_source {
-    pub loop_: *mut spa_loop,
-    pub func: spa_source_func_t,
-    pub data: *mut ::std::os::raw::c_void,
-    pub fd: ::std::os::raw::c_int,
-    pub mask: u32,
-    pub rmask: u32,
-    pub priv_: *mut ::std::os::raw::c_void,
+    pub _address: u8,
 }
 #[test]
 fn bindgen_test_layout_spa_source() {
-    const UNINIT: ::std::mem::MaybeUninit<spa_source> = ::std::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<spa_source>(),
         48usize,
@@ -14218,76 +13869,6 @@ fn bindgen_test_layout_spa_source() {
         ::std::mem::align_of::<spa_source>(),
         8usize,
         concat!("Alignment of ", stringify!(spa_source))
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).loop_) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_source),
-            "::",
-            stringify!(loop_)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).func) as usize - ptr as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_source),
-            "::",
-            stringify!(func)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).data) as usize - ptr as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_source),
-            "::",
-            stringify!(data)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).fd) as usize - ptr as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_source),
-            "::",
-            stringify!(fd)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).mask) as usize - ptr as usize },
-        28usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_source),
-            "::",
-            stringify!(mask)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).rmask) as usize - ptr as usize },
-        32usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_source),
-            "::",
-            stringify!(rmask)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).priv_) as usize - ptr as usize },
-        40usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_source),
-            "::",
-            stringify!(priv_)
-        )
     );
 }
 pub type spa_invoke_func_t = ::std::option::Option<
@@ -15949,24 +15530,10 @@ extern "C" {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct spa_handle {
-    pub version: u32,
-    #[doc = " Get the interface provided by \\a handle with \\a type.\n\n \\a interface is always a struct spa_interface but depending on\n \\a type, the struct might contain other information.\n\n \\param handle a spa_handle\n \\param type the interface type\n \\param iface result to hold the interface.\n \\return 0 on success\n         -ENOTSUP when there are no interfaces\n         -EINVAL when handle or info is NULL"]
-    pub get_interface: ::std::option::Option<
-        unsafe extern "C" fn(
-            handle: *mut spa_handle,
-            type_: *const ::std::os::raw::c_char,
-            iface: *mut *mut ::std::os::raw::c_void,
-        ) -> ::std::os::raw::c_int,
-    >,
-    #[doc = " Clean up the memory of \\a handle. After this, \\a handle should not be used\n anymore.\n\n \\param handle a pointer to memory\n \\return 0 on success"]
-    pub clear: ::std::option::Option<
-        unsafe extern "C" fn(handle: *mut spa_handle) -> ::std::os::raw::c_int,
-    >,
+    pub _address: u8,
 }
 #[test]
 fn bindgen_test_layout_spa_handle() {
-    const UNINIT: ::std::mem::MaybeUninit<spa_handle> = ::std::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<spa_handle>(),
         24usize,
@@ -15976,36 +15543,6 @@ fn bindgen_test_layout_spa_handle() {
         ::std::mem::align_of::<spa_handle>(),
         8usize,
         concat!("Alignment of ", stringify!(spa_handle))
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).version) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_handle),
-            "::",
-            stringify!(version)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).get_interface) as usize - ptr as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_handle),
-            "::",
-            stringify!(get_interface)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).clear) as usize - ptr as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_handle),
-            "::",
-            stringify!(clear)
-        )
     );
 }
 extern "C" {
@@ -16848,13 +16385,10 @@ extern "C" {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct spa_ringbuffer {
-    pub readindex: u32,
-    pub writeindex: u32,
+    pub _address: u8,
 }
 #[test]
 fn bindgen_test_layout_spa_ringbuffer() {
-    const UNINIT: ::std::mem::MaybeUninit<spa_ringbuffer> = ::std::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<spa_ringbuffer>(),
         8usize,
@@ -16864,26 +16398,6 @@ fn bindgen_test_layout_spa_ringbuffer() {
         ::std::mem::align_of::<spa_ringbuffer>(),
         4usize,
         concat!("Alignment of ", stringify!(spa_ringbuffer))
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).readindex) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_ringbuffer),
-            "::",
-            stringify!(readindex)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).writeindex) as usize - ptr as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(spa_ringbuffer),
-            "::",
-            stringify!(writeindex)
-        )
     );
 }
 extern "C" {

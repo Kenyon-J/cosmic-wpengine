@@ -12,13 +12,13 @@
 // =============================================================================
 
 use anyhow::Result;
+use serde::Deserialize;
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
-use serde::Deserialize;
 
 use super::{
     config::WeatherConfig,
-    event::{Event, WeatherData, WeatherCondition},
+    event::{Event, WeatherCondition, WeatherData},
 };
 
 pub struct WeatherWatcher;
@@ -30,16 +30,20 @@ impl WeatherWatcher {
             return Ok(());
         }
 
-        info!("Weather watcher started for ({}, {})", config.latitude, config.longitude);
-
-        let poll_interval = tokio::time::Duration::from_secs(
-            config.poll_interval_minutes * 60
+        info!(
+            "Weather watcher started for ({}, {})",
+            config.latitude, config.longitude
         );
+
+        let poll_interval = tokio::time::Duration::from_secs(config.poll_interval_minutes * 60);
 
         loop {
             match Self::fetch_weather(&config).await {
                 Ok(data) => {
-                    info!("Weather updated: {:?} {:.1}°C", data.condition, data.temperature_celsius);
+                    info!(
+                        "Weather updated: {:?} {:.1}°C",
+                        data.condition, data.temperature_celsius
+                    );
                     let _ = tx.send(Event::WeatherUpdated(data)).await;
                 }
                 Err(e) => {
@@ -62,10 +66,7 @@ impl WeatherWatcher {
             config.latitude, config.longitude
         );
 
-        let response: OpenMeteoResponse = reqwest::get(&url)
-            .await?
-            .json()
-            .await?;
+        let response: OpenMeteoResponse = reqwest::get(&url).await?.json().await?;
 
         let code = response.current.weather_code;
         let temp = response.current.temperature_2m;

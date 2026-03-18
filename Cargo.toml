@@ -14,7 +14,7 @@ tokio = { version = "1", features = ["full"] }
 # --- Wayland (the display protocol on Linux) ---
 # smithay-client-toolkit gives us access to the wlr-layer-shell protocol,
 # which is how we render a surface behind all windows (the wallpaper layer)
-smithay-client-toolkit = { version = "0.18", features = ["calloop"] }
+smithay-client-toolkit = { version = "0.19", features = ["calloop"] }
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.2", features = ["client"] }
 
@@ -22,6 +22,7 @@ wayland-protocols-wlr = { version = "0.2", features = ["client"] }
 # wgpu is a safe, cross-platform GPU abstraction in Rust.
 # We use it to run shaders and draw animated scenes on the wallpaper surface.
 wgpu = "0.19"
+wgpu_text = "0.9.0"
 
 # --- MPRIS (music player integration) ---
 # MPRIS is a D-Bus standard that media players (Spotify, VLC, etc.) implement.

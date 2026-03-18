@@ -19,9 +19,38 @@ use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
 use super::{
-    event::{Event, TrackInfo},
     colour::extract_palette,
+    event::{Event, TrackInfo},
+    lrclib,
 };
+
+#[derive(Debug, Clone)]
+struct MetadataUpdate {
+    title: String,
+    artist: String,
+    album: String,
+    art_url: Option<String>,
+    track_id: String,
+}
+
+impl MetadataUpdate {
+    fn from_metadata(metadata: &mpris::Metadata) -> Self {
+        Self {
+            title: metadata.title().unwrap_or("Unknown").to_string(),
+            artist: metadata.artists().unwrap_or_default().join(", "),
+            album: metadata.album_name().unwrap_or("").to_string(),
+            art_url: metadata.art_url().map(|s| s.to_string()),
+            track_id: metadata.track_id().map(|id| id.to_string()).unwrap_or_default(),
+        }
+    }
+}
+
+enum MprisUpdate {
+    Metadata(MetadataUpdate),
+    Status(mpris::PlaybackStatus),
+    Position(std::time::Duration),
+    ShutDown,
+}
 
 pub struct MprisWatcher;
 
@@ -29,104 +58,172 @@ impl MprisWatcher {
     pub async fn run(tx: Sender<Event>) -> Result<()> {
         info!("MPRIS watcher started");
 
-        // The mpris crate handles all the D-Bus communication for us.
-        // PlayerFinder scans the session bus for any MPRIS-compliant player.
-        let finder = mpris::PlayerFinder::new()
-            .map_err(|e| anyhow::anyhow!("Could not connect to D-Bus: {}", e))?;
+        let (update_tx, mut update_rx) = tokio::sync::mpsc::channel(16);
 
-        loop {
-            // Find the most recently active player.
-            // If multiple players are running, this picks the one that last
-            // received a Play command.
-            match finder.find_active() {
-                Ok(player) => {
-                    info!("Found active player: {}", player.identity());
-                    Self::watch_player(&player, &tx).await;
+        // Spawn a dedicated thread for the blocking D-Bus event stream.
+        // This avoids blocking the async runtime and lets us use D-Bus signals!
+        std::thread::spawn(move || {
+            let finder = match mpris::PlayerFinder::new() {
+                Ok(f) => f,
+                Err(_) => return,
+            };
+
+            loop {
+                let player = match finder.find_active() {
+                    Ok(p) => p,
+                    Err(_) => {
+                        let _ = update_tx.blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Stopped));
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        continue;
+                    }
+                };
+
+                info!("Found active player: {}", player.identity());
+
+                // Send initial state immediately
+                if let Ok(metadata) = player.get_metadata() {
+                    let _ = update_tx.blocking_send(MprisUpdate::Metadata(MetadataUpdate::from_metadata(&metadata)));
                 }
-                Err(_) => {
-                    // No player found — send stopped event and wait
-                    let _ = tx.send(Event::PlaybackStopped).await;
-                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                if let Ok(status) = player.get_playback_status() {
+                    let _ = update_tx.blocking_send(MprisUpdate::Status(status));
+                }
+                if let Ok(pos) = player.get_position() {
+                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                }
+
+                // Block on D-Bus signals (player.events() is a blocking iterator)
+                if let Ok(events) = player.events() {
+                    for event in events {
+                        match event {
+                            Ok(mpris::Event::TrackChanged(metadata)) => {
+                                let _ = update_tx.blocking_send(MprisUpdate::Metadata(MetadataUpdate::from_metadata(&metadata)));
+                                if let Ok(pos) = player.get_position() {
+                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                                }
+                            }
+                            Ok(mpris::Event::Playing) => {
+                                let _ = update_tx.blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Playing));
+                                if let Ok(pos) = player.get_position() {
+                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                                }
+                            }
+                            Ok(mpris::Event::Paused) => {
+                                let _ = update_tx.blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Paused));
+                                if let Ok(pos) = player.get_position() {
+                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                                }
+                            }
+                            Ok(mpris::Event::Stopped) => {
+                                let _ = update_tx.blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Stopped));
+                            }
+                            Ok(mpris::Event::Seeked(pos)) => {
+                                let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                            }
+                            Ok(mpris::Event::PlayerShutDown) => {
+                                let _ = update_tx.blocking_send(MprisUpdate::ShutDown);
+                                break; // Exit the event loop to find a new player
+                            }
+                            _ => {}
+                        }
+                    }
+                } else {
+                    // Fallback if we fail to subscribe to events
+                    std::thread::sleep(std::time::Duration::from_secs(1));
                 }
             }
-        }
-    }
+        });
 
-    /// Watch a specific player until it disappears or goes silent.
-    async fn watch_player(player: &mpris::Player, tx: &Sender<Event>) {
         let mut last_track_id = String::new();
+        let mut is_playing = false;
+        let mut last_metadata: Option<MetadataUpdate> = None;
 
-        loop {
-            // Check if the player is still running
-            if !player.is_running() {
-                info!("Player stopped running");
-                let _ = tx.send(Event::PlaybackStopped).await;
-                return;
-            }
+        while let Some(update) = update_rx.recv().await {
+            match update {
+                MprisUpdate::Metadata(meta) => {
+                    last_metadata = Some(meta.clone());
+                    
+                    if is_playing && meta.track_id != last_track_id {
+                        last_track_id = meta.track_id.clone();
+                        info!("Track changed: {} - {}", meta.artist, meta.title);
 
-            // Get current playback status
-            let is_playing = matches!(
-                player.get_playback_status(),
-                Ok(mpris::PlaybackStatus::Playing)
-            );
-
-            if !is_playing {
-                let _ = tx.send(Event::PlaybackStopped).await;
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                continue;
-            }
-
-            // Get current track metadata
-            if let Ok(metadata) = player.get_metadata() {
-                let track_id = metadata.track_id()
-                    .map(|id| id.to_string())
-                    .unwrap_or_default();
-
-                // Only process a track change if the track actually changed
-                if track_id != last_track_id {
-                    last_track_id = track_id;
-                    info!(
-                        "Track changed: {} - {}",
-                        metadata.artists().unwrap_or_default().join(", "),
-                        metadata.title().unwrap_or("Unknown")
-                    );
-
-                    let track_info = Self::build_track_info(&metadata).await;
-                    let _ = tx.send(Event::TrackChanged(track_info)).await;
+                        let track_info = Self::build_track_info(&meta).await;
+                        let _ = tx.send(Event::TrackChanged(track_info)).await;
+                    } else if !is_playing {
+                        // Just update the id, wait for playing status to trigger visual change
+                        last_track_id = meta.track_id.clone();
+                    }
+                }
+                MprisUpdate::Status(status) => {
+                    let playing = status == mpris::PlaybackStatus::Playing;
+                    if playing != is_playing {
+                        is_playing = playing;
+                        if is_playing {
+                            // Resumed playing
+                            if let Some(meta) = &last_metadata {
+                                info!("Playback resumed: {} - {}", meta.artist, meta.title);
+                                let track_info = Self::build_track_info(meta).await;
+                                let _ = tx.send(Event::TrackChanged(track_info)).await;
+                            }
+                        } else {
+                            // Paused or stopped
+                            info!("Playback paused/stopped");
+                            let _ = tx.send(Event::PlaybackStopped).await;
+                        }
+                    }
+                }
+                MprisUpdate::Position(pos) => {
+                    let _ = tx.send(Event::PlaybackPosition(pos)).await;
+                }
+                MprisUpdate::ShutDown => {
+                    if is_playing {
+                        is_playing = false;
+                        info!("Player shut down");
+                        let _ = tx.send(Event::PlaybackStopped).await;
+                    }
+                    last_metadata = None;
+                    last_track_id = String::new();
                 }
             }
-
-            // Poll every second — MPRIS doesn't push changes, we have to pull.
-            // A future improvement would be to use D-Bus signals instead.
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
+
+        Ok(())
     }
 
-    /// Build a TrackInfo from MPRIS metadata, including fetching album art.
-    async fn build_track_info(metadata: &mpris::Metadata) -> TrackInfo {
-        let title = metadata.title().unwrap_or("Unknown").to_string();
-        let artist = metadata.artists()
-            .unwrap_or_default()
-            .join(", ");
-        let album = metadata.album_name().unwrap_or("").to_string();
-
-        // Album art URL — MPRIS provides this as a file:// or https:// URI
-        let (album_art, palette) = if let Some(art_url) = metadata.art_url() {
-            match Self::fetch_album_art(art_url).await {
-                Ok(img) => {
-                    let colours = extract_palette(&img);
-                    (Some(img), Some(colours))
+    /// Build a TrackInfo from the extracted metadata, including fetching album art.
+    async fn build_track_info(meta: &MetadataUpdate) -> TrackInfo {
+        let art_future = async {
+            if let Some(art_url) = &meta.art_url {
+                match Self::fetch_album_art(art_url).await {
+                    Ok(img) => {
+                        let colours = extract_palette(&img);
+                        (Some(img), Some(colours))
+                    }
+                    Err(e) => {
+                        warn!("Failed to load album art: {}", e);
+                        (None, None)
+                    }
                 }
-                Err(e) => {
-                    warn!("Failed to load album art: {}", e);
-                    (None, None)
-                }
+            } else {
+                (None, None)
             }
-        } else {
-            (None, None)
         };
 
-        TrackInfo { title, artist, album, album_art, palette }
+        let lyrics_future = lrclib::fetch_synced_lyrics(&meta.title, &meta.artist, &meta.album);
+
+        let ((album_art, palette), lyrics) = tokio::join!(art_future, lyrics_future);
+
+        if lyrics.is_some() {
+            info!("Synced lyrics loaded for {} - {}", meta.artist, meta.title);
+        }
+
+        TrackInfo {
+            title: meta.title.clone(),
+            artist: meta.artist.clone(),
+            album: meta.album.clone(),
+            album_art,
+            palette,
+            lyrics,
+        }
     }
 
     /// Fetch album art from a URL or local file path.
