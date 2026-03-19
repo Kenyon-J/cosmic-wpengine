@@ -1,0 +1,11 @@
+/home/josh/projects/cosmic-wpengine/target/debug/deps/cookie_factory-900d41c95e426666.d: /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/lib.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/gen.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/internal.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/bytes.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/combinator.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/multi.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/sequence.rs
+
+/home/josh/projects/cosmic-wpengine/target/debug/deps/libcookie_factory-900d41c95e426666.rmeta: /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/lib.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/gen.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/internal.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/bytes.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/combinator.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/multi.rs /home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/sequence.rs
+
+/home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/lib.rs:
+/home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/gen.rs:
+/home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/internal.rs:
+/home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/bytes.rs:
+/home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/combinator.rs:
+/home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/multi.rs:
+/home/josh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cookie-factory-0.3.3/src/sequence.rs:

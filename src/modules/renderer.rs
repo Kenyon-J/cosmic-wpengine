@@ -1,22 +1,8 @@
-// =============================================================================
-// modules/renderer.rs
-// =============================================================================
-// The renderer is the heart of the wallpaper engine. It:
-//   1. Owns the wgpu device, queue, and swap chain
-//   2. Receives events and updates AppState accordingly
-//   3. Runs the frame loop at the configured FPS
-//   4. Decides which scene to draw based on AppState
-//   5. Dispatches to the appropriate drawing routine
-//
-// For beginners: wgpu is Rust's GPU abstraction. It lets us write shaders
-// (small programs that run on the GPU) to draw complex visuals efficiently.
-// =============================================================================
-
 use anyhow::Result;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::Receiver;
 use tracing::{info, warn};
-use wgpu_text::section::{HorizontalAlign, Layout, Section, Text};
+use wgpu_text::glyph_brush::{HorizontalAlign, Layout, Section, Text};
 
 use super::{
     colour::{lerp_colour, time_to_sky_colour},
@@ -37,15 +23,17 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     outputs: Vec<GpuOutput>,
-    font_bytes: Vec<u8>,
+    font: wgpu_text::glyph_brush::ab_glyph::FontArc,
     visualiser_pipeline: wgpu::RenderPipeline,
     visualiser_bind_group: wgpu::BindGroup,
     bands_buffer: wgpu::Buffer,
     visualiser_uniform_buffer: wgpu::Buffer,
     album_art_pipeline: wgpu::RenderPipeline,
     album_art_layout: wgpu::BindGroupLayout,
-    album_art_uniform_buffer: wgpu::Buffer,
-    album_art_bind_group: Option<wgpu::BindGroup>,
+    album_art_bg_uniform_buffer: wgpu::Buffer,
+    album_art_fg_uniform_buffer: wgpu::Buffer,
+    album_art_bg_bind_group: Option<wgpu::BindGroup>,
+    album_art_fg_bind_group: Option<wgpu::BindGroup>,
     previous_album_view: wgpu::TextureView,
     current_album_view: wgpu::TextureView,
     ambient_pipeline: wgpu::RenderPipeline,
@@ -91,7 +79,7 @@ impl Renderer {
             &wgpu::DeviceDescriptor {
                 label: Some("COSMIC Wallpaper Device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+                required_limits: wgpu::Limits::default(),
             },
             None
         ).await?;
@@ -100,7 +88,14 @@ impl Renderer {
         let font_bytes = std::fs::read("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf")
             .or_else(|_| std::fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"))
             .or_else(|_| std::fs::read("/usr/share/fonts/liberation/LiberationSans-Regular.ttf"))
-            .expect("Could not find a valid system font for text rendering!");
+            .or_else(|_| std::fs::read("/usr/share/fonts/TTF/DejaVuSans.ttf")) // Arch Linux
+            .or_else(|_| std::fs::read("/usr/share/fonts/TTF/LiberationSans-Regular.ttf")) // Arch Linux
+            .or_else(|_| std::fs::read("/usr/share/fonts/noto/NotoSans-Regular.ttf")) // Arch/Fedora
+            .or_else(|_| std::fs::read("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf")) // Debian/Ubuntu
+            .or_else(|_| std::fs::read("/usr/share/fonts/cantarell/Cantarell-Regular.ttf")) // Fedora/GNOME
+            .or_else(|_| std::fs::read("/usr/share/fonts/TTF/Cantarell-Regular.ttf")) // Arch GNOME
+            .expect("Could not find a valid system font! Please install 'ttf-dejavu', 'ttf-liberation', or 'noto-fonts'.");
+        let font = wgpu_text::glyph_brush::ab_glyph::FontArc::try_from_vec(font_bytes).unwrap();
 
         let mut outputs = Vec::new();
         for (info, surface) in outputs_info.into_iter().zip(surfaces) {
@@ -119,8 +114,7 @@ impl Renderer {
             };
             surface.configure(&device, &config);
             
-            let text_brush = wgpu_text::BrushBuilder::using_font_bytes(&font_bytes)
-                .unwrap()
+            let text_brush = wgpu_text::BrushBuilder::using_fonts(vec![font.clone()])
                 .build(&device, info.width, info.height, format);
                 
             outputs.push(GpuOutput { surface, config, text_brush });
@@ -158,7 +152,7 @@ impl Renderer {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Visualiser Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/visualiser.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("visualiser.wgsl").into()),
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -215,6 +209,7 @@ impl Renderer {
                 module: &shader,
                 entry_point: "vs_main",
                 buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -224,6 +219,7 @@ impl Renderer {
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -265,9 +261,15 @@ impl Renderer {
         let previous_album_view = empty_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let current_album_view = empty_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let album_art_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Album Art Uniform Buffer"),
-            size: 16, // Holds a vec4<f32>
+        let album_art_bg_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Album Art BG Uniform Buffer"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let album_art_fg_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Album Art FG Uniform Buffer"),
+            size: 32,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -281,7 +283,7 @@ impl Renderer {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(16),
+                        min_binding_size: wgpu::BufferSize::new(32),
                     },
                     count: None,
                 },
@@ -316,7 +318,7 @@ impl Renderer {
 
         let album_art_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Album Art Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/album_art.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("album_art.wgsl").into()),
         });
 
         let album_art_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -332,6 +334,7 @@ impl Renderer {
                 module: &album_art_shader,
                 entry_point: "vs_main",
                 buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &album_art_shader,
@@ -341,6 +344,7 @@ impl Renderer {
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -388,7 +392,7 @@ impl Renderer {
 
         let ambient_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Ambient Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/ambient.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("ambient.wgsl").into()),
         });
 
         let ambient_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -404,6 +408,7 @@ impl Renderer {
                 module: &ambient_shader,
                 entry_point: "vs_main",
                 buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &ambient_shader,
@@ -413,6 +418,7 @@ impl Renderer {
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -431,15 +437,17 @@ impl Renderer {
             device,
             queue,
             outputs,
-            font_bytes,
+            font,
             visualiser_pipeline,
             visualiser_bind_group,
             bands_buffer,
             visualiser_uniform_buffer,
             album_art_pipeline,
             album_art_layout,
-            album_art_uniform_buffer,
-            album_art_bind_group: None,
+            album_art_bg_uniform_buffer,
+            album_art_fg_uniform_buffer,
+            album_art_bg_bind_group: None,
+            album_art_fg_bind_group: None,
             previous_album_view,
             current_album_view,
             ambient_pipeline,
@@ -451,7 +459,6 @@ impl Renderer {
         })
     }
 
-    /// The main render loop. Runs until the application exits.
     pub async fn run(
         &mut self,
         mut event_rx: Receiver<Event>,
@@ -460,7 +467,6 @@ impl Renderer {
         let mut last_frame = Instant::now();
 
         loop {
-            // --- Dispatch Wayland Events ---
             wayland_manager.dispatch_events()?;
             
             let current_outputs = wayland_manager.outputs();
@@ -490,8 +496,7 @@ impl Renderer {
                     };
                     surface.configure(&self.device, &config);
                     
-                    let text_brush = wgpu_text::BrushBuilder::using_font_bytes(&self.font_bytes)
-                        .unwrap()
+                    let text_brush = wgpu_text::BrushBuilder::using_fonts(vec![self.font.clone()])
                         .build(&self.device, config.width, config.height, format);
                         
                     self.outputs.push(GpuOutput { surface, config, text_brush });
@@ -510,17 +515,10 @@ impl Renderer {
                 }
             }
 
-            // --- Process all pending events (non-blocking) ---
-            // We drain all available events before drawing to avoid
-            // rendering stale state when many events arrive at once.
-            loop {
-                match event_rx.try_recv() {
-                    Ok(event) => self.handle_event(event),
-                    Err(_) => break, // no more events queued
-                }
+            while let Ok(event) = event_rx.try_recv() {
+                self.handle_event(event);
             }
 
-            // --- Update time-based state ---
             self.state.update_time();
 
             let now = Instant::now();
@@ -528,10 +526,8 @@ impl Renderer {
             self.state.tick_transition(delta);
             last_frame = now;
 
-            // --- Draw the current frame ---
             self.draw_frame()?;
 
-            // --- Sleep to hit target FPS ---
             let elapsed = last_frame.elapsed();
             if elapsed < self.frame_duration {
                 tokio::time::sleep(self.frame_duration - elapsed).await;
@@ -539,7 +535,6 @@ impl Renderer {
         }
     }
 
-    /// Handle an incoming event by updating AppState.
     fn handle_event(&mut self, event: Event) {
         match event {
             Event::TrackChanged(track) => {
@@ -550,7 +545,7 @@ impl Renderer {
                 self.state.previous_palette = self.state.current_track.as_ref().and_then(|t| t.palette.clone());
                 self.state.current_track = Some(track);
                 self.state.is_playing = true;
-                self.state.begin_transition(); // smoothly blend to new art
+                self.state.begin_transition();
             }
 
             Event::PlaybackStopped => {
@@ -564,12 +559,9 @@ impl Renderer {
             }
 
             Event::AudioFrame(bands) => {
-                // Smooth the incoming bands with the previous frame.
-                // This prevents jarring jumps between frames.
                 let smoothing = self.state.config.audio.smoothing;
                 let target_len = self.state.audio_bands.len();
 
-                // Compute resampled target bands on-the-fly to avoid heap allocations
                 for (i, current) in self.state.audio_bands.iter_mut().enumerate() {
                     let src = i as f32 * bands.len() as f32 / target_len as f32;
                     let lo = src.floor() as usize;
@@ -592,14 +584,26 @@ impl Renderer {
         }
     }
 
-    /// Draw a single frame based on current AppState.
     fn draw_frame(&mut self) -> Result<()> {
-        let scene = self.state.scene_description();
+        let _scene = self.state.scene_description();
+        
+        let max_energy = self.state.audio_bands.iter().cloned().fold(0.0f32, f32::max);
+        let has_audio = max_energy > 0.001;
+        
+        let audio_energy = if self.state.audio_bands.is_empty() { 0.0 } else {
+            (self.state.audio_bands.iter().sum::<f32>() / self.state.audio_bands.len() as f32) * 5.0
+        };
+        let has_art = self.state.is_playing && self.state.current_track.as_ref().and_then(|t| t.album_art.as_ref()).is_some();
+        
         let clear_colour = self.get_clear_colour();
         let active_lyric = self.state.active_lyric().map(String::from);
+        let pulse = self.state.lyric_pulse();
+        let (prev_lyric, current_lyric, next_lyric) = self.state.active_lyrics();
+        let prev_text = prev_lyric.map(String::from);
+        let curr_text = current_lyric.map(String::from);
+        let next_text = next_lyric.map(String::from);
 
-        // Upload audio bands ONCE per frame
-        if scene == SceneHint::AudioVisualiser {
+        if has_audio {
             let bands_bytes = unsafe {
                 std::slice::from_raw_parts(
                     self.state.audio_bands.as_ptr() as *const u8,
@@ -624,122 +628,109 @@ impl Renderer {
                 Err(e) => anyhow::bail!("Failed to get current texture: {:?}", e),
             };
 
-            // Upload resolution-dependent uniforms for THIS specific display
-            if scene == SceneHint::AudioVisualiser {
-                let get_colors = |palette: Option<&[[f32; 3]]>| -> ([f32; 3], [f32; 3]) {
-                    match palette {
-                        Some(p) if p.len() >= 2 => (p[0], p[1]),
-                        Some(p) if p.len() == 1 => (p[0], [p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
-                        _ => ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]), // Fallback neon gradient
-                    }
-                };
+            // 1. Process visualizer uniforms
+            let get_colors = |palette: Option<&[[f32; 3]]>| -> ([f32; 3], [f32; 3]) {
+                match palette {
+                    Some(p) if p.len() >= 2 => (p[0], p[1]),
+                    Some(p) if p.len() == 1 => (p[0], [p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
+                    _ => ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]), // Fallback neon gradient
+                }
+            };
+            let target_colors = get_colors(self.state.current_track.as_ref().and_then(|t| t.palette.as_deref()));
+            let (top_col, bottom_col) = if self.state.transition_progress < 1.0 {
+                let prev_colors = get_colors(self.state.previous_palette.as_deref());
+                let t = self.state.transition_progress;
+                let top_rgb = lerp_colour(prev_colors.0, target_colors.0, t);
+                let bottom_rgb = lerp_colour(prev_colors.1, target_colors.1, t);
+                ([top_rgb[0], top_rgb[1], top_rgb[2], 1.0], [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0])
+            } else {
+                let top_rgb = target_colors.0;
+                let bottom_rgb = target_colors.1;
+                ([top_rgb[0], top_rgb[1], top_rgb[2], 1.0], [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0])
+            };
 
-                let target_colors = get_colors(self.state.current_track.as_ref().and_then(|t| t.palette.as_deref()));
-                
-                let (top_col, bottom_col) = if self.state.transition_progress < 1.0 {
-                    let prev_colors = get_colors(self.state.previous_palette.as_deref());
-                    let t = self.state.transition_progress;
-                    let top_rgb = lerp_colour(prev_colors.0, target_colors.0, t);
-                    let bottom_rgb = lerp_colour(prev_colors.1, target_colors.1, t);
-                    
-                    ([top_rgb[0], top_rgb[1], top_rgb[2], 1.0], [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0])
-                } else {
-                    let top_rgb = target_colors.0;
-                    let bottom_rgb = target_colors.1;
-                    ([top_rgb[0], top_rgb[1], top_rgb[2], 1.0], [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0])
-                };
+            #[repr(C)]
+            struct VisUniforms { res: [f32; 2], bands: u32, pulse: f32, top: [f32; 4], bottom: [f32; 4] }
+            let vis_uniforms = VisUniforms {
+                res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                bands: self.state.config.audio.bands as u32,
+                pulse: self.state.lyric_pulse(),
+                pulse,
+                top: top_col,
+                bottom: bottom_col,
+            };
+            let vis_bytes = unsafe { std::slice::from_raw_parts(&vis_uniforms as *const _ as *const u8, std::mem::size_of::<VisUniforms>()) };
+            self.queue.write_buffer(&self.visualiser_uniform_buffer, 0, vis_bytes);
+
+            // 2. Process album art uniforms
+            if let Some(track) = &self.state.current_track {
+                let target_color = track.palette.as_deref().and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
+                let color = if self.state.transition_progress < 1.0 {
+                    let prev_color = self.state.previous_palette.as_deref().and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
+                    lerp_colour(prev_color, target_color, self.state.transition_progress)
+                } else { target_color };
 
                 #[repr(C)]
-                struct Uniforms {
-                    res: [f32; 2],
-                    bands: u32,
-                    pulse: f32,
-                    top: [f32; 4],
-                    bottom: [f32; 4],
-                }
-                let uniforms = Uniforms {
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    bands: self.state.config.audio.bands as u32,
-                    pulse: self.state.lyric_pulse(),
-                    top: top_col,
-                    bottom: bottom_col,
-                };
-                let bytes = unsafe { std::slice::from_raw_parts(&uniforms as *const _ as *const u8, std::mem::size_of::<Uniforms>()) };
-                self.queue.write_buffer(&self.visualiser_uniform_buffer, 0, bytes);
-            } else if scene == SceneHint::AlbumArt {
-                if let Some(track) = &self.state.current_track {
-                    let target_color = track.palette.as_deref().and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
-                    
-                    let color = if self.state.transition_progress < 1.0 {
-                        let prev_color = self.state.previous_palette.as_deref().and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
-                        lerp_colour(prev_color, target_color, self.state.transition_progress)
-                    } else {
-                        target_color
-                    };
-
-                    #[repr(C)]
-                    struct Uniforms {
-                        color: [f32; 3],
-                        transition: f32,
-                    }
-                    let uniforms = Uniforms {
-                        color,
-                        transition: self.state.transition_progress,
-                    };
-                    let bytes = unsafe { std::slice::from_raw_parts(&uniforms as *const _ as *const u8, std::mem::size_of::<Uniforms>()) };
-                    self.queue.write_buffer(&self.album_art_uniform_buffer, 0, bytes);
-                }
-            } else if scene == SceneHint::Ambient {
-                let elapsed = self.start_time.elapsed().as_secs_f32();
-                let mut weather_type = 0u32;
+                struct ArtUniforms { color_and_transition: [f32; 4], res: [f32; 2], audio_energy: f32, mode: u32 }
                 
-                let sky = time_to_sky_colour(self.state.time_of_day);
-                let final_sky = if let Some(weather) = &self.state.weather {
-                    use super::event::WeatherCondition;
-                    weather_type = match weather.condition {
-                        WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
-                        WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
-                        WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
-                        WeatherCondition::Snow => 3,
-                    };
-                    match weather.condition {
-                        WeatherCondition::Rain | WeatherCondition::Thunderstorm => lerp_colour(sky, [0.2, 0.2, 0.25], 0.6),
-                        WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
-                        _ => sky,
-                    }
-                } else {
-                    sky
-                };
-
-                #[repr(C)]
-                struct Uniforms {
-                    res: [f32; 2],
-                    time: f32,
-                    weather: u32,
-                    sky: [f32; 4],
-                }
-                let uniforms = Uniforms {
+                let bg_uniforms = ArtUniforms {
+                    color_and_transition: [color[0], color[1], color[2], self.state.transition_progress],
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    time: elapsed,
-                    weather: weather_type,
-                    sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
+                    audio_energy,
+                    mode: 0,
                 };
-                let bytes = unsafe { std::slice::from_raw_parts(&uniforms as *const _ as *const u8, std::mem::size_of::<Uniforms>()) };
-                self.queue.write_buffer(&self.ambient_uniform_buffer, 0, bytes);
+                let bg_bytes = unsafe { std::slice::from_raw_parts(&bg_uniforms as *const _ as *const u8, std::mem::size_of::<ArtUniforms>()) };
+                self.queue.write_buffer(&self.album_art_bg_uniform_buffer, 0, bg_bytes);
+
+                let fg_uniforms = ArtUniforms {
+                    color_and_transition: [color[0], color[1], color[2], self.state.transition_progress],
+                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                    audio_energy,
+                    mode: 1,
+                };
+                let fg_bytes = unsafe { std::slice::from_raw_parts(&fg_uniforms as *const _ as *const u8, std::mem::size_of::<ArtUniforms>()) };
+                self.queue.write_buffer(&self.album_art_fg_uniform_buffer, 0, fg_bytes);
             }
 
-            // Setup text sections if we have an active lyric
+            // 3. Process ambient uniforms
+            let elapsed = self.start_time.elapsed().as_secs_f32();
+            let mut weather_type = 0u32;
+            let sky = time_to_sky_colour(self.state.time_of_day);
+            let final_sky = if let Some(weather) = &self.state.weather {
+                use super::event::WeatherCondition;
+                weather_type = match weather.condition {
+                    WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
+                    WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
+                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
+                    WeatherCondition::Snow => 3,
+                };
+                match weather.condition {
+                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => lerp_colour(sky, [0.2, 0.2, 0.25], 0.6),
+                    WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
+                    _ => sky,
+                }
+            } else { sky };
+
+            #[repr(C)]
+            struct AmbUniforms { res: [f32; 2], time: f32, weather: u32, sky: [f32; 4] }
+            let amb_uniforms = AmbUniforms {
+                res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                time: elapsed, weather: weather_type, sky: [final_sky[0], final_sky[1], final_sky[2], 1.0]
+            };
+            let amb_bytes = unsafe { std::slice::from_raw_parts(&amb_uniforms as *const _ as *const u8, std::mem::size_of::<AmbUniforms>()) };
+            self.queue.write_buffer(&self.ambient_uniform_buffer, 0, amb_bytes);
+
             if let Some(text) = &active_lyric {
                 let section = Section::default()
                     .add_text(Text::new(text)
-                        .with_scale(48.0)
+                        .with_scale(64.0)
                         .with_color([1.0, 1.0, 1.0, 1.0]))
-                    .with_screen_position((gpu_out.config.width as f32 / 2.0, gpu_out.config.height as f32 - 100.0))
+                    .with_screen_position((gpu_out.config.width as f32 / 2.0, gpu_out.config.height as f32 - 200.0))
                     .with_layout(Layout::default().h_align(HorizontalAlign::Center));
                 
                 gpu_out.text_brush.queue(&self.device, &self.queue, vec![&section]).unwrap();
             } else {
-                gpu_out.text_brush.queue(&self.device, &self.queue, Vec::new() as Vec<&Section>).unwrap();
+                gpu_out.text_brush.queue(&self.device, &self.queue, Vec::<&Section>::new()).unwrap();
             }
 
             let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -763,27 +754,35 @@ impl Renderer {
                     occlusion_query_set: None,
                 });
 
-                match self.state.scene_description() {
-                    SceneHint::AlbumArt => {
-                        if let Some(bind_group) = &self.album_art_bind_group {
-                            render_pass.set_pipeline(&self.album_art_pipeline);
-                            render_pass.set_bind_group(0, bind_group, &[]);
-                            render_pass.draw(0..3, 0..1);
-                        }
-                    }
-                    SceneHint::AudioVisualiser => {
-                        render_pass.set_pipeline(&self.visualiser_pipeline);
-                        render_pass.set_bind_group(0, &self.visualiser_bind_group, &[]);
+                // 1. Draw Base Scene (Album Art or fallback Ambient)
+                if has_art {
+                    if let Some(bind_group) = &self.album_art_bg_bind_group {
+                        render_pass.set_pipeline(&self.album_art_pipeline);
+                        render_pass.set_bind_group(0, bind_group, &[]);
                         render_pass.draw(0..3, 0..1);
                     }
-                    SceneHint::Ambient => {
-                        render_pass.set_pipeline(&self.ambient_pipeline);
-                        render_pass.set_bind_group(0, &self.ambient_bind_group, &[]);
+                } else {
+                    render_pass.set_pipeline(&self.ambient_pipeline);
+                    render_pass.set_bind_group(0, &self.ambient_bind_group, &[]);
+                    render_pass.draw(0..3, 0..1);
+                }
+
+                // 2. Overlay Visualiser
+                if has_audio {
+                    render_pass.set_pipeline(&self.visualiser_pipeline);
+                    render_pass.set_bind_group(0, &self.visualiser_bind_group, &[]);
+                    render_pass.draw(0..3, 0..1);
+                }
+
+                // 3. Overlay Foreground Art
+                if has_art {
+                    if let Some(bind_group) = &self.album_art_fg_bind_group {
+                        render_pass.set_pipeline(&self.album_art_pipeline);
+                        render_pass.set_bind_group(0, bind_group, &[]);
                         render_pass.draw(0..3, 0..1);
                     }
                 }
 
-                // Draw text overlay on top of the scene
                 gpu_out.text_brush.draw(&mut render_pass);
             }
 
@@ -817,8 +816,6 @@ impl Renderer {
         }
     }
 
-
-    /// Uploads a new album art texture to the GPU and updates the bind group.
     fn update_album_art_texture(&mut self, image: &image::DynamicImage) {
         let rgba = image.to_rgba8();
         let dimensions = rgba.dimensions();
@@ -858,7 +855,6 @@ impl Renderer {
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Shift current to previous, and new view to current
         self.previous_album_view = std::mem::replace(&mut self.current_album_view, view);
 
         let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -871,17 +867,29 @@ impl Renderer {
             ..Default::default()
         });
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bg_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.album_art_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.album_art_uniform_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
+                wgpu::BindGroupEntry { binding: 0, resource: self.album_art_bg_uniform_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&self.current_album_view) },
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
                 wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&self.previous_album_view) },
             ],
-            label: Some("Album Art Bind Group"),
+            label: Some("Album Art BG Bind Group"),
         });
 
-        self.album_art_bind_group = Some(bind_group);
+        let fg_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.album_art_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: self.album_art_fg_uniform_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&self.current_album_view) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&self.previous_album_view) },
+            ],
+            label: Some("Album Art FG Bind Group"),
+        });
+
+        self.album_art_bg_bind_group = Some(bg_bind_group);
+        self.album_art_fg_bind_group = Some(fg_bind_group);
     }
 }

@@ -1,13 +1,3 @@
-// =============================================================================
-// modules/lrclib.rs
-// =============================================================================
-// Fetches synced lyrics from the free LRCLIB API.
-//
-// LRCLIB (https://lrclib.net/) provides timestamped LRC files for millions of
-// tracks. We parse these into a format our engine can use to drive visual
-// pulses and effects perfectly in time with the vocals!
-// =============================================================================
-
 use serde::Deserialize;
 use tracing::warn;
 
@@ -19,7 +9,6 @@ struct LrclibResponse {
     synced_lyrics: Option<String>,
 }
 
-/// Fetch synced lyrics for a track.
 pub async fn fetch_synced_lyrics(title: &str, artist: &str, album: &str) -> Option<Vec<LyricLine>> {
     let client = reqwest::Client::new();
     
@@ -35,7 +24,7 @@ pub async fn fetch_synced_lyrics(title: &str, artist: &str, album: &str) -> Opti
         .ok()?;
 
     if !resp.status().is_success() {
-        return None; // Commonly 404 if the track isn't in their database yet
+        return None;
     }
 
     let data: LrclibResponse = resp.json().await.ok()?;
@@ -44,7 +33,6 @@ pub async fn fetch_synced_lyrics(title: &str, artist: &str, album: &str) -> Opti
     Some(parse_lrc(&lyrics_text))
 }
 
-/// Parses a standard LRC file format string into structured LyricLines.
 fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
     let mut lines = Vec::new();
 

@@ -1,25 +1,11 @@
-// =============================================================================
-// modules/wayland.rs
-// =============================================================================
-// Sets up the Wayland layer surface — the special surface type that sits
-// behind all windows and acts as the wallpaper canvas.
-//
-// Key concepts for beginners:
-//   - Wayland is the display protocol used by COSMIC (and most modern Linux)
-//   - A "surface" is a drawable area managed by the compositor (cosmic-comp)
-//   - "layer shell" is a protocol extension that lets apps declare a surface
-//     as belonging to the background, bottom, top, or overlay layer
-//   - We use the BACKGROUND layer, which sits behind everything else
-// =============================================================================
-
 use anyhow::{Context, Result};
 use tracing::info;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle};
 use std::ptr::NonNull;
 
 use wayland_client::{
-    backend::ObjectId,
-    protocol::{wl_output, wl_registry, wl_surface::WlSurface},
+    protocol::{wl_output, wl_surface::WlSurface},
+    globals::registry_queue_init,
     Connection, EventQueue, Proxy, QueueHandle,
 };
 
@@ -30,7 +16,7 @@ use smithay_client_toolkit::{
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     shell::wlr_layer::{
-        Anchor, Layer, LayerShellHandler, LayerSurface, LayerSurfaceConfigure, LayerState,
+        Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure,
     },
 };
 
@@ -38,7 +24,7 @@ pub struct AppData {
     registry_state: RegistryState,
     output_state: OutputState,
     compositor_state: CompositorState,
-    layer_state: LayerState,
+    layer_shell: LayerShell,
 
     pub windows: Vec<WaylandWindowInfo>,
 }
@@ -78,15 +64,16 @@ impl OutputHandler for AppData {
         info!("New monitor detected, creating layer surface...");
         let surface = self.compositor_state.create_surface(qh);
 
-        let layer = LayerSurface::builder()
-            .namespace("cosmic-wallpaper")
-            .size((0, 0))
-            .anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT)
-            .layer(Layer::Background)
-            .exclusive_zone(-1)
-            .output(output.clone())
-            .build(qh, &self.layer_state, surface.clone())
-            .expect("Failed to create layer surface");
+        let layer = self.layer_shell.create_layer_surface(
+            qh,
+            surface.clone(),
+            Layer::Background,
+            Some("cosmic-wallpaper".to_string()),
+            Some(&output),
+        );
+        layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
+        layer.set_exclusive_zone(-1);
+        layer.set_size(0, 0);
 
         surface.commit();
 
@@ -166,7 +153,7 @@ impl LayerShellHandler for AppData {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _layer: &LayerSurface,
+        layer: &LayerSurface,
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
@@ -207,11 +194,9 @@ impl WaylandOutput {
     }
 }
 
-/// Manages the Wayland connection and all background surfaces.
 pub struct WaylandManager {
     display_ptr: *mut std::ffi::c_void,
 
-    // Keep Wayland handles alive so the surface is not destroyed
     _conn: Connection,
     _event_queue: EventQueue<AppData>,
 
@@ -219,35 +204,30 @@ pub struct WaylandManager {
 }
 
 impl WaylandManager {
-    /// Connect to the Wayland compositor and create a background layer surface.
     pub fn new() -> Result<Self> {
         info!("Connecting to Wayland compositor...");
 
         let conn = Connection::connect_to_env().context("Failed to connect to Wayland")?;
         let (globals, mut event_queue) =
-            smithay_client_toolkit::registry::registry_queue_init::<AppData>(&conn)
-                .context("Failed to initialize registry")?;
-        let qh = event_queue.handle();
+            registry_queue_init::<AppData>(&conn).context("Failed to initialize registry")?;
+        let qh: QueueHandle<AppData> = event_queue.handle();
 
         let mut app_data = AppData {
             registry_state: RegistryState::new(&globals),
             output_state: OutputState::new(&globals, &qh),
             compositor_state: CompositorState::bind(&globals, &qh)
                 .context("wl_compositor not available")?,
-            layer_state: LayerState::bind(&globals, &qh)
-                .context("wlr_layer_shell_v1 not available")?,
+            layer_shell: LayerShell::bind(&globals, &qh)
+                .context("layer shell not available")?,
             windows: Vec::new(),
         };
 
-        // Discover all outputs
         event_queue.roundtrip(&mut app_data)?;
 
-        // Wait for the first configure event to get our assigned size
         while app_data.windows.iter().any(|w| !w.first_configure) {
             event_queue.blocking_dispatch(&mut app_data)?;
         }
         
-        // Once configured, commit again to apply the configuration and show the surface
         for win in &app_data.windows {
             win.surface.commit();
         }
@@ -273,7 +253,6 @@ impl WaylandManager {
         }).collect()
     }
 
-    /// Dispatch any pending Wayland events without blocking.
     pub fn dispatch_events(&mut self) -> Result<()> {
         self._event_queue.dispatch_pending(&mut self.app_data).context("Wayland event dispatch failed")?;
         Ok(())

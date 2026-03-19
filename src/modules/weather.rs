@@ -1,16 +1,3 @@
-// =============================================================================
-// modules/weather.rs
-// =============================================================================
-// Polls the Open-Meteo weather API periodically and sends WeatherUpdated
-// events to the renderer.
-//
-// Open-Meteo (https://open-meteo.com) is completely free and requires no
-// API key — perfect for an open source project like this.
-//
-// WMO weather codes are an international standard for weather conditions.
-// We map them to our simplified WeatherCondition enum.
-// =============================================================================
-
 use anyhow::Result;
 use serde::Deserialize;
 use tokio::sync::mpsc::Sender;
@@ -56,9 +43,6 @@ impl WeatherWatcher {
     }
 
     async fn fetch_weather(config: &WeatherConfig) -> Result<WeatherData> {
-        // Open-Meteo API — free, no key required
-        // current=temperature_2m gives temperature
-        // current=weather_code gives WMO weather code
         let url = format!(
             "https://api.open-meteo.com/v1/forecast?\
              latitude={}&longitude={}&\
@@ -79,8 +63,6 @@ impl WeatherWatcher {
         })
     }
 
-    /// Map WMO weather codes to our simplified condition enum.
-    /// Full WMO code table: https://open-meteo.com/en/docs#weathervariables
     fn wmo_code_to_condition(code: u32) -> WeatherCondition {
         match code {
             0 => WeatherCondition::Clear,
@@ -94,9 +76,6 @@ impl WeatherWatcher {
         }
     }
 }
-
-// --- API response types ---
-// serde automatically maps the JSON response to these structs.
 
 #[derive(Deserialize)]
 struct OpenMeteoResponse {
