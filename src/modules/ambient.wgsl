@@ -90,7 +90,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         
     } else if (uniforms.weather_type == 1u) {
         // --- Cloudy / Fog ---
-        color = mix(color, vec3<f32>(0.7, 0.75, 0.8), 0.25);
+        let cloud_drift = sin(uniforms.time * 0.2 + st.x * 2.0) * 0.1;
+        color = mix(color, vec3<f32>(0.7, 0.75, 0.8), 0.35 + cloud_drift);
     }
 
     return vec4<f32>(color, 1.0);

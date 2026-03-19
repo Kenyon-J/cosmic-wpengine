@@ -82,7 +82,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let noise = fract(sin(dot(uv, vec2<f32>(12.9898, 78.233))) * 43758.5453);
         color += vec3<f32>(noise * (0.03 + uniforms.audio_energy * 0.05));
 
-        let final_color = mix(color, uniforms.color_and_transition.rgb, 0.65) * 0.35;
-        return vec4<f32>(final_color, 1.0);
+        let final_color = mix(color, uniforms.color_and_transition.rgb, 0.6) * 0.5;
+        
+        // 0.8 Alpha allows the weather particles and sky to beautifully bleed through!
+        return vec4<f32>(final_color, 0.8);
     }
 }

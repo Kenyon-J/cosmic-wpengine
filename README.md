@@ -4,10 +4,12 @@ A live wallpaper engine for the [COSMIC desktop](https://system76.com/cosmic), w
 
 ## Features (v1 roadmap)
 
-- 🎵 **Album art wallpaper** — blurs and colour-grades your current album art as the background, updating automatically via MPRIS
-- 📊 **Audio visualiser** — real-time frequency spectrum visualiser using PipeWire audio capture
-- 🌤️ **Weather-reactive** — changes the scene based on current weather conditions via Open-Meteo
-- 🌅 **Time of day** — ambient day/night cycle as a fallback scene
+- 🎵 **Dynamic Media Hub** — Displays perfectly scaled album art from MPRIS-compatible players (Spotify, VLC, Tidal, Web).
+- 🌐 **iTunes Fallback API** — Automatically fetches high-res 600x600 covers online if local containerized (Flatpak/Snap) media players fail to provide artwork.
+- 🎤 **Synced Karaoke Lyrics** — Polls the free LRCLIB API to display perfectly synced, scrolling UI lyrics that organically bounce and cast shadows to the beat of the vocals!
+- 📊 **Realtime Audio Visualiser** — 32-bit float audio capture via PipeWire feeds a zero-allocation Fast Fourier Transform (FFT), rendering a circular audio-reactive bloom around the album art.
+- 🌤️ **Weather & Time Reactive** — When paused, seamlessly crossfades to a gorgeous procedural WGSL weather engine displaying rain streaks, snow, and drifting clouds synced to your local Open-Meteo conditions and Time-of-Day.
+- ⚙️ **Wayland Native** — Written entirely on `smithay-client-toolkit` with `wgpu` limits configured natively to fully support HiDPI scaling, fractional rendering, and ultra-wide/4K multi-monitor arrays.
 - ⚙️ **COSMIC settings integration** — configure everything from the COSMIC settings panel
 
 ## Architecture

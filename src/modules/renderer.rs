@@ -596,7 +596,6 @@ impl Renderer {
         let has_art = self.state.is_playing && self.state.current_track.as_ref().and_then(|t| t.album_art.as_ref()).is_some();
         
         let clear_colour = self.get_clear_colour();
-        let active_lyric = self.state.active_lyric().map(String::from);
         let pulse = self.state.lyric_pulse();
         let (prev_lyric, current_lyric, next_lyric) = self.state.active_lyrics();
         let prev_text = prev_lyric.map(String::from);
@@ -654,7 +653,6 @@ impl Renderer {
             let vis_uniforms = VisUniforms {
                 res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                 bands: self.state.config.audio.bands as u32,
-                pulse: self.state.lyric_pulse(),
                 pulse,
                 top: top_col,
                 bottom: bottom_col,
@@ -720,18 +718,63 @@ impl Renderer {
             let amb_bytes = unsafe { std::slice::from_raw_parts(&amb_uniforms as *const _ as *const u8, std::mem::size_of::<AmbUniforms>()) };
             self.queue.write_buffer(&self.ambient_uniform_buffer, 0, amb_bytes);
 
-            if let Some(text) = &active_lyric {
-                let section = Section::default()
-                    .add_text(Text::new(text)
-                        .with_scale(64.0)
-                        .with_color([1.0, 1.0, 1.0, 1.0]))
-                    .with_screen_position((gpu_out.config.width as f32 / 2.0, gpu_out.config.height as f32 - 200.0))
-                    .with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                
-                gpu_out.text_brush.queue(&self.device, &self.queue, vec![&section]).unwrap();
-            } else {
-                gpu_out.text_brush.queue(&self.device, &self.queue, Vec::<&Section>::new()).unwrap();
+            // --- Construct Text Layouts ---
+            let mut text_sections = Vec::new();
+            let sec_prev;
+            let sec_curr;
+            let sec_next;
+            let shadow_prev;
+            let shadow_curr;
+            let shadow_next;
+            let sec_info;
+            let shadow_info;
+
+            let track_str = if let Some(t) = &self.state.current_track {
+                format!("{} — {}\n{}", t.title, t.artist, t.album)
+            } else { String::new() };
+
+            let center_x = gpu_out.config.width as f32 / 2.0;
+            // Shift the entire lyric stack up to comfortably clear the taskbar/dock
+            let base_y = gpu_out.config.height as f32 - 400.0;
+            
+            let shadow_offset = 3.0 + pulse * 2.0;
+            let shadow_alpha = 0.5 + pulse * 0.4;
+
+            if let Some(text) = &prev_text {
+                shadow_prev = Section::default().add_text(Text::new(text).with_scale(40.0).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
+                    .with_screen_position((center_x + shadow_offset, base_y - 60.0 + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                sec_prev = Section::default().add_text(Text::new(text).with_scale(40.0).with_color([1.0, 1.0, 1.0, 0.4]))
+                    .with_screen_position((center_x, base_y - 60.0)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                text_sections.push(&shadow_prev); text_sections.push(&sec_prev);
             }
+
+            if let Some(text) = &curr_text {
+                let scale = 64.0 + pulse * 4.0;
+                shadow_curr = Section::default().add_text(Text::new(text).with_scale(scale).with_color([0.0, 0.0, 0.0, shadow_alpha]))
+                    .with_screen_position((center_x + shadow_offset, base_y + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                sec_curr = Section::default().add_text(Text::new(text).with_scale(scale).with_color([1.0, 1.0, 1.0, 1.0]))
+                    .with_screen_position((center_x, base_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                text_sections.push(&shadow_curr); text_sections.push(&sec_curr);
+            }
+
+            if let Some(text) = &next_text {
+                shadow_next = Section::default().add_text(Text::new(text).with_scale(40.0).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
+                    .with_screen_position((center_x + shadow_offset, base_y + 80.0 + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                sec_next = Section::default().add_text(Text::new(text).with_scale(40.0).with_color([1.0, 1.0, 1.0, 0.4]))
+                    .with_screen_position((center_x, base_y + 80.0)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                text_sections.push(&shadow_next); text_sections.push(&sec_next);
+            }
+
+            if self.state.is_playing && self.state.current_track.is_some() {
+                let info_y = gpu_out.config.height as f32 - 180.0;
+                shadow_info = Section::default().add_text(Text::new(&track_str).with_scale(32.0).with_color([0.0, 0.0, 0.0, shadow_alpha]))
+                    .with_screen_position((center_x + 2.0, info_y + 2.0)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                sec_info = Section::default().add_text(Text::new(&track_str).with_scale(32.0).with_color([0.8, 0.8, 0.8, 0.8]))
+                    .with_screen_position((center_x, info_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                text_sections.push(&shadow_info); text_sections.push(&sec_info);
+            }
+
+            gpu_out.text_brush.queue(&self.device, &self.queue, text_sections).unwrap();
 
             let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
             let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -754,27 +797,28 @@ impl Renderer {
                     occlusion_query_set: None,
                 });
 
-                // 1. Draw Base Scene (Album Art or fallback Ambient)
+                // 1. ALWAYS Draw Ambient Weather Background
+                render_pass.set_pipeline(&self.ambient_pipeline);
+                render_pass.set_bind_group(0, &self.ambient_bind_group, &[]);
+                render_pass.draw(0..3, 0..1);
+
+                // 2. Overlay Frosted Glass Background (Transparent)
                 if has_art {
                     if let Some(bind_group) = &self.album_art_bg_bind_group {
                         render_pass.set_pipeline(&self.album_art_pipeline);
                         render_pass.set_bind_group(0, bind_group, &[]);
                         render_pass.draw(0..3, 0..1);
                     }
-                } else {
-                    render_pass.set_pipeline(&self.ambient_pipeline);
-                    render_pass.set_bind_group(0, &self.ambient_bind_group, &[]);
-                    render_pass.draw(0..3, 0..1);
                 }
 
-                // 2. Overlay Visualiser
+                // 3. Overlay Visualiser
                 if has_audio {
                     render_pass.set_pipeline(&self.visualiser_pipeline);
                     render_pass.set_bind_group(0, &self.visualiser_bind_group, &[]);
                     render_pass.draw(0..3, 0..1);
                 }
 
-                // 3. Overlay Foreground Art
+                // 4. Overlay Foreground Art
                 if has_art {
                     if let Some(bind_group) = &self.album_art_fg_bind_group {
                         render_pass.set_pipeline(&self.album_art_pipeline);

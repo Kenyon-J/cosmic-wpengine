@@ -73,16 +73,18 @@ impl AppState {
         0.0
     }
 
-    pub fn active_lyric(&self) -> Option<&str> {
-        let track = self.current_track.as_ref()?;
-        let lyrics = track.lyrics.as_ref()?;
+    pub fn active_lyrics(&self) -> (Option<&str>, Option<&str>, Option<&str>) {
+        let Some(track) = self.current_track.as_ref() else { return (None, None, None); };
+        let Some(lyrics) = track.lyrics.as_ref() else { return (None, None, None); };
         let current_time = self.playback_position.as_secs_f32();
         
         let idx = lyrics.partition_point(|l| l.start_time_secs <= current_time);
-        if idx > 0 {
-            return Some(&lyrics[idx - 1].text);
-        }
-        None
+        
+        let prev = if idx > 1 { Some(lyrics[idx - 2].text.as_str()) } else { None };
+        let current = if idx > 0 { Some(lyrics[idx - 1].text.as_str()) } else { None };
+        let next = if idx < lyrics.len() { Some(lyrics[idx].text.as_str()) } else { None };
+        
+        (prev, current, next)
     }
 
     pub fn scene_description(&self) -> SceneHint {
