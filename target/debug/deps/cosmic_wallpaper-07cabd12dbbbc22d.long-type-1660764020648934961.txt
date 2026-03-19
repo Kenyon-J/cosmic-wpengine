@@ -1,1 +1,0 @@
-std::borrow::Cow<'_, wgpu_text::section::Section<'_>>: std::convert::From<&wgpu::Device>
