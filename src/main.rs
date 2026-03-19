@@ -35,6 +35,11 @@ async fn main() -> Result<()> {
             let weather_config = config.weather.clone();
             tokio::spawn(async move { WeatherWatcher::run(weather_tx, weather_config).await });
 
+            let config_tx = event_tx.clone();
+            tokio::spawn(async move {
+                if let Err(e) = Config::watch(config_tx).await { tracing::warn!("Config watcher failed: {}", e); }
+            });
+
             let wayland_manager = WaylandManager::new()?;
 
             let mut renderer: Renderer = Renderer::new(&wayland_manager, state).await?;

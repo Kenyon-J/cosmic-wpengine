@@ -1,6 +1,10 @@
 use anyhow::Result;
+use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use tokio::sync::mpsc::Sender;
+
+use super::event::Event;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -31,7 +35,13 @@ pub struct WeatherConfig {
 pub struct AudioConfig {
     pub bands: usize,
     pub smoothing: f32,
+    pub color_top: Option<[f32; 3]>,
+    pub color_bottom: Option<[f32; 3]>,
+    #[serde(default = "default_show_lyrics")]
+    pub show_lyrics: bool,
 }
+
+fn default_show_lyrics() -> bool { true }
 
 impl Config {
     pub fn load_or_default() -> Result<Self> {
@@ -61,6 +71,33 @@ impl Config {
             });
         base.join("cosmic-wallpaper").join("config.toml")
     }
+
+    pub async fn watch(tx: Sender<Event>) -> Result<()> {
+        let path = Self::config_path();
+        let parent = path.parent().unwrap_or(std::path::Path::new("")).to_path_buf();
+        let path_clone = path.clone();
+
+        let (notify_tx, mut notify_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let mut watcher = notify::recommended_watcher(move |res| {
+            let _ = notify_tx.send(res);
+        })?;
+
+        watcher.watch(&parent, RecursiveMode::NonRecursive)?;
+
+        while let Some(res) = notify_rx.recv().await {
+            if let Ok(event) = res {
+                if event.paths.iter().any(|p| p == &path_clone) {
+                    // Slight debounce to ensure the text editor has finished writing the file
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    if let Ok(config) = Self::load_or_default() {
+                        let _ = tx.send(Event::ConfigUpdated(config)).await;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for Config {
@@ -77,6 +114,9 @@ impl Default for Config {
             audio: AudioConfig {
                 bands: 64,
                 smoothing: 0.7,
+                color_top: None,
+                color_bottom: None,
+                show_lyrics: true,
             },
         }
     }

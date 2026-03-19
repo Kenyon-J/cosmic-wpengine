@@ -537,6 +537,34 @@ impl Renderer {
 
     fn handle_event(&mut self, event: Event) {
         match event {
+            Event::ConfigUpdated(config) => {
+                self.frame_duration = Duration::from_secs_f64(1.0 / config.fps as f64);
+                
+                if config.audio.bands != self.state.config.audio.bands {
+                    let new_bands = config.audio.bands;
+                    self.state.audio_bands = vec![0.0; new_bands];
+                    
+                    let bands_size = (new_bands * std::mem::size_of::<f32>()) as wgpu::BufferAddress;
+                    self.bands_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("Audio Bands Buffer"),
+                        size: bands_size,
+                        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+
+                    let bind_group_layout = self.visualiser_pipeline.get_bind_group_layout(0);
+                    self.visualiser_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Visualiser Bind Group"),
+                        layout: &bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry { binding: 0, resource: self.visualiser_uniform_buffer.as_entire_binding() },
+                            wgpu::BindGroupEntry { binding: 1, resource: self.bands_buffer.as_entire_binding() },
+                        ],
+                    });
+                }
+                self.state.config = config;
+                info!("Live settings applied!");
+            }
             Event::TrackChanged(track) => {
                 info!("Now playing: {} - {}", track.artist, track.title);
                 if let Some(art) = &track.album_art {
@@ -635,10 +663,14 @@ impl Renderer {
 
             // 1. Process visualizer uniforms
             let get_colors = |palette: Option<&[[f32; 3]]>| -> ([f32; 3], [f32; 3]) {
+                let top = self.state.config.audio.color_top;
+                let bottom = self.state.config.audio.color_bottom;
+
                 match palette {
-                    Some(p) if p.len() >= 2 => (p[0], p[1]),
-                    Some(p) if p.len() == 1 => (p[0], [p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
-                    _ => ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]), // Fallback neon gradient
+                    _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
+                    Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
+                    Some(p) if p.len() == 1 => (top.unwrap_or(p[0]), bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5])),
+                    _ => (top.unwrap_or([1.0, 0.2, 0.5]), bottom.unwrap_or([0.2, 0.5, 1.0])),
                 }
             };
             let target_colors = get_colors(self.state.current_track.as_ref().and_then(|t| t.palette.as_deref()));
@@ -757,29 +789,31 @@ impl Renderer {
             let shadow_offset = 3.0 + pulse * 2.0;
             let shadow_alpha = 0.5 + pulse * 0.4;
 
-            if let Some(text) = &prev_text {
-                shadow_prev = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
-                    .with_screen_position((center_x + shadow_offset, lyrics_start_y + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                sec_prev = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.4]))
-                    .with_screen_position((center_x, lyrics_start_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                text_sections.push(&shadow_prev); text_sections.push(&sec_prev);
-            }
+            if self.state.config.audio.show_lyrics {
+                if let Some(text) = &prev_text {
+                    shadow_prev = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
+                        .with_screen_position((center_x + shadow_offset, lyrics_start_y + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                    sec_prev = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.4]))
+                        .with_screen_position((center_x, lyrics_start_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                    text_sections.push(&shadow_prev); text_sections.push(&sec_prev);
+                }
 
-            if let Some(text) = &curr_text {
-                let scale = active_font_size + pulse * 4.0;
-                shadow_curr = Section::default().add_text(Text::new(text).with_scale(scale).with_color([0.0, 0.0, 0.0, shadow_alpha]))
-                    .with_screen_position((center_x + shadow_offset, lyrics_start_y + line_spacing + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                sec_curr = Section::default().add_text(Text::new(text).with_scale(scale).with_color([1.0, 1.0, 1.0, 1.0]))
-                    .with_screen_position((center_x, lyrics_start_y + line_spacing)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                text_sections.push(&shadow_curr); text_sections.push(&sec_curr);
-            }
+                if let Some(text) = &curr_text {
+                    let scale = active_font_size + pulse * 4.0;
+                    shadow_curr = Section::default().add_text(Text::new(text).with_scale(scale).with_color([0.0, 0.0, 0.0, shadow_alpha]))
+                        .with_screen_position((center_x + shadow_offset, lyrics_start_y + line_spacing + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                    sec_curr = Section::default().add_text(Text::new(text).with_scale(scale).with_color([1.0, 1.0, 1.0, 1.0]))
+                        .with_screen_position((center_x, lyrics_start_y + line_spacing)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                    text_sections.push(&shadow_curr); text_sections.push(&sec_curr);
+                }
 
-            if let Some(text) = &next_text {
-                shadow_next = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
-                    .with_screen_position((center_x + shadow_offset, lyrics_start_y + (line_spacing * 2.0) + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                sec_next = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.4]))
-                    .with_screen_position((center_x, lyrics_start_y + (line_spacing * 2.0))).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                text_sections.push(&shadow_next); text_sections.push(&sec_next);
+                if let Some(text) = &next_text {
+                    shadow_next = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
+                        .with_screen_position((center_x + shadow_offset, lyrics_start_y + (line_spacing * 2.0) + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                    sec_next = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.4]))
+                        .with_screen_position((center_x, lyrics_start_y + (line_spacing * 2.0))).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                    text_sections.push(&shadow_next); text_sections.push(&sec_next);
+                }
             }
 
             if self.state.current_track.is_some() {

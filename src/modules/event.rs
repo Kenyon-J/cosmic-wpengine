@@ -2,6 +2,7 @@ use image::DynamicImage;
 
 #[derive(Debug)]
 pub enum Event {
+    ConfigUpdated(super::config::Config),
     TrackChanged(TrackInfo),
     PlaybackStopped,
     PlayerShutDown,

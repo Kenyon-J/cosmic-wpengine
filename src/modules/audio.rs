@@ -79,7 +79,7 @@ impl AudioCapture {
                 *pipewire::keys::MEDIA_CATEGORY => "Capture",
                 *pipewire::keys::MEDIA_ROLE => "Music",
                 *pipewire::keys::STREAM_CAPTURE_SINK => "true",
-                "audio.format" => "F32",
+                "audio.format" => "F32LE",
                 "audio.rate" => "48000",
                 "audio.channels" => "2",
             },
