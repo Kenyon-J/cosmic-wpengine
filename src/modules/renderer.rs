@@ -549,7 +549,13 @@ impl Renderer {
             }
 
             Event::PlaybackStopped => {
+                self.state.is_playing = false;
+                // We intentionally do not clear the track here so it remains visible while paused
+            }
+
+            Event::PlayerShutDown => {
                 self.state.previous_palette = self.state.current_track.as_ref().and_then(|t| t.palette.clone());
+                self.state.current_track = None;
                 self.state.is_playing = false;
                 self.state.begin_transition();
             }
@@ -593,7 +599,7 @@ impl Renderer {
         let audio_energy = if self.state.audio_bands.is_empty() { 0.0 } else {
             (self.state.audio_bands.iter().sum::<f32>() / self.state.audio_bands.len() as f32) * 5.0
         };
-        let has_art = self.state.is_playing && self.state.current_track.as_ref().and_then(|t| t.album_art.as_ref()).is_some();
+        let has_art = self.state.current_track.as_ref().and_then(|t| t.album_art.as_ref()).is_some();
         
         let clear_colour = self.get_clear_colour();
         let pulse = self.state.lyric_pulse();
@@ -734,42 +740,54 @@ impl Renderer {
             } else { String::new() };
 
             let center_x = gpu_out.config.width as f32 / 2.0;
-            // Shift the entire lyric stack up to comfortably clear the taskbar/dock
-            let base_y = gpu_out.config.height as f32 - 400.0;
+            let height_f = gpu_out.config.height as f32;
+            
+            // The album cover occupies the middle 50% of the screen (0.25 to 0.75 height).
+            let album_bottom = height_f * 0.75;
+            let available_lyrics_space = height_f - album_bottom;
+            
+            // Dynamically scale fonts based on the remaining vertical space
+            let base_font_size = (available_lyrics_space * 0.15).clamp(16.0, 48.0);
+            let active_font_size = base_font_size * 1.5;
+            let line_spacing = active_font_size * 1.2;
+            
+            // Center the lyrics block perfectly between the album art and the taskbar
+            let lyrics_start_y = album_bottom + (available_lyrics_space - (line_spacing * 2.5)) / 2.0;
             
             let shadow_offset = 3.0 + pulse * 2.0;
             let shadow_alpha = 0.5 + pulse * 0.4;
 
             if let Some(text) = &prev_text {
-                shadow_prev = Section::default().add_text(Text::new(text).with_scale(40.0).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
-                    .with_screen_position((center_x + shadow_offset, base_y - 60.0 + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                sec_prev = Section::default().add_text(Text::new(text).with_scale(40.0).with_color([1.0, 1.0, 1.0, 0.4]))
-                    .with_screen_position((center_x, base_y - 60.0)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                shadow_prev = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
+                    .with_screen_position((center_x + shadow_offset, lyrics_start_y + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                sec_prev = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.4]))
+                    .with_screen_position((center_x, lyrics_start_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
                 text_sections.push(&shadow_prev); text_sections.push(&sec_prev);
             }
 
             if let Some(text) = &curr_text {
-                let scale = 64.0 + pulse * 4.0;
+                let scale = active_font_size + pulse * 4.0;
                 shadow_curr = Section::default().add_text(Text::new(text).with_scale(scale).with_color([0.0, 0.0, 0.0, shadow_alpha]))
-                    .with_screen_position((center_x + shadow_offset, base_y + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                    .with_screen_position((center_x + shadow_offset, lyrics_start_y + line_spacing + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
                 sec_curr = Section::default().add_text(Text::new(text).with_scale(scale).with_color([1.0, 1.0, 1.0, 1.0]))
-                    .with_screen_position((center_x, base_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                    .with_screen_position((center_x, lyrics_start_y + line_spacing)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
                 text_sections.push(&shadow_curr); text_sections.push(&sec_curr);
             }
 
             if let Some(text) = &next_text {
-                shadow_next = Section::default().add_text(Text::new(text).with_scale(40.0).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
-                    .with_screen_position((center_x + shadow_offset, base_y + 80.0 + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                sec_next = Section::default().add_text(Text::new(text).with_scale(40.0).with_color([1.0, 1.0, 1.0, 0.4]))
-                    .with_screen_position((center_x, base_y + 80.0)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                shadow_next = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
+                    .with_screen_position((center_x + shadow_offset, lyrics_start_y + (line_spacing * 2.0) + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
+                sec_next = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.4]))
+                    .with_screen_position((center_x, lyrics_start_y + (line_spacing * 2.0))).with_layout(Layout::default().h_align(HorizontalAlign::Center));
                 text_sections.push(&shadow_next); text_sections.push(&sec_next);
             }
 
-            if self.state.is_playing && self.state.current_track.is_some() {
-                let info_y = gpu_out.config.height as f32 - 180.0;
-                shadow_info = Section::default().add_text(Text::new(&track_str).with_scale(32.0).with_color([0.0, 0.0, 0.0, shadow_alpha]))
+            if self.state.current_track.is_some() {
+                let info_scale = (height_f * 0.025).clamp(16.0, 36.0);
+                let info_y = height_f * 0.08; // Pin track info strictly to the top 8% of the screen
+                shadow_info = Section::default().add_text(Text::new(&track_str).with_scale(info_scale).with_color([0.0, 0.0, 0.0, shadow_alpha]))
                     .with_screen_position((center_x + 2.0, info_y + 2.0)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                sec_info = Section::default().add_text(Text::new(&track_str).with_scale(32.0).with_color([0.8, 0.8, 0.8, 0.8]))
+                sec_info = Section::default().add_text(Text::new(&track_str).with_scale(info_scale).with_color([0.8, 0.8, 0.8, 0.8]))
                     .with_screen_position((center_x, info_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
                 text_sections.push(&shadow_info); text_sections.push(&sec_info);
             }

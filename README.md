@@ -79,8 +79,8 @@ fps = 30
 
 [weather]
 enabled = false
-latitude = 51.5   # your latitude
-longitude = -0.1  # your longitude
+latitude = 40.20   # your latitude
+longitude = -67  # your longitude
 poll_interval_minutes = 15
 
 [audio]

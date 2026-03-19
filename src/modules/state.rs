@@ -88,8 +88,7 @@ impl AppState {
     }
 
     pub fn scene_description(&self) -> SceneHint {
-        if self.is_playing
-            && self
+        if self
                 .current_track
                 .as_ref()
                 .and_then(|t| t.album_art.as_ref())

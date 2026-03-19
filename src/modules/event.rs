@@ -4,6 +4,7 @@ use image::DynamicImage;
 pub enum Event {
     TrackChanged(TrackInfo),
     PlaybackStopped,
+    PlayerShutDown,
     PlaybackPosition(std::time::Duration),
     AudioFrame(Vec<f32>),
     WeatherUpdated(WeatherData),

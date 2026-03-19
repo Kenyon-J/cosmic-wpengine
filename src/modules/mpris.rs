@@ -187,11 +187,9 @@ impl MprisWatcher {
                     let _ = tx.send(Event::PlaybackPosition(pos)).await;
                 }
                 MprisUpdate::ShutDown => {
-                    if is_playing {
-                        is_playing = false;
-                        info!("Player shut down");
-                        let _ = tx.send(Event::PlaybackStopped).await;
-                    }
+                    is_playing = false;
+                    info!("Player shut down");
+                    let _ = tx.send(Event::PlayerShutDown).await;
                     last_metadata = None;
                 }
             }
