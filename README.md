@@ -1,36 +1,54 @@
-# cosmic-wallpaper
+<div align="center">
+  
+# 🌌 cosmic-wallpaper
 
-A live wallpaper engine for the [COSMIC desktop](https://system76.com/cosmic), written in Rust.
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg?logo=rust)](https://www.rust-lang.org)
+[![Wayland](https://img.shields.io/badge/wayland-native-success?logo=linux)](https://wayland.freedesktop.org/)
+[![COSMIC](https://img.shields.io/badge/optimized_for-COSMIC-orange)](#)
 
-## Features (v1 roadmap)
+**A next-generation, heavily reactive live wallpaper engine natively built for Wayland and the [COSMIC desktop](https://system76.com/cosmic), written in Rust.**
 
-- 🎵 **Dynamic Media Hub** — Displays perfectly scaled album art from MPRIS-compatible players (Spotify, VLC, Tidal, Web).
-- 🌐 **iTunes Fallback API** — Automatically fetches high-res 600x600 covers online if local containerized (Flatpak/Snap) media players fail to provide artwork.
-- 🎤 **Synced Karaoke Lyrics** — Polls the free LRCLIB API to display perfectly synced, scrolling UI lyrics that organically bounce and cast shadows to the beat of the vocals!
-- 📊 **Realtime Audio Visualiser** — 32-bit float audio capture via PipeWire feeds a zero-allocation Fast Fourier Transform (FFT), rendering a circular audio-reactive bloom around the album art.
-- 🌤️ **Weather & Time Reactive** — When paused, seamlessly crossfades to a gorgeous procedural WGSL weather engine displaying rain streaks, snow, and drifting clouds synced to your local Open-Meteo conditions and Time-of-Day.
-- ⚙️ **Wayland Native** — Written entirely on `smithay-client-toolkit` with `wgpu` limits configured natively to fully support HiDPI scaling, fractional rendering, and ultra-wide/4K multi-monitor arrays.
-- ⚙️ **COSMIC settings integration** — configure everything from the COSMIC settings panel
+<br />
 
-## Architecture
+<!-- TODO: Replace with an actual hero image or WebM/GIF showcasing the wallpaper in action! -->
+<img src="https://via.placeholder.com/800x400.png?text=Showcase+GIF+goes+here" alt="cosmic-wallpaper showcase" width="100%" />
+
+</div>
+
+---
+
+## ✨ Features
+
+* 🎵 **Dynamic Media Hub** — Displays perfectly scaled, frosted-glass-styled album art from any MPRIS-compatible player (Spotify, VLC, Tidal, Firefox, etc.).
+* 🌐 **Smart Art Fallback** — Automatically queries the iTunes API for gorgeous high-res 600x600 covers if your local media player (e.g., Flatpak/Snap sandboxed apps) fails to provide artwork.
+* 🎤 **Synced Karaoke Lyrics** — Seamlessly polls the free LRCLIB API to render perfectly synced, beautifully scaled typography that bounces and casts shadows to the beat of the vocals!
+* 📊 **Realtime Audio Visualiser** — Captures 32-bit float audio directly via PipeWire, feeding a zero-allocation Fast Fourier Transform (FFT) to render an audio-reactive bloom around your media.
+* 🌤️ **Weather & Time Reactive** — When media is paused, the background gracefully crossfades into a procedural WGSL weather engine. Experience rain streaks, snow, and drifting clouds synced to your local Open-Meteo conditions and time-of-day.
+* 🚀 **Wayland Native** — Built on `smithay-client-toolkit` using `wlr-layer-shell` and `wgpu`. Fully supports HiDPI scaling, fractional rendering, and dynamic multi-monitor ultra-wide arrays out of the box.
+* ⚙️ **Live Configuration** — Config files are hot-reloaded instantly. *(Roadmap: Native libcosmic settings applet integration).*
+
+## 🏗️ Architecture
+
+The engine is highly parallelized. Subsystems run as independent `tokio` asynchronous tasks, channeling zero-copy events to the main `wgpu` render loop:
 
 ```
 cosmic-wallpaper/
 ├── src/
-│   ├── main.rs              # Entry point, spawns subsystems
+│   ├── main.rs              # Async runtime entry point
 │   └── modules/
-│       ├── config.rs        # Config loading (~/.config/cosmic-wallpaper/config.toml)
-│       ├── state.rs         # Shared application state
-│       ├── event.rs         # Event types between subsystems
-│       ├── mpris.rs         # MPRIS music player watcher
-│       ├── audio.rs         # PipeWire audio capture + FFT
-│       ├── weather.rs       # Open-Meteo weather polling
-│       ├── renderer.rs      # wgpu render loop
-│       ├── wayland.rs       # Wayland layer surface (wlr-layer-shell)
-│       └── colour.rs        # Album art colour extraction
+│       ├── config.rs        # Hot-reloading TOML config
+│       ├── state.rs         # Render-state interpolation & easing
+│       ├── event.rs         # Concurrency event messaging
+│       ├── mpris.rs         # D-Bus Media Player integration
+│       ├── audio.rs         # PipeWire Capture & FFT computation
+│       ├── weather.rs       # Open-Meteo API polling
+│       ├── renderer.rs      # wgpu multi-surface compositor
+│       ├── wayland.rs       # wlr-layer-shell surface management
+│       └── colour.rs        # K-Means palette extraction
 └── src/shaders/
-    ├── album_art.wgsl       # GPU shader: blurred album art + colour grade
-    └── visualiser.wgsl      # GPU shader: frequency bar visualiser
+    ├── album_art.wgsl       # Frosted glass, dropshadows & art
+    ├── ambient.wgsl         # Procedural sky & weather patterns
+    └── visualiser.wgsl      # Audio-reactive frequency blooms
 ```
 
 ## Dependencies
