@@ -5,8 +5,8 @@ use tokio::sync::mpsc;
 use tracing::info;
 
 use modules::{
-    audio::AudioCapture, config::Config, mpris::MprisWatcher, renderer::Renderer, state::AppState,
-    wayland::WaylandManager, weather::WeatherWatcher,
+    audio::AudioCapture, config::Config, mpris::MprisWatcher, renderer::Renderer,
+    state::AppState, tray::WallpaperTray, wayland::WaylandManager, weather::WeatherWatcher,
 };
 
 #[tokio::main]
@@ -39,6 +39,9 @@ async fn main() -> Result<()> {
             tokio::spawn(async move {
                 if let Err(e) = Config::watch(config_tx).await { tracing::warn!("Config watcher failed: {}", e); }
             });
+            
+            let tray = WallpaperTray::new(config.clone());
+            let _tray_handle = ksni::TrayService::new(tray).spawn();
 
             let wayland_manager = WaylandManager::new()?;
 

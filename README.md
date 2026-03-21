@@ -21,9 +21,11 @@
 
 * 🎵 **Dynamic Media Hub** — Displays perfectly scaled, frosted-glass-styled album art from any MPRIS-compatible player (Spotify, VLC, Tidal, Firefox, etc.).
 * 🌐 **Smart Art Fallback** — Automatically queries the iTunes API for gorgeous high-res 600x600 covers if your local media player (e.g., Flatpak/Snap sandboxed apps) fails to provide artwork.
-* 🎤 **Synced Karaoke Lyrics** — Seamlessly polls the free LRCLIB API to render perfectly synced, beautifully scaled typography that bounces and casts shadows to the beat of the vocals!
-* 📊 **Realtime Audio Visualiser** — Captures 32-bit float audio directly via PipeWire, feeding a zero-allocation Fast Fourier Transform (FFT) to render an audio-reactive bloom around your media.
-* 🌤️ **Weather & Time Reactive** — When media is paused, the background gracefully crossfades into a procedural WGSL weather engine. Experience rain streaks, snow, and drifting clouds synced to your local Open-Meteo conditions and time-of-day.
+* 🎤 **Synced Karaoke Lyrics** — Seamlessly polls the free LRCLIB API to render perfectly synced, cleanly shadowed kinetic typography that physically springs and bounces to the beat!
+* 📊 **Realtime Audio Visualiser** — Captures 32-bit float audio directly via PipeWire, feeding a zero-allocation Fast Fourier Transform (FFT) with **perceptual A-weighting** and **logarithmic frequency scaling**. Choose between responsive equalizer "Bars" or "Waveform" styles!
+* 🖼️ **Native Desktop Integration** — Natively parses your active COSMIC desktop wallpaper to draw it natively into the wgpu render pass, bypassing Wayland layer isolation. Toggle "Transparent Background" on the fly for a stunning floating UI over your desktop!
+* 🖱️ **System Tray Applet** — Control your wallpaper engine instantly with a built-in D-Bus system tray menu. Toggle lyrics, frosted blur, and background transparency with zero-latency hot-reloading.
+* �️ **Weather & Time Reactive** — When media is paused, the background gracefully crossfades into a procedural WGSL weather engine. Experience rain streaks, snow, and drifting clouds synced to your local Open-Meteo conditions and time-of-day.
 * 🚀 **Wayland Native** — Built on `smithay-client-toolkit` using `wlr-layer-shell` and `wgpu`. Fully supports HiDPI scaling, fractional rendering, and dynamic multi-monitor ultra-wide arrays out of the box.
 * ⚙️ **Live Configuration** — Config files are hot-reloaded instantly. *(Roadmap: Native libcosmic settings applet integration).*
 
@@ -61,6 +63,7 @@ cosmic-wallpaper/
 | `mpris` | MPRIS D-Bus media player integration |
 | `pipewire` | PipeWire audio capture |
 | `rustfft` | Fast Fourier Transform for audio visualisation |
+| `ksni` | D-Bus system tray integration |
 | `image` | Album art decoding |
 | `palette` | Colour manipulation |
 | `reqwest` | HTTP client for weather API |
@@ -101,7 +104,13 @@ latitude = 40.20   # your latitude
 longitude = -67  # your longitude
 poll_interval_minutes = 15
 
+[appearance]
+disable_blur = false
+transparent_background = false
+custom_background_path = "/path/to/img.jpg" # Omit to auto-sync with COSMIC!
+
 [audio]
+style = "bars"    # bars | waveform
 bands = 64        # number of frequency bands in visualiser
 smoothing = 0.7   # 0.0 = instant, 1.0 = very smooth
 ```

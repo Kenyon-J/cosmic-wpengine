@@ -49,6 +49,15 @@ impl ksni::Tray for WallpaperTray {
             }
             .into(),
             CheckmarkItem {
+                label: "Transparent Background".into(),
+                checked: current_config.appearance.transparent_background,
+                activate: Box::new(|this: &mut Self| {
+                    this.update_config(|c| c.appearance.transparent_background = !c.appearance.transparent_background);
+                }),
+                ..Default::default()
+            }
+            .into(),
+            CheckmarkItem {
                 label: "Show Synced Lyrics".into(),
                 checked: current_config.audio.show_lyrics,
                 activate: Box::new(|this: &mut Self| {

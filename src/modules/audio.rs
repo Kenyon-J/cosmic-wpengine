@@ -42,9 +42,8 @@ impl AudioCapture {
                     fft.process(&mut buffer);
 
                     let half = FFT_SIZE / 2;
-                    let start_idx = 3; 
                     
-                    let normalised: Vec<f32> = buffer[start_idx..half]
+                    let normalised: Vec<f32> = buffer[0..half]
                         .iter()
                         .map(|c| {
                             let magnitude = c.norm();
@@ -52,7 +51,7 @@ impl AudioCapture {
                         })
                         .collect();
 
-                    let _ = tx.send(Event::AudioFrame(normalised)).await;
+                    let _ = tx.send(Event::AudioFrame { bands: normalised, waveform: samples.clone() }).await;
                 }
                 Ok(None) => break,
                 Err(_) => {
@@ -60,7 +59,10 @@ impl AudioCapture {
                         warn!("PipeWire audio receive timeout - no data arriving. (Is stream paused/empty?)");
                         last_warn = std::time::Instant::now();
                     }
-                    let _ = tx.send(Event::AudioFrame(vec![0.0; FFT_SIZE / 2])).await;
+                    let _ = tx.send(Event::AudioFrame { 
+                        bands: vec![0.0; FFT_SIZE / 2],
+                        waveform: vec![0.0; FFT_SIZE],
+                    }).await;
                 }
             }
         }
