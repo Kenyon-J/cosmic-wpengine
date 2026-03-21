@@ -53,6 +53,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
 
         return vec4<f32>(final_color, 1.0);
+    } else if uniforms.mode == 2u {
+        // --- Unblurred Background Mode (Disable Blur) ---
+        var color = textureSample(t_diffuse, s_diffuse, uv).rgb;
+        if transition < 1.0 {
+            let prev_color = textureSample(t_previous, s_diffuse, uv).rgb;
+            color = mix(prev_color, color, transition);
+        }
+        let final_color = mix(color, uniforms.color_and_transition.rgb, 0.3) * 0.75;
+        return vec4<f32>(final_color, 0.8);
     } else {
         var color = vec3<f32>(0.0);
         let samples = 32.0;

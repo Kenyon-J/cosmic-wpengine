@@ -65,10 +65,10 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
 
-    // --- Gaussian blur (simplified box blur for clarity) ---
-    // In practice you'd do multiple passes with a proper Gaussian kernel.
-    // Here we sample 9 nearby pixels and average them.
-    let blur_radius = 0.008;
+    // --- Frosted Glass (Aero) Blur ---
+    // Expanded blur radius with a Gaussian weight calculation
+    // and a subtle noise dither for that frosted texture.
+    let blur_radius = 0.015;
     var colour = vec3(0.0);
     var weight = 0.0;
 
@@ -76,12 +76,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         for (var y: i32 = -2; y <= 2; y++) {
             let offset = vec2(f32(x), f32(y)) * blur_radius;
             let sample_uv = clamp(uv + offset, vec2(0.0), vec2(1.0));
-            let w = 1.0 - length(offset) / (blur_radius * 3.0);
+            
+            let dist_sq = f32(x * x + y * y);
+            let w = exp(-0.15 * dist_sq);
+            
             colour += textureSample(album_art, art_sampler, sample_uv).rgb * w;
             weight += w;
         }
     }
     colour /= weight;
+
+    // Add a subtle static noise grain for the frosted glass material
+    let noise = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453);
+    colour += vec3((noise - 0.5) * 0.04);
 
     // --- Colour grade: blend with dominant palette colour ---
     // This tints the blurred art with the album's colour scheme,
@@ -96,7 +103,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     colour *= vignette;
 
     // --- Slightly darken overall so desktop icons remain readable ---
-    colour *= 0.75;
+    colour *= 0.85; // Boosted slightly to retain the luminous Aero feel
 
     // --- Apply transition fade ---
     colour = mix(vec3(0.0), colour, uniforms.transition);

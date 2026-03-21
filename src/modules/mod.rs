@@ -15,3 +15,4 @@ pub mod renderer;
 pub mod state;
 pub mod wayland;
 pub mod weather;
+pub mod tray;

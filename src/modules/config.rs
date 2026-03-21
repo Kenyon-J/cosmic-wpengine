@@ -12,6 +12,8 @@ pub struct Config {
     pub fps: u32,
     pub weather: WeatherConfig,
     pub audio: AudioConfig,
+    #[serde(default)]
+    pub appearance: AppearanceConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -41,6 +43,13 @@ pub struct AudioConfig {
     pub show_lyrics: bool,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct AppearanceConfig {
+    #[serde(default)]
+    pub disable_blur: bool,
+    pub custom_background_path: Option<String>,
+}
+
 fn default_show_lyrics() -> bool { true }
 
 impl Config {
@@ -60,6 +69,15 @@ impl Config {
             tracing::info!("Created default config at {:?}", path);
             Ok(config)
         }
+    }
+
+    pub fn save(&self) -> Result<()> {
+        let path = Self::config_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, toml::to_string_pretty(self)?)?;
+        Ok(())
     }
 
     fn config_path() -> PathBuf {
@@ -118,6 +136,7 @@ impl Default for Config {
                 color_bottom: None,
                 show_lyrics: true,
             },
+            appearance: AppearanceConfig::default(),
         }
     }
 }

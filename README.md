@@ -120,9 +120,9 @@ The renderer processes events each frame, updates `AppState`, and dispatches to 
 
 ## Roadmap
 
-- [ ] Multi-monitor support (one layer surface per output)
 - [ ] COSMIC settings panel integration via libcosmic
-- [ ] Shader-based particle effects (rain, snow, fire)
-- [ ] D-Bus signal-based MPRIS (replace polling)
-- [ ] Lyrics-synced visual pulses via LRCLIB
+- [ ] System Tray (AppIndicator) menu for quick settings toggles (Blur, Lyrics, Backgrounds)
 - [ ] User-loadable custom shaders
+- [ ] Hardware-accelerated compute shaders for weather particles
+- [ ] Spotify Canvas (short video loops) background support
+- [ ] Advanced beat-detection for more organic lyric bouncing

@@ -706,6 +706,7 @@ impl Renderer {
                     lerp_colour(prev_color, target_color, self.state.transition_progress)
                 } else { target_color };
 
+                let bg_mode = if self.state.config.appearance.disable_blur { 2 } else { 0 };
                 #[repr(C)]
                 struct ArtUniforms { color_and_transition: [f32; 4], res: [f32; 2], audio_energy: f32, mode: u32 }
                 
@@ -713,7 +714,7 @@ impl Renderer {
                     color_and_transition: [color[0], color[1], color[2], self.state.transition_progress],
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                     audio_energy,
-                    mode: 0,
+                    mode: bg_mode,
                 };
                 let bg_bytes = unsafe { std::slice::from_raw_parts(&bg_uniforms as *const _ as *const u8, std::mem::size_of::<ArtUniforms>()) };
                 self.queue.write_buffer(&self.album_art_bg_uniform_buffer, 0, bg_bytes);
@@ -757,15 +758,7 @@ impl Renderer {
             self.queue.write_buffer(&self.ambient_uniform_buffer, 0, amb_bytes);
 
             // --- Construct Text Layouts ---
-            let mut text_sections = Vec::new();
-            let sec_prev;
-            let sec_curr;
-            let sec_next;
-            let shadow_prev;
-            let shadow_curr;
-            let shadow_next;
-            let sec_info;
-            let shadow_info;
+            let mut owned_sections = Vec::new();
 
             let track_str = if let Some(t) = &self.state.current_track {
                 format!("{} — {}\n{}", t.title, t.artist, t.album)
@@ -791,41 +784,43 @@ impl Renderer {
 
             if self.state.config.audio.show_lyrics {
                 if let Some(text) = &prev_text {
-                    shadow_prev = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
-                        .with_screen_position((center_x + shadow_offset, lyrics_start_y + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                    sec_prev = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.4]))
-                        .with_screen_position((center_x, lyrics_start_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                    text_sections.push(&shadow_prev); text_sections.push(&sec_prev);
+                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
+                        .with_screen_position((center_x + shadow_offset, lyrics_start_y + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
+                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.4]))
+                        .with_screen_position((center_x, lyrics_start_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
                 }
 
                 if let Some(text) = &curr_text {
                     let scale = active_font_size + pulse * 4.0;
-                    shadow_curr = Section::default().add_text(Text::new(text).with_scale(scale).with_color([0.0, 0.0, 0.0, shadow_alpha]))
-                        .with_screen_position((center_x + shadow_offset, lyrics_start_y + line_spacing + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                    sec_curr = Section::default().add_text(Text::new(text).with_scale(scale).with_color([1.0, 1.0, 1.0, 1.0]))
-                        .with_screen_position((center_x, lyrics_start_y + line_spacing)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                    text_sections.push(&shadow_curr); text_sections.push(&sec_curr);
+                    
+                    // Multi-layered soft drop shadow for a smooth anti-aliased look
+                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(scale).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.3]))
+                        .with_screen_position((center_x + shadow_offset * 1.5, lyrics_start_y + line_spacing + shadow_offset * 1.5)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
+                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(scale).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.6]))
+                        .with_screen_position((center_x + shadow_offset * 0.8, lyrics_start_y + line_spacing + shadow_offset * 0.8)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
+                    
+                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(scale).with_color([1.0, 1.0, 1.0, 1.0]))
+                        .with_screen_position((center_x, lyrics_start_y + line_spacing)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
                 }
 
                 if let Some(text) = &next_text {
-                    shadow_next = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
-                        .with_screen_position((center_x + shadow_offset, lyrics_start_y + (line_spacing * 2.0) + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                    sec_next = Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.4]))
-                        .with_screen_position((center_x, lyrics_start_y + (line_spacing * 2.0))).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                    text_sections.push(&shadow_next); text_sections.push(&sec_next);
+                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
+                        .with_screen_position((center_x + shadow_offset, lyrics_start_y + (line_spacing * 2.0) + shadow_offset)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
+                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.4]))
+                        .with_screen_position((center_x, lyrics_start_y + (line_spacing * 2.0))).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
                 }
             }
 
             if self.state.current_track.is_some() {
                 let info_scale = (height_f * 0.025).clamp(16.0, 36.0);
                 let info_y = height_f * 0.08; // Pin track info strictly to the top 8% of the screen
-                shadow_info = Section::default().add_text(Text::new(&track_str).with_scale(info_scale).with_color([0.0, 0.0, 0.0, shadow_alpha]))
-                    .with_screen_position((center_x + 2.0, info_y + 2.0)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                sec_info = Section::default().add_text(Text::new(&track_str).with_scale(info_scale).with_color([0.8, 0.8, 0.8, 0.8]))
-                    .with_screen_position((center_x, info_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center));
-                text_sections.push(&shadow_info); text_sections.push(&sec_info);
+                owned_sections.push(Section::default().add_text(Text::new(&track_str).with_scale(info_scale).with_color([0.0, 0.0, 0.0, shadow_alpha]))
+                    .with_screen_position((center_x + 2.0, info_y + 2.0)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
+                owned_sections.push(Section::default().add_text(Text::new(&track_str).with_scale(info_scale).with_color([0.8, 0.8, 0.8, 0.8]))
+                    .with_screen_position((center_x, info_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
             }
 
+            let text_sections: Vec<&Section> = owned_sections.iter().collect();
             gpu_out.text_brush.queue(&self.device, &self.queue, text_sections).unwrap();
 
             let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
