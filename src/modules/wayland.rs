@@ -4,9 +4,10 @@ use raw_window_handle::{RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle,
 use std::ptr::NonNull;
 
 use wayland_client::{
-    protocol::{wl_output, wl_surface::WlSurface},
+    backend::WaylandError,
+    protocol::{wl_callback::WlCallback, wl_output, wl_region::WlRegion, wl_surface::WlSurface},
     globals::registry_queue_init,
-    Connection, EventQueue, Proxy, QueueHandle,
+    Connection, Dispatch, EventQueue, Proxy, QueueHandle,
 };
 
 use smithay_client_toolkit::{
@@ -26,6 +27,7 @@ pub struct AppData {
     compositor_state: CompositorState,
     layer_shell: LayerShell,
 
+    pub is_transparent: bool,
     pub windows: Vec<WaylandWindowInfo>,
 }
 
@@ -37,12 +39,28 @@ pub struct WaylandWindowInfo {
     pub height: u32,
     pub scale_factor: i32,
     pub first_configure: bool,
+    pub frame_pending: bool,
+    pub frame_callback: Option<WlCallback>,
+    pub last_frame_request: std::time::Instant,
 }
 
 delegate_registry!(AppData);
 delegate_output!(AppData);
 delegate_compositor!(AppData);
 delegate_layer!(AppData);
+
+impl Dispatch<WlRegion, ()> for AppData {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WlRegion,
+        _event: <WlRegion as wayland_client::Proxy>::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        // WlRegion has no events to handle
+    }
+}
 
 impl ProvidesRegistryState for AppData {
     fn registry(&mut self) -> &mut RegistryState {
@@ -85,6 +103,9 @@ impl OutputHandler for AppData {
             height: 1080,
             scale_factor: 1,
             first_configure: false,
+            frame_pending: false,
+            frame_callback: None,
+            last_frame_request: std::time::Instant::now(),
         });
     }
     fn update_output(
@@ -130,7 +151,12 @@ impl CompositorHandler for AppData {
         _qh: &QueueHandle<Self>,
         _surface: &WlSurface,
         _time: u32,
-    ) {}
+    ) {
+        if let Some(win) = self.windows.iter_mut().find(|w| &w.surface == _surface) {
+            win.frame_pending = false;
+            win.frame_callback = None;
+        }
+    }
     fn surface_enter(
         &mut self,
         _conn: &Connection,
@@ -168,7 +194,18 @@ impl LayerShellHandler for AppData {
                 win.height = 1080;
             }
 
+            if !self.is_transparent {
+                let region = self.compositor_state.wl_compositor().create_region(_qh, ());
+                region.add(0, 0, win.width as i32, win.height as i32);
+                win.surface.set_opaque_region(Some(&region));
+                region.destroy();
+            } else {
+                win.surface.set_opaque_region(None);
+            }
+
             win.first_configure = true;
+            win.frame_pending = false;
+            win.frame_callback = None;
         }
     }
 }
@@ -219,6 +256,7 @@ impl WaylandManager {
                 .context("wl_compositor not available")?,
             layer_shell: LayerShell::bind(&globals, &qh)
                 .context("layer shell not available")?,
+            is_transparent: false,
             windows: Vec::new(),
         };
 
@@ -254,7 +292,60 @@ impl WaylandManager {
     }
 
     pub fn dispatch_events(&mut self) -> Result<()> {
+        let _ = self._conn.flush();
+        if let Some(guard) = self._conn.prepare_read() {
+            if let Err(e) = guard.read() {
+                match e {
+                    WaylandError::Io(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
+                    _ => tracing::warn!("Error reading wayland events: {}", e),
+                }
+            }
+        }
         self._event_queue.dispatch_pending(&mut self.app_data).context("Wayland event dispatch failed")?;
         Ok(())
+    }
+
+    pub fn update_opaque_regions(&mut self, is_transparent: bool) {
+        self.app_data.is_transparent = is_transparent;
+        let compositor = self.app_data.compositor_state.wl_compositor().clone();
+        let qh = self._event_queue.handle();
+        
+        for win in &self.app_data.windows {
+            if !is_transparent && win.width > 0 && win.height > 0 {
+                let region = compositor.create_region(&qh, ());
+                region.add(0, 0, win.width as i32, win.height as i32);
+                win.surface.set_opaque_region(Some(&region));
+                region.destroy();
+            } else {
+                win.surface.set_opaque_region(None);
+            }
+            win.surface.commit();
+        }
+    }
+
+    pub fn mark_frame_rendered(&mut self, index: usize) {
+        let qh = self._event_queue.handle();
+        if let Some(win) = self.app_data.windows.get_mut(index) {
+            win.frame_pending = true;
+            win.last_frame_request = std::time::Instant::now();
+            win.frame_callback = Some(win.surface.frame(&qh, win.surface.clone()));
+        }
+    }
+
+    pub fn is_frame_pending(&self, index: usize) -> bool {
+        self.app_data.windows.get(index).is_some_and(|w| w.frame_pending)
+    }
+
+    pub fn any_monitor_ready(&self) -> bool {
+        self.app_data.windows.is_empty() || self.app_data.windows.iter().any(|w| !w.frame_pending)
+    }
+
+    pub fn is_occluded(&self) -> bool {
+        if self.app_data.windows.is_empty() {
+            return false;
+        }
+        self.app_data.windows.iter().all(|w| {
+            w.frame_pending && w.last_frame_request.elapsed() > std::time::Duration::from_millis(100)
+        })
     }
 }

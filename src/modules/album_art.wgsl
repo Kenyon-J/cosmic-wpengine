@@ -3,12 +3,32 @@ struct Uniforms {
     res: vec2<f32>,
     audio_energy: f32,
     mode: u32,
+    bg_alpha: f32,
+    _pad1: u32,
+    _pad2: u32,
+    _pad3: u32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var t_diffuse: texture_2d<f32>;
 @group(0) @binding(2) var s_diffuse: sampler;
 @group(0) @binding(3) var t_previous: texture_2d<f32>;
+
+// Precomputed Vogel Spiral Offsets (12 samples)
+var<private> SPIRAL_OFFSETS: array<vec2<f32>, 12> = array<vec2<f32>, 12>(
+    vec2<f32>(0.0, 0.0),
+    vec2<f32>(-0.061449, 0.056288),
+    vec2<f32>(0.014582, -0.166027),
+    vec2<f32>(0.150835, 0.199370),
+    vec2<f32>(-0.327483, -0.062173),
+    vec2<f32>(0.348087, -0.229017),
+    vec2<f32>(-0.085280, 0.492670),
+    vec2<f32>(-0.332208, -0.479488),
+    vec2<f32>(0.662473, 0.074640),
+    vec2<f32>(-0.586260, 0.467745),
+    vec2<f32>(0.210816, -0.806216),
+    vec2<f32>(0.444693, 0.801570)
+);
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -41,7 +61,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let d = length(max(abs(p) - vec2<f32>(size - radius), vec2<f32>(0.0))) - radius;
 
         if d > 0.0 {
-            discard;
+            return vec4<f32>(0.0);
         }
 
         let tex_uv = p / (size * 2.0) + vec2<f32>(0.5);
@@ -61,30 +81,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             color = mix(prev_color, color, transition);
         }
         let final_color = mix(color, uniforms.color_and_transition.rgb, 0.3) * 0.75;
-        return vec4<f32>(final_color, 0.8);
+        return vec4<f32>(final_color, 0.8 * uniforms.bg_alpha);
     } else {
         var color = vec3<f32>(0.0);
-        let samples = 32.0;
         let blur_radius = 0.08 + (uniforms.audio_energy * 0.05); // Blur intensifies with audio
 
         if transition >= 1.0 {
-            for (var i = 0u; i < 32u; i = i + 1u) {
-                let t = f32(i) / samples;
-                let angle = t * 18.84955;
-                let offset = vec2<f32>(cos(angle), sin(angle)) * (t * blur_radius);
+            for (var i = 0u; i < 12u; i = i + 1u) {
+                let offset = SPIRAL_OFFSETS[i] * blur_radius;
                 color += textureSample(t_diffuse, s_diffuse, uv + offset).rgb;
             }
-            color = color / samples;
+            color = color / 12.0;
         } else {
             var prev_color = vec3<f32>(0.0);
-            for (var i = 0u; i < 32u; i = i + 1u) {
-                let t = f32(i) / samples;
-                let angle = t * 18.84955;
-                let offset = vec2<f32>(cos(angle), sin(angle)) * (t * blur_radius);
+            for (var i = 0u; i < 12u; i = i + 1u) {
+                let offset = SPIRAL_OFFSETS[i] * blur_radius;
                 color += textureSample(t_diffuse, s_diffuse, uv + offset).rgb;
                 prev_color += textureSample(t_previous, s_diffuse, uv + offset).rgb;
             }
-            color = mix(prev_color / samples, color / samples, transition);
+            color = mix(prev_color / 12.0, color / 12.0, transition);
         }
         
         // Audio-reactive frosted noise
@@ -93,7 +108,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         let final_color = mix(color, uniforms.color_and_transition.rgb, 0.6) * 0.5;
         
-        // 0.8 Alpha allows the weather particles and sky to beautifully bleed through!
-        return vec4<f32>(final_color, 0.8);
+        // Multiply by bg_alpha to allow transparent backgrounds to fade cleanly
+        return vec4<f32>(final_color, 0.8 * uniforms.bg_alpha);
     }
 }

@@ -45,10 +45,15 @@ pub struct Renderer {
     start_time: Instant,
     state: AppState,
     frame_duration: Duration,
+    show_lyrics_atomic: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Renderer {
-    pub async fn new(wayland_manager: &WaylandManager, state: AppState) -> Result<Self> {
+    pub async fn new(
+        wayland_manager: &WaylandManager, 
+        state: AppState,
+        show_lyrics_atomic: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<Self> {
         let fps = state.config.fps;
 
         info!("Initialising wgpu renderer...");
@@ -130,12 +135,20 @@ impl Renderer {
                 caps.alpha_modes[0]
             };
 
+            let present_mode = if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
+                wgpu::PresentMode::Mailbox
+            } else if caps.present_modes.contains(&wgpu::PresentMode::FifoRelaxed) {
+                wgpu::PresentMode::FifoRelaxed
+            } else {
+                caps.present_modes[0]
+            };
+
             let config = wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 format,
                 width: info.width,
                 height: info.height,
-                present_mode: caps.present_modes[0],
+                present_mode,
                 alpha_mode,
                 view_formats: vec![],
                 desired_maximum_frame_latency: 2,
@@ -494,6 +507,7 @@ impl Renderer {
             start_time: Instant::now(),
             state,
             frame_duration: Duration::from_secs_f64(1.0 / fps as f64),
+            show_lyrics_atomic,
         };
 
         let path = renderer.state.config.appearance.resolved_background_path();
@@ -508,10 +522,21 @@ impl Renderer {
         &mut self,
         mut event_rx: Receiver<Event>,
         mut wayland_manager: WaylandManager,
+        is_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<()> {
         let mut last_frame = Instant::now();
+        
+        let mut interval = tokio::time::interval(self.frame_duration);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        wayland_manager.update_opaque_regions(self.state.config.appearance.transparent_background);
 
         loop {
+            interval.tick().await;
+            
+            let occluded = wayland_manager.is_occluded();
+            is_visible.store(!occluded, std::sync::atomic::Ordering::Relaxed);
+
             wayland_manager.dispatch_events()?;
             
             let current_outputs = wayland_manager.outputs();
@@ -537,12 +562,20 @@ impl Renderer {
                         caps.alpha_modes[0]
                     };
 
+                    let present_mode = if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
+                        wgpu::PresentMode::Mailbox
+                    } else if caps.present_modes.contains(&wgpu::PresentMode::FifoRelaxed) {
+                        wgpu::PresentMode::FifoRelaxed
+                    } else {
+                        caps.present_modes[0]
+                    };
+
                     let config = wgpu::SurfaceConfiguration {
                         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                         format,
                         width: info.width.max(1),
                         height: info.height.max(1),
-                        present_mode: caps.present_modes[0],
+                        present_mode,
                         alpha_mode,
                         view_formats: vec![],
                         desired_maximum_frame_latency: 2,
@@ -568,8 +601,25 @@ impl Renderer {
                 }
             }
 
+            let mut transparent_changed = false;
+            let previous_duration = self.frame_duration;
+
             while let Ok(event) = event_rx.try_recv() {
+                if let Event::ConfigUpdated(ref config) = event {
+                    if config.appearance.transparent_background != self.state.config.appearance.transparent_background {
+                        transparent_changed = true;
+                    }
+                }
                 self.handle_event(event);
+            }
+
+            if transparent_changed {
+                wayland_manager.update_opaque_regions(self.state.config.appearance.transparent_background);
+            }
+
+            if self.frame_duration != previous_duration {
+                interval = tokio::time::interval(self.frame_duration);
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             }
 
             self.state.update_time();
@@ -579,11 +629,8 @@ impl Renderer {
             self.state.tick_transition(delta);
             last_frame = now;
 
-            self.draw_frame()?;
-
-            let elapsed = last_frame.elapsed();
-            if elapsed < self.frame_duration {
-                tokio::time::sleep(self.frame_duration - elapsed).await;
+            if wayland_manager.any_monitor_ready() {
+                self.draw_frame(&mut wayland_manager)?;
             }
         }
     }
@@ -591,6 +638,7 @@ impl Renderer {
     fn handle_event(&mut self, event: Event) {
         match event {
             Event::ConfigUpdated(config) => {
+                self.show_lyrics_atomic.store(config.audio.show_lyrics, std::sync::atomic::Ordering::Relaxed);
                 self.frame_duration = Duration::from_secs_f64(1.0 / config.fps as f64);
                 
                 let new_bg = config.appearance.resolved_background_path();
@@ -640,6 +688,10 @@ impl Renderer {
                 // We intentionally do not clear the track here so it remains visible while paused
             }
 
+            Event::PlaybackResumed => {
+                self.state.is_playing = true;
+            }
+
             Event::PlayerShutDown => {
                 self.state.previous_palette = self.state.current_track.as_ref().and_then(|t| t.palette.clone());
                 self.state.current_track = None;
@@ -682,8 +734,8 @@ impl Renderer {
                     }
                     
                     let mut max_val = 0.0f32;
-                    for bin in bin_lo..bin_hi {
-                        max_val = max_val.max(bands[bin]);
+                    for &val in &bands[bin_lo..bin_hi] {
+                        max_val = max_val.max(val);
                     }
                     
                     // Calculate the geometric mean frequency of the current band
@@ -718,9 +770,9 @@ impl Renderer {
                     let end = ((i + 1) as f32 * chunk_size) as usize;
                     
                     let mut peak = 0.0f32;
-                    for j in start..end.min(waveform.len()) {
-                        if waveform[j].abs() > peak.abs() {
-                            peak = waveform[j];
+                    for &val in &waveform[start..end.min(waveform.len())] {
+                        if val.abs() > peak.abs() {
+                            peak = val;
                         }
                     }
                     *current = *current * smoothing + peak * (1.0 - smoothing);
@@ -738,7 +790,7 @@ impl Renderer {
         }
     }
 
-    fn draw_frame(&mut self) -> Result<()> {
+    fn draw_frame(&mut self, wayland_manager: &mut WaylandManager) -> Result<()> {
         let _scene = self.state.scene_description();
         
         let audio_data = match self.state.config.audio.style {
@@ -771,7 +823,11 @@ impl Renderer {
             self.queue.write_buffer(&self.bands_buffer, 0, bands_bytes);
         }
 
-        for gpu_out in &mut self.outputs {
+        for (i, gpu_out) in self.outputs.iter_mut().enumerate() {
+            if wayland_manager.is_frame_pending(i) {
+                continue; // The compositor hasn't shown the last frame yet (e.g., hidden behind a window)
+            }
+
             let output = match gpu_out.surface.get_current_texture() {
                 Ok(texture) => texture,
                 Err(wgpu::SurfaceError::Outdated) | Err(wgpu::SurfaceError::Lost) => {
@@ -786,140 +842,108 @@ impl Renderer {
                 Err(e) => anyhow::bail!("Failed to get current texture: {:?}", e),
             };
 
+            wayland_manager.mark_frame_rendered(i); // Request the next frame callback
+
             // 1. Process visualizer uniforms
-            let get_colors = |palette: Option<&[[f32; 3]]>| -> ([f32; 3], [f32; 3]) {
-                let top = self.state.config.audio.color_top;
-                let bottom = self.state.config.audio.color_bottom;
+            if has_audio {
+                let get_colors = |palette: Option<&[[f32; 3]]>| -> ([f32; 3], [f32; 3]) {
+                    let top = self.state.config.audio.color_top;
+                    let bottom = self.state.config.audio.color_bottom;
 
-                match palette {
-                    _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
-                    Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
-                    Some(p) if p.len() == 1 => (top.unwrap_or(p[0]), bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5])),
-                    _ => (top.unwrap_or([1.0, 0.2, 0.5]), bottom.unwrap_or([0.2, 0.5, 1.0])),
+                    match palette {
+                        _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
+                        Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
+                        Some(p) if p.len() == 1 => (top.unwrap_or(p[0]), bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5])),
+                        _ => (top.unwrap_or([1.0, 0.2, 0.5]), bottom.unwrap_or([0.2, 0.5, 1.0])),
+                    }
+                };
+                let target_colors = get_colors(self.state.current_track.as_ref().and_then(|t| t.palette.as_deref()));
+                let (top_col, bottom_col) = if self.state.transition_progress < 1.0 {
+                    let prev_colors = get_colors(self.state.previous_palette.as_deref());
+                    let t = self.state.transition_progress;
+                    let top_rgb = lerp_colour(prev_colors.0, target_colors.0, t);
+                    let bottom_rgb = lerp_colour(prev_colors.1, target_colors.1, t);
+                    ([top_rgb[0], top_rgb[1], top_rgb[2], 1.0], [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0])
+                } else {
+                    let top_rgb = target_colors.0;
+                    let bottom_rgb = target_colors.1;
+                    ([top_rgb[0], top_rgb[1], top_rgb[2], 1.0], [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0])
+                };
+
+                #[repr(C)]
+                struct VisUniforms { 
+                    res: [f32; 2], 
+                    bands: u32, 
+                    pulse: f32, 
+                    top: [f32; 4], 
+                    bottom: [f32; 4],
+                    style: u32,
+                    padding: [u32; 3], 
                 }
-            };
-            let target_colors = get_colors(self.state.current_track.as_ref().and_then(|t| t.palette.as_deref()));
-            let (top_col, bottom_col) = if self.state.transition_progress < 1.0 {
-                let prev_colors = get_colors(self.state.previous_palette.as_deref());
-                let t = self.state.transition_progress;
-                let top_rgb = lerp_colour(prev_colors.0, target_colors.0, t);
-                let bottom_rgb = lerp_colour(prev_colors.1, target_colors.1, t);
-                ([top_rgb[0], top_rgb[1], top_rgb[2], 1.0], [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0])
-            } else {
-                let top_rgb = target_colors.0;
-                let bottom_rgb = target_colors.1;
-                ([top_rgb[0], top_rgb[1], top_rgb[2], 1.0], [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0])
-            };
-
-            #[repr(C)]
-            struct VisUniforms { 
-                res: [f32; 2], 
-                bands: u32, 
-                pulse: f32, 
-                top: [f32; 4], 
-                bottom: [f32; 4],
-                style: u32,
-                padding: [u32; 3], 
+                let style_u32 = if matches!(self.state.config.audio.style, super::config::AudioStyle::Waveform) { 1 } else { 0 };
+                let vis_uniforms = VisUniforms {
+                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                    bands: self.state.config.audio.bands as u32,
+                    pulse,
+                    top: top_col,
+                    bottom: bottom_col,
+                    style: style_u32,
+                    padding: [0; 3],
+                };
+                let vis_bytes = unsafe { std::slice::from_raw_parts(&vis_uniforms as *const _ as *const u8, std::mem::size_of::<VisUniforms>()) };
+                self.queue.write_buffer(&self.visualiser_uniform_buffer, 0, vis_bytes);
             }
-            let style_u32 = if matches!(self.state.config.audio.style, super::config::AudioStyle::Waveform) { 1 } else { 0 };
-            let vis_uniforms = VisUniforms {
-                res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                bands: self.state.config.audio.bands as u32,
-                pulse,
-                top: top_col,
-                bottom: bottom_col,
-                style: style_u32,
-                padding: [0; 3],
-            };
-            let vis_bytes = unsafe { std::slice::from_raw_parts(&vis_uniforms as *const _ as *const u8, std::mem::size_of::<VisUniforms>()) };
-            self.queue.write_buffer(&self.visualiser_uniform_buffer, 0, vis_bytes);
 
             // 2. Process album art uniforms
-            if let Some(track) = &self.state.current_track {
-                let target_color = track.palette.as_deref().and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
-                let color = if self.state.transition_progress < 1.0 {
-                    let prev_color = self.state.previous_palette.as_deref().and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
-                    lerp_colour(prev_color, target_color, self.state.transition_progress)
-                } else { target_color };
+            if has_art {
+                if let Some(track) = &self.state.current_track {
+                    let target_color = track.palette.as_deref().and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
+                    let color = if self.state.transition_progress < 1.0 {
+                        let prev_color = self.state.previous_palette.as_deref().and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
+                        lerp_colour(prev_color, target_color, self.state.transition_progress)
+                    } else { target_color };
 
+                    let bg_mode = if self.state.config.appearance.disable_blur { 2 } else { 0 };
+                    let bg_alpha_val = 1.0 - self.state.transparent_fade;
+                    
+                    #[repr(C)]
+                    struct ArtUniforms { 
+                        color_and_transition: [f32; 4], 
+                        res: [f32; 2], 
+                        audio_energy: f32, 
+                        mode: u32,
+                        bg_alpha: f32,
+                        padding: [u32; 3],
+                    }
+                    
+                    let bg_uniforms = ArtUniforms {
+                        color_and_transition: [color[0], color[1], color[2], self.state.transition_progress],
+                        res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                        audio_energy,
+                        mode: bg_mode,
+                        bg_alpha: bg_alpha_val,
+                        padding: [0; 3],
+                    };
+                    let bg_bytes = unsafe { std::slice::from_raw_parts(&bg_uniforms as *const _ as *const u8, std::mem::size_of::<ArtUniforms>()) };
+                    self.queue.write_buffer(&self.album_art_bg_uniform_buffer, 0, bg_bytes);
+
+                    let fg_uniforms = ArtUniforms {
+                        color_and_transition: [color[0], color[1], color[2], self.state.transition_progress],
+                        res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                        audio_energy,
+                        mode: 1,
+                        bg_alpha: 1.0, // The sharp foreground art never fades!
+                        padding: [0; 3],
+                    };
+                    let fg_bytes = unsafe { std::slice::from_raw_parts(&fg_uniforms as *const _ as *const u8, std::mem::size_of::<ArtUniforms>()) };
+                    self.queue.write_buffer(&self.album_art_fg_uniform_buffer, 0, fg_bytes);
+                }
+            }
+
+            if self.custom_bg_bind_group.is_some() {
+                // 4. Process custom background uniforms
                 let bg_mode = if self.state.config.appearance.disable_blur { 2 } else { 0 };
                 let bg_alpha_val = 1.0 - self.state.transparent_fade;
-                
-                #[repr(C)]
-                struct ArtUniforms { 
-                    color_and_transition: [f32; 4], 
-                    res: [f32; 2], 
-                    audio_energy: f32, 
-                    mode: u32,
-                    bg_alpha: f32,
-                    padding: [u32; 3],
-                }
-                
-                let bg_uniforms = ArtUniforms {
-                    color_and_transition: [color[0], color[1], color[2], self.state.transition_progress],
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    audio_energy,
-                    mode: bg_mode,
-                    bg_alpha: bg_alpha_val,
-                    padding: [0; 3],
-                };
-                let bg_bytes = unsafe { std::slice::from_raw_parts(&bg_uniforms as *const _ as *const u8, std::mem::size_of::<ArtUniforms>()) };
-                self.queue.write_buffer(&self.album_art_bg_uniform_buffer, 0, bg_bytes);
-
-                let fg_uniforms = ArtUniforms {
-                    color_and_transition: [color[0], color[1], color[2], self.state.transition_progress],
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    audio_energy,
-                    mode: 1,
-                    bg_alpha: 1.0, // The sharp foreground art never fades!
-                    padding: [0; 3],
-                };
-                let fg_bytes = unsafe { std::slice::from_raw_parts(&fg_uniforms as *const _ as *const u8, std::mem::size_of::<ArtUniforms>()) };
-                self.queue.write_buffer(&self.album_art_fg_uniform_buffer, 0, fg_bytes);
-            }
-
-            // 3. Process ambient uniforms
-            let elapsed = self.start_time.elapsed().as_secs_f32();
-            let mut weather_type = 0u32;
-            let sky = time_to_sky_colour(self.state.time_of_day);
-            let final_sky = if let Some(weather) = &self.state.weather {
-                use super::event::WeatherCondition;
-                weather_type = match weather.condition {
-                    WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
-                    WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
-                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
-                    WeatherCondition::Snow => 3,
-                };
-                match weather.condition {
-                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => lerp_colour(sky, [0.2, 0.2, 0.25], 0.6),
-                    WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
-                    _ => sky,
-                }
-            } else { sky };
-            
-            let bg_alpha_val = 1.0 - self.state.transparent_fade;
-
-            #[repr(C)]
-            struct AmbUniforms { 
-                res: [f32; 2], 
-                time: f32, 
-                weather: u32, 
-                sky: [f32; 4],
-                bg_alpha: f32,
-                padding: [u32; 3],
-            }
-            let amb_uniforms = AmbUniforms {
-                res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                time: elapsed, weather: weather_type, sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
-                bg_alpha: bg_alpha_val,
-                padding: [0; 3],
-            };
-            let amb_bytes = unsafe { std::slice::from_raw_parts(&amb_uniforms as *const _ as *const u8, std::mem::size_of::<AmbUniforms>()) };
-            self.queue.write_buffer(&self.ambient_uniform_buffer, 0, amb_bytes);
-
-            // 4. Process custom background uniforms
-            if self.custom_bg_bind_group.is_some() {
-                let bg_mode = if self.state.config.appearance.disable_blur { 2 } else { 0 };
                 
                 #[repr(C)]
                 struct ArtUniforms { 
@@ -938,11 +962,50 @@ impl Renderer {
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                     audio_energy,
                     mode: bg_mode,
-                    bg_alpha: 1.0, 
+                    bg_alpha: bg_alpha_val, 
                     padding: [0; 3],
                 };
                 let cbg_bytes = unsafe { std::slice::from_raw_parts(&custom_bg_uniforms as *const _ as *const u8, std::mem::size_of::<ArtUniforms>()) };
                 self.queue.write_buffer(&self.custom_bg_uniform_buffer, 0, cbg_bytes);
+            } else {
+                // 3. Process ambient uniforms
+                let elapsed = self.start_time.elapsed().as_secs_f32();
+                let mut weather_type = 0u32;
+                let sky = time_to_sky_colour(self.state.time_of_day);
+                let final_sky = if let Some(weather) = &self.state.weather {
+                    use super::event::WeatherCondition;
+                    weather_type = match weather.condition {
+                        WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
+                        WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
+                        WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
+                        WeatherCondition::Snow => 3,
+                    };
+                    match weather.condition {
+                        WeatherCondition::Rain | WeatherCondition::Thunderstorm => lerp_colour(sky, [0.2, 0.2, 0.25], 0.6),
+                        WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
+                        _ => sky,
+                    }
+                } else { sky };
+                
+                let bg_alpha_val = 1.0 - self.state.transparent_fade;
+
+                #[repr(C)]
+                struct AmbUniforms { 
+                    res: [f32; 2], 
+                    time: f32, 
+                    weather: u32, 
+                    sky: [f32; 4],
+                    bg_alpha: f32,
+                    padding: [u32; 3],
+                }
+                let amb_uniforms = AmbUniforms {
+                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                    time: elapsed, weather: weather_type, sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
+                    bg_alpha: bg_alpha_val,
+                    padding: [0; 3],
+                };
+                let amb_bytes = unsafe { std::slice::from_raw_parts(&amb_uniforms as *const _ as *const u8, std::mem::size_of::<AmbUniforms>()) };
+                self.queue.write_buffer(&self.ambient_uniform_buffer, 0, amb_bytes);
             }
 
             // --- Construct Text Layouts ---
@@ -967,15 +1030,8 @@ impl Renderer {
             // Center the lyrics block perfectly between the album art and the taskbar
             let lyrics_start_y = album_bottom + (available_lyrics_space - (line_spacing * 2.5)) / 2.0;
             
-            // Use a purely vertical shadow offset. Shifting centered text on the X axis 
-            // creates an off-balance "double vision" effect rather than a shadow.
-            let shadow_y = 3.0 + pulse * 2.0;
-            let shadow_alpha = 0.4 + (pulse * 0.2);
-
             if self.state.config.audio.show_lyrics {
                 if let Some(text) = &prev_text {
-                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
-                        .with_screen_position((center_x, lyrics_start_y + shadow_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
                     owned_sections.push(Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.35]))
                         .with_screen_position((center_x, lyrics_start_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
                 }
@@ -985,15 +1041,11 @@ impl Renderer {
                     // Slight vertical bump based on pulse so the text "jumps" up slightly on beat
                     let active_y = lyrics_start_y + line_spacing - (pulse * 4.0);
                     
-                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(scale).with_color([0.0, 0.0, 0.0, shadow_alpha]))
-                        .with_screen_position((center_x, active_y + shadow_y * 1.5)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
                     owned_sections.push(Section::default().add_text(Text::new(text).with_scale(scale).with_color([1.0, 1.0, 1.0, 1.0]))
                         .with_screen_position((center_x, active_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
                 }
 
                 if let Some(text) = &next_text {
-                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([0.0, 0.0, 0.0, shadow_alpha * 0.5]))
-                        .with_screen_position((center_x, lyrics_start_y + (line_spacing * 2.0) + shadow_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
                     owned_sections.push(Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.35]))
                         .with_screen_position((center_x, lyrics_start_y + (line_spacing * 2.0))).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
                 }
@@ -1002,8 +1054,6 @@ impl Renderer {
             if self.state.current_track.is_some() {
                 let info_scale = (height_f * 0.025).clamp(16.0, 36.0);
                 let info_y = height_f * 0.08; // Pin track info strictly to the top 8% of the screen
-                owned_sections.push(Section::default().add_text(Text::new(&track_str).with_scale(info_scale).with_color([0.0, 0.0, 0.0, shadow_alpha]))
-                    .with_screen_position((center_x, info_y + 2.0)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
                 owned_sections.push(Section::default().add_text(Text::new(&track_str).with_scale(info_scale).with_color([0.8, 0.8, 0.8, 0.8]))
                     .with_screen_position((center_x, info_y)).with_layout(Layout::default().h_align(HorizontalAlign::Center)));
             }
@@ -1034,9 +1084,11 @@ impl Renderer {
 
                 // 0. Custom Desktop Wallpaper Background
                 if let Some(bind_group) = &self.custom_bg_bind_group {
-                    render_pass.set_pipeline(&self.album_art_pipeline);
-                    render_pass.set_bind_group(0, bind_group, &[]);
-                    render_pass.draw(0..3, 0..1);
+                    if self.state.transparent_fade < 1.0 {
+                        render_pass.set_pipeline(&self.album_art_pipeline);
+                        render_pass.set_bind_group(0, bind_group, &[]);
+                        render_pass.draw(0..3, 0..1);
+                    }
                 } else {
                     // 1. ALWAYS Draw Ambient Weather Background
                     if self.state.transparent_fade < 1.0 {
@@ -1108,8 +1160,7 @@ impl Renderer {
         }
     }
 
-    fn update_album_art_texture(&mut self, image: &image::DynamicImage) {
-        let rgba = image.to_rgba8();
+    fn update_album_art_texture(&mut self, rgba: &image::RgbaImage) {
         let dimensions = rgba.dimensions();
 
         let texture_size = wgpu::Extent3d {

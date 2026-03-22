@@ -4,7 +4,7 @@ use tracing::{info, warn};
 
 use super::{
     colour::extract_palette,
-    event::{Event, TrackInfo},
+    event::{Event, LyricLine, TrackInfo},
     lrclib,
 };
 
@@ -50,7 +50,11 @@ struct ITunesResult {
 pub struct MprisWatcher;
 
 impl MprisWatcher {
-    pub async fn run(tx: Sender<Event>) -> Result<()> {
+    pub async fn run(
+        tx: Sender<Event>, 
+        is_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        show_lyrics: std::sync::Arc<std::sync::atomic::AtomicBool>
+    ) -> Result<()> {
         info!("MPRIS watcher started");
 
         let (update_tx, mut update_rx) = tokio::sync::mpsc::channel(16);
@@ -147,50 +151,76 @@ impl MprisWatcher {
 
         let mut is_playing = false;
         let mut last_metadata: Option<MetadataUpdate> = None;
+        let mut last_processed_metadata: Option<MetadataUpdate> = None;
+        let mut palette_cache: std::collections::HashMap<String, Vec<[f32; 3]>> = std::collections::HashMap::new();
+        let mut lyrics_cache: std::collections::HashMap<String, Option<Vec<LyricLine>>> = std::collections::HashMap::new();
+        
+        let mut last_show_lyrics = show_lyrics.load(std::sync::atomic::Ordering::Relaxed);
 
-        while let Some(update) = update_rx.recv().await {
-            match update {
-                MprisUpdate::Metadata(meta) => {
-                    // Ignore empty metadata transitions often sent between tracks
-                    let is_empty = (meta.title == "Unknown" || meta.title.trim().is_empty())
-                        && meta.artist.trim().is_empty();
-                    if is_empty {
-                        continue;
-                    }
+        loop {
+            // Wake up every 250ms to check visibility state even if no MPRIS events fire
+            let update_opt = match tokio::time::timeout(tokio::time::Duration::from_millis(250), update_rx.recv()).await {
+                Ok(Some(u)) => Some(u),
+                Ok(None) => break,
+                Err(_) => None,
+            };
 
-                    let changed = last_metadata.as_ref() != Some(&meta);
-                    if changed {
-                        last_metadata = Some(meta.clone());
-                        
-                        info!("Track changed: {} - {}", meta.artist, meta.title);
-                        let track_info = Self::build_track_info(&meta).await;
-                        let _ = tx.send(Event::TrackChanged(track_info)).await;
-                    }
+            let visible = is_visible.load(std::sync::atomic::Ordering::Relaxed);
+            let current_show_lyrics = show_lyrics.load(std::sync::atomic::Ordering::Relaxed);
+
+            if current_show_lyrics != last_show_lyrics {
+                last_show_lyrics = current_show_lyrics;
+                if current_show_lyrics {
+                    // Force a rebuild to fetch the lyrics immediately if toggled back on
+                    last_processed_metadata = None;
                 }
-                MprisUpdate::Status(status) => {
-                    let playing = status == mpris::PlaybackStatus::Playing;
-                    if playing != is_playing {
-                        is_playing = playing;
-                        if is_playing {
-                            if let Some(meta) = &last_metadata {
-                                info!("Playback resumed: {} - {}", meta.artist, meta.title);
-                                let track_info = Self::build_track_info(meta).await;
-                                let _ = tx.send(Event::TrackChanged(track_info)).await;
-                            }
-                        } else {
-                            info!("Playback paused/stopped");
-                            let _ = tx.send(Event::PlaybackStopped).await;
+            }
+
+            if let Some(update) = update_opt {
+                match update {
+                    MprisUpdate::Metadata(meta) => {
+                        let is_empty = (meta.title == "Unknown" || meta.title.trim().is_empty())
+                            && meta.artist.trim().is_empty();
+                        if !is_empty {
+                            last_metadata = Some(meta);
                         }
                     }
+                    MprisUpdate::Status(status) => {
+                        let playing = status == mpris::PlaybackStatus::Playing;
+                        if playing != is_playing {
+                            is_playing = playing;
+                            if is_playing {
+                                info!("Playback resumed");
+                                let _ = tx.send(Event::PlaybackResumed).await;
+                            } else {
+                                info!("Playback paused/stopped");
+                                let _ = tx.send(Event::PlaybackStopped).await;
+                            }
+                        }
+                    }
+                    MprisUpdate::Position(pos) => {
+                        // Drop continuous position updates if we aren't rendering to save channel capacity
+                        if visible {
+                            let _ = tx.send(Event::PlaybackPosition(pos)).await;
+                        }
+                    }
+                    MprisUpdate::ShutDown => {
+                        is_playing = false;
+                        info!("Player shut down");
+                        let _ = tx.send(Event::PlayerShutDown).await;
+                        last_metadata = None;
+                        last_processed_metadata = None;
+                    }
                 }
-                MprisUpdate::Position(pos) => {
-                    let _ = tx.send(Event::PlaybackPosition(pos)).await;
-                }
-                MprisUpdate::ShutDown => {
-                    is_playing = false;
-                    info!("Player shut down");
-                    let _ = tx.send(Event::PlayerShutDown).await;
-                    last_metadata = None;
+            }
+
+            // If we are visible and have unprocessed metadata, fetch the art, palette, and lyrics!
+            if visible && last_metadata != last_processed_metadata {
+                if let Some(meta) = last_metadata.clone() {
+                    info!("Fetching track info for: {} - {}", meta.artist, meta.title);
+                    let track_info = Self::build_track_info(&meta, &mut palette_cache, &mut lyrics_cache, current_show_lyrics).await;
+                    let _ = tx.send(Event::TrackChanged(track_info)).await;
+                    last_processed_metadata = Some(meta);
                 }
             }
         }
@@ -198,14 +228,24 @@ impl MprisWatcher {
         Ok(())
     }
 
-    async fn build_track_info(meta: &MetadataUpdate) -> TrackInfo {
+    async fn build_track_info(
+        meta: &MetadataUpdate,
+        palette_cache: &mut std::collections::HashMap<String, Vec<[f32; 3]>>,
+        lyrics_cache: &mut std::collections::HashMap<String, Option<Vec<LyricLine>>>,
+        fetch_lyrics: bool,
+    ) -> TrackInfo {
+        let cache_key = meta.art_url.clone().unwrap_or_else(|| format!("fallback:{}:{}", meta.artist, meta.album));
+        let cached_palette = palette_cache.get(&cache_key).cloned();
+
+        let lyrics_cache_key = format!("{}:{}:{}", meta.artist, meta.album, meta.title);
+        let cached_lyrics = lyrics_cache.get(&lyrics_cache_key).cloned();
+
         let art_future = async {
-            let mut local_art = None;
+            let mut local_img = None;
             if let Some(art_url) = &meta.art_url {
                 match Self::fetch_album_art(art_url).await {
                     Ok(img) => {
-                        let colours = extract_palette(&img);
-                        local_art = Some((Some(img), Some(colours)));
+                        local_img = Some(img);
                     }
                     Err(e) => {
                         warn!("Failed to load local album art (likely Flatpak isolation): {}", e);
@@ -213,26 +253,55 @@ impl MprisWatcher {
                 }
             }
             
-            if let Some(art) = local_art {
-                art
+            let final_img = if let Some(img) = local_img {
+                Some(img)
             } else {
                 info!("Attempting to fetch fallback album art online...");
                 match Self::fetch_fallback_album_art(&meta.artist, &meta.album, &meta.title).await {
                     Ok(img) => {
-                        let colours = extract_palette(&img);
-                        (Some(img), Some(colours))
+                        Some(img)
                     }
                     Err(e) => {
                         warn!("Fallback art failed: {}", e);
-                        (None, None)
+                        None
                     }
                 }
+            };
+
+            if let Some(img) = final_img {
+                let cached = cached_palette.clone();
+                // Offload the heavy CPU blocking work to a dedicated Tokio worker thread
+                tokio::task::spawn_blocking(move || {
+                    let palette = cached.unwrap_or_else(|| extract_palette(&img));
+                    let rgba = img.into_rgba8();
+                    (Some(rgba), Some(palette))
+                }).await.unwrap_or((None, None))
+            } else {
+                (None, None)
             }
         };
 
-        let lyrics_future = lrclib::fetch_synced_lyrics(&meta.title, &meta.artist, &meta.album);
+        let lyrics_future = async {
+            if !fetch_lyrics {
+                None
+            } else if let Some(cached) = cached_lyrics.clone() {
+                cached
+            } else {
+                lrclib::fetch_synced_lyrics(&meta.title, &meta.artist, &meta.album).await
+            }
+        };
 
         let ((album_art, palette), lyrics) = tokio::join!(art_future, lyrics_future);
+
+        if cached_palette.is_none() {
+            if let Some(p) = &palette {
+                palette_cache.insert(cache_key, p.clone());
+            }
+        }
+
+        if cached_lyrics.is_none() && fetch_lyrics {
+            lyrics_cache.insert(lyrics_cache_key, lyrics.clone());
+        }
 
         if lyrics.is_some() {
             info!("Synced lyrics loaded for {} - {}", meta.artist, meta.title);

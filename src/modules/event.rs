@@ -1,10 +1,9 @@
-use image::DynamicImage;
-
 #[derive(Debug)]
 pub enum Event {
     ConfigUpdated(super::config::Config),
     TrackChanged(TrackInfo),
     PlaybackStopped,
+    PlaybackResumed,
     PlayerShutDown,
     PlaybackPosition(std::time::Duration),
     AudioFrame {
@@ -20,7 +19,7 @@ pub struct TrackInfo {
     pub artist: String,
     #[allow(dead_code)]
     pub album: String,
-    pub album_art: Option<DynamicImage>,
+    pub album_art: Option<image::RgbaImage>,
     pub palette: Option<Vec<[f32; 3]>>,
     pub lyrics: Option<Vec<LyricLine>>,
 }

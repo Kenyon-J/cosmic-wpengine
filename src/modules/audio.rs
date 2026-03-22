@@ -15,7 +15,7 @@ const SCALE_FACTOR: f32 = 100.0;
 pub struct AudioCapture;
 
 impl AudioCapture {
-    pub async fn run(tx: Sender<Event>) -> Result<()> {
+    pub async fn run(tx: Sender<Event>, is_visible: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Result<()> {
         info!("Audio capture started");
 
         let (audio_tx, mut audio_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<f32>>();
@@ -30,6 +30,10 @@ impl AudioCapture {
         loop {
             match tokio::time::timeout(tokio::time::Duration::from_millis(250), audio_rx.recv()).await {
                 Ok(Some(samples)) => {
+                    if !is_visible.load(std::sync::atomic::Ordering::Relaxed) {
+                        continue;
+                    }
+
                     let mut buffer: Vec<Complex<f32>> = samples
                         .iter()
                         .enumerate()
@@ -181,14 +185,14 @@ impl AudioCapture {
 
                     if valid == 0 {
                         empty_chunks += 1;
-                        if empty_chunks % 50 == 0 {
+                        if empty_chunks.is_multiple_of(50) {
                             warn!("PipeWire process: Received {} empty chunks!", empty_chunks);
                         }
                     } else {
                         valid_chunks += 1;
                         if valid_chunks == 1 {
                             info!("PipeWire process: First valid audio chunk received!");
-                        } else if valid_chunks % 500 == 0 {
+                        } else if valid_chunks.is_multiple_of(500) {
                             info!("PipeWire process: Heartbeat - {} valid chunks processed.", valid_chunks);
                         }
                     }
@@ -202,7 +206,7 @@ impl AudioCapture {
                         sample_buffer.drain(..FFT_SIZE);
                         let _ = tx.send(frame);
                     }
-                } else if frame_counter % 50 == 0 {
+                } else if frame_counter.is_multiple_of(50) {
                     warn!("PipeWire process callback fired, but dequeue_buffer() returned None.");
                 }
             })
