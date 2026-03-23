@@ -27,7 +27,7 @@
 * 🖱️ **System Tray Applet** — Control your wallpaper engine instantly with a built-in D-Bus system tray menu. Toggle lyrics, frosted blur, and background transparency with zero-latency hot-reloading.
 * �️ **Weather & Time Reactive** — When media is paused, the background gracefully crossfades into a procedural WGSL weather engine. Experience rain streaks, snow, and drifting clouds synced to your local Open-Meteo conditions and time-of-day.
 * 🚀 **Wayland Native** — Built on `smithay-client-toolkit` using `wlr-layer-shell` and `wgpu`. Fully supports HiDPI scaling, fractional rendering, and dynamic multi-monitor ultra-wide arrays out of the box.
-* ⚙️ **Live Configuration** — Config files are hot-reloaded instantly. *(Roadmap: Native libcosmic settings applet integration).*
+* ⚙️ **Live Configuration** — Config files are hot-reloaded instantly via the system tray or `.toml` file edits.
 
 ## 🏗️ Architecture
 
@@ -115,6 +115,44 @@ bands = 64        # number of frequency bands in visualiser
 smoothing = 0.7   # 0.0 = instant, 1.0 = very smooth
 ```
 
+## Custom Visualiser Themes
+
+The visualizer fully supports custom user-made themes and WGSL shaders! On first run, default theme templates are automatically generated in `~/.config/cosmic-wallpaper/shaders/`.
+
+To create a new theme:
+1. Create a `.toml` file in the shaders directory (e.g., `~/.config/cosmic-wallpaper/shaders/my_theme.toml`):
+   ```toml
+   # Position elements using normalized screen coordinates (0.0 to 1.0)
+   [album_art]
+   position = [0.15, 0.8]
+   size = 0.15
+   shape = "square" # "circular" or "square"
+
+   [track_info]
+   position = [0.28, 0.75]
+   align = "left" # "left", "center", or "right"
+
+   [lyrics]
+   position = [0.28, 0.85]
+   align = "left"
+
+   [weather]
+   position = [0.98, 0.03]
+   align = "right"
+
+   [visualiser]
+   shape = "linear" # "circular" or "linear"
+   position = [0.5, 0.5]
+   size = 1.0
+   rotation = 0.0
+   amplitude = 1.5
+   # color_top = [1.0, 0.2, 0.5]      # Optional fixed colours (RGB 0.0 - 1.0)
+   # color_bottom = [0.2, 0.5, 1.0]
+   ```
+2. Select your custom theme from the System Tray applet, or manually set `style = "my_theme"` in your main `config.toml`.
+3. **Live Reloading:** Any edits you make to the `.toml` file while the wallpaper is running will be instantly applied to your desktop!
+4. *(Advanced)* You can also provide a custom `my_theme.wgsl` shader file alongside your `.toml` to completely rewrite the graphics pipeline!
+
 ## How it works
 
 Each subsystem runs as an independent `tokio` task, sending events over async channels to the renderer:
@@ -129,9 +167,8 @@ The renderer processes events each frame, updates `AppState`, and dispatches to 
 
 ## Roadmap
 
-- [ ] COSMIC settings panel integration via libcosmic
-- [ ] System Tray (AppIndicator) menu for quick settings toggles (Blur, Lyrics, Backgrounds)
-- [ ] User-loadable custom shaders
+- [x] System Tray (AppIndicator) menu for quick settings toggles (Blur, Lyrics, Backgrounds)
+- [x] User-loadable custom shaders
 - [ ] Hardware-accelerated compute shaders for weather particles
 - [ ] Spotify Canvas (short video loops) background support
-- [ ] Advanced beat-detection for more organic lyric bouncing
+- [x] Advanced beat-detection for more organic lyric bouncing

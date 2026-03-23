@@ -16,3 +16,5 @@ pub mod state;
 pub mod wayland;
 pub mod weather;
 pub mod tray;
+pub mod visualiser_pass;
+pub mod video;

@@ -1,12 +1,11 @@
 struct Uniforms {
     color_and_transition: vec4<f32>, // rgb = color, a = transition
     res: vec2<f32>,
+    art_position: vec2<f32>,
     audio_energy: f32,
     mode: u32,
     bg_alpha: f32,
-    _pad1: u32,
-    _pad2: u32,
-    _pad3: u32,
+    art_size: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -55,9 +54,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let transition = uniforms.color_and_transition.a;
 
     if uniforms.mode == 1u {
-        let size = 0.25;
+        let size = uniforms.art_size;
         let radius = 0.02;
-        let p = vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5);
+        let p = vec2<f32>((uv.x - uniforms.art_position.x) * aspect, uv.y - uniforms.art_position.y);
         let d = length(max(abs(p) - vec2<f32>(size - radius), vec2<f32>(0.0))) - radius;
 
         if d > 0.0 {
@@ -84,7 +83,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(final_color, 0.8 * uniforms.bg_alpha);
     } else {
         var color = vec3<f32>(0.0);
-        let blur_radius = 0.08 + (uniforms.audio_energy * 0.05); // Blur intensifies with audio
+        let blur_radius = 0.08 + (uniforms.audio_energy * 0.02); // Blur intensifies softly with audio
 
         if transition >= 1.0 {
             for (var i = 0u; i < 12u; i = i + 1u) {
@@ -104,9 +103,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         
         // Audio-reactive frosted noise
         let noise = fract(sin(dot(uv, vec2<f32>(12.9898, 78.233))) * 43758.5453);
-        color += vec3<f32>(noise * (0.03 + uniforms.audio_energy * 0.05));
+        color += vec3<f32>(noise * (0.02 + uniforms.audio_energy * 0.02));
 
-        let final_color = mix(color, uniforms.color_and_transition.rgb, 0.6) * 0.5;
+        let final_color = mix(color, uniforms.color_and_transition.rgb, 0.5) * 0.5;
         
         // Multiply by bg_alpha to allow transparent backgrounds to fade cleanly
         return vec4<f32>(final_color, 0.8 * uniforms.bg_alpha);

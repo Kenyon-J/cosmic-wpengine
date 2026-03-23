@@ -47,6 +47,12 @@ struct ITunesResult {
     artwork_url: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+struct CanvasResponse {
+    #[serde(rename = "canvas_url")]
+    url: Option<String>,
+}
+
 pub struct MprisWatcher;
 
 impl MprisWatcher {
@@ -154,6 +160,8 @@ impl MprisWatcher {
         let mut last_processed_metadata: Option<MetadataUpdate> = None;
         let mut palette_cache: std::collections::HashMap<String, Vec<[f32; 3]>> = std::collections::HashMap::new();
         let mut lyrics_cache: std::collections::HashMap<String, Option<Vec<LyricLine>>> = std::collections::HashMap::new();
+        let mut video_cache: std::collections::HashMap<String, Option<String>> = std::collections::HashMap::new();
+        let mut video_cancel_tx: Option<tokio::sync::watch::Sender<bool>> = None;
         
         let mut last_show_lyrics = show_lyrics.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -207,6 +215,9 @@ impl MprisWatcher {
                     MprisUpdate::ShutDown => {
                         is_playing = false;
                         info!("Player shut down");
+                        if let Some(cancel) = video_cancel_tx.take() {
+                            let _ = cancel.send(true);
+                        }
                         let _ = tx.send(Event::PlayerShutDown).await;
                         last_metadata = None;
                         last_processed_metadata = None;
@@ -218,7 +229,23 @@ impl MprisWatcher {
             if visible && last_metadata != last_processed_metadata {
                 if let Some(meta) = last_metadata.clone() {
                     info!("Fetching track info for: {} - {}", meta.artist, meta.title);
-                    let track_info = Self::build_track_info(&meta, &mut palette_cache, &mut lyrics_cache, current_show_lyrics).await;
+                    let track_info = Self::build_track_info(&meta, &mut palette_cache, &mut lyrics_cache, &mut video_cache, current_show_lyrics).await;
+                    
+                    // Safely kill the previous FFmpeg process if one is running
+                    if let Some(cancel) = video_cancel_tx.take() {
+                        let _ = cancel.send(true);
+                    }
+                    // Spin up the new FFmpeg background decoder pipeline!
+                    if let Some(url) = &track_info.video_url {
+                        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+                        video_cancel_tx = Some(cancel_tx);
+                        let tx_clone = tx.clone();
+                        let url_clone = url.clone();
+                        tokio::spawn(async move {
+                            let _ = super::video::VideoDecoder::run_decoder(url_clone, tx_clone, cancel_rx).await;
+                        });
+                    }
+
                     let _ = tx.send(Event::TrackChanged(track_info)).await;
                     last_processed_metadata = Some(meta);
                 }
@@ -232,6 +259,7 @@ impl MprisWatcher {
         meta: &MetadataUpdate,
         palette_cache: &mut std::collections::HashMap<String, Vec<[f32; 3]>>,
         lyrics_cache: &mut std::collections::HashMap<String, Option<Vec<LyricLine>>>,
+        video_cache: &mut std::collections::HashMap<String, Option<String>>,
         fetch_lyrics: bool,
     ) -> TrackInfo {
         let cache_key = meta.art_url.clone().unwrap_or_else(|| format!("fallback:{}:{}", meta.artist, meta.album));
@@ -291,7 +319,26 @@ impl MprisWatcher {
             }
         };
 
-        let ((album_art, palette), lyrics) = tokio::join!(art_future, lyrics_future);
+        let video_future = async {
+            let mut track_id = None;
+            if meta.track_id.contains("spotify:track:") {
+                track_id = meta.track_id.split(':').next_back();
+            } else if meta.track_id.contains("open.spotify.com/track/") {
+                track_id = meta.track_id.split('/').next_back();
+            }
+            
+            if let Some(id) = track_id {
+                if let Some(cached) = video_cache.get(id) {
+                    cached.clone()
+                } else {
+                    Self::fetch_spotify_canvas(id).await
+                }
+            } else {
+                None
+            }
+        };
+
+        let ((album_art, palette), lyrics, video_url) = tokio::join!(art_future, lyrics_future, video_future);
 
         if cached_palette.is_none() {
             if let Some(p) = &palette {
@@ -301,6 +348,18 @@ impl MprisWatcher {
 
         if cached_lyrics.is_none() && fetch_lyrics {
             lyrics_cache.insert(lyrics_cache_key, lyrics.clone());
+        }
+        
+        let raw_id = if meta.track_id.contains("spotify:track:") {
+            meta.track_id.split(':').next_back()
+        } else if meta.track_id.contains("open.spotify.com/track/") {
+            meta.track_id.split('/').next_back()
+        } else { None };
+        
+        if let Some(id) = raw_id {
+            if !video_cache.contains_key(id) {
+                video_cache.insert(id.to_string(), video_url.clone());
+            }
         }
 
         if lyrics.is_some() {
@@ -314,6 +373,7 @@ impl MprisWatcher {
             album_art,
             palette,
             lyrics,
+            video_url,
         }
     }
 
@@ -370,5 +430,21 @@ impl MprisWatcher {
             }
         }
         anyhow::bail!("No fallback art found")
+    }
+
+    async fn fetch_spotify_canvas(track_id: &str) -> Option<String> {
+        // Note: The official Spotify Web API does NOT expose Canvas URLs.
+        // To get them, the community routes requests through API proxies that
+        // handle the internal gRPC/Protobuf token auth (e.g. 'spotify-canvas-api').
+        // Replace this URL with your local instance or a trusted public proxy API!
+        let proxy_url = format!("http://localhost:3000/api/canvas?track_id={}", track_id);
+        
+        let client = reqwest::Client::new();
+        if let Ok(resp) = client.get(&proxy_url).send().await {
+            if let Ok(data) = resp.json::<CanvasResponse>().await {
+                return data.url; // Contains the raw HTTPS .mp4 stream link!
+            }
+        }
+        None
     }
 }

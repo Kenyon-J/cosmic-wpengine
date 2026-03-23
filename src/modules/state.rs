@@ -65,26 +65,6 @@ impl AppState {
         self.time_of_day = Self::current_time_of_day();
     }
 
-    pub fn lyric_pulse(&self) -> f32 {
-        let Some(track) = &self.current_track else { return 0.0 };
-        let Some(lyrics) = &track.lyrics else { return 0.0 };
-
-        let current_time = self.playback_position.as_secs_f32();
-
-        let idx = lyrics.partition_point(|l| l.start_time_secs <= current_time);
-
-        if idx > 0 {
-            let line = &lyrics[idx - 1];
-            let elapsed = current_time - line.start_time_secs;
-            if (0.0..1.0).contains(&elapsed) {
-                let t = 1.0 - elapsed;
-                return t * t * t;
-            }
-        }
-
-        0.0
-    }
-
     pub fn active_lyrics(&self) -> (Option<&str>, Option<&str>, Option<&str>) {
         let Some(track) = self.current_track.as_ref() else { return (None, None, None); };
         let Some(lyrics) = track.lyrics.as_ref() else { return (None, None, None); };

@@ -10,6 +10,7 @@ pub enum Event {
         bands: Vec<f32>,
         waveform: Vec<f32>,
     },
+    VideoFrame(image::RgbaImage),
     WeatherUpdated(WeatherData),
 }
 
@@ -22,6 +23,7 @@ pub struct TrackInfo {
     pub album_art: Option<image::RgbaImage>,
     pub palette: Option<Vec<[f32; 3]>>,
     pub lyrics: Option<Vec<LyricLine>>,
+    pub video_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]
