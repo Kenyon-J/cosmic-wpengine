@@ -63,7 +63,10 @@ impl MprisWatcher {
     ) -> Result<()> {
         info!("MPRIS watcher started");
 
-        let http_client = reqwest::Client::builder().user_agent("cosmic-wallpaper/1.0").build()?;
+        let http_client = reqwest::Client::builder()
+            .user_agent("cosmic-wallpaper/1.0")
+            .timeout(std::time::Duration::from_secs(10))
+            .build()?;
         let (update_tx, mut update_rx) = tokio::sync::mpsc::channel(16);
         
         // Background position polling to handle media players that fail to send Seeked signals
@@ -88,7 +91,7 @@ impl MprisWatcher {
                     if let Ok(status) = player.get_playback_status() {
                         if status == mpris::PlaybackStatus::Playing {
                             if let Ok(pos) = player.get_position() {
-                                let _ = poll_tx.blocking_send(Event::PlaybackPosition(pos));
+                                let _ = poll_tx.try_send(Event::PlaybackPosition(pos));
                             }
                         }
                     }
@@ -127,7 +130,7 @@ impl MprisWatcher {
                     let _ = update_tx.blocking_send(MprisUpdate::Status(status));
                 }
                 if let Ok(pos) = player.get_position() {
-                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                    let _ = update_tx.try_send(MprisUpdate::Position(pos));
                 }
 
                 if let Ok(events) = player.events() {
@@ -136,19 +139,19 @@ impl MprisWatcher {
                             Ok(mpris::Event::TrackChanged(metadata)) => {
                                 let _ = update_tx.blocking_send(MprisUpdate::Metadata(MetadataUpdate::from_metadata(&metadata)));
                                 if let Ok(pos) = player.get_position() {
-                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                                    let _ = update_tx.try_send(MprisUpdate::Position(pos));
                                 }
                             }
                             Ok(mpris::Event::Playing) => {
                                 let _ = update_tx.blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Playing));
                                 if let Ok(pos) = player.get_position() {
-                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                                    let _ = update_tx.try_send(MprisUpdate::Position(pos));
                                 }
                             }
                             Ok(mpris::Event::Paused) => {
                                 let _ = update_tx.blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Paused));
                                 if let Ok(pos) = player.get_position() {
-                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                                    let _ = update_tx.try_send(MprisUpdate::Position(pos));
                                 }
                             }
                             Ok(mpris::Event::Stopped) => {
@@ -156,7 +159,7 @@ impl MprisWatcher {
                             }
                             Ok(mpris::Event::Seeked { position_in_us }) => {
                                 let pos = std::time::Duration::from_micros(position_in_us);
-                                let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                                let _ = update_tx.try_send(MprisUpdate::Position(pos));
                             }
                             Ok(mpris::Event::PlayerShutDown) => {
                                 let _ = update_tx.blocking_send(MprisUpdate::ShutDown);
@@ -345,7 +348,7 @@ impl MprisWatcher {
             } else if let Some(cached) = cached_lyrics.clone() {
                 cached
             } else {
-                lrclib::fetch_synced_lyrics(&meta.title, &meta.artist, &meta.album).await
+                lrclib::fetch_synced_lyrics(&meta.title, &meta.artist, &meta.album, client).await
             }
         };
 

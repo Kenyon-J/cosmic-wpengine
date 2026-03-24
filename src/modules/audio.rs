@@ -18,7 +18,7 @@ impl AudioCapture {
     pub async fn run(tx: Sender<Event>, is_visible: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Result<()> {
         info!("Audio capture started");
 
-        let (audio_tx, mut audio_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<f32>>();
+        let (audio_tx, mut audio_rx) = tokio::sync::mpsc::channel::<Vec<f32>>(16);
 
         tokio::task::spawn_blocking(move || Self::run_pipewire_capture(audio_tx));
 
@@ -74,7 +74,7 @@ impl AudioCapture {
         Ok(())
     }
 
-    fn run_pipewire_capture(tx: tokio::sync::mpsc::UnboundedSender<Vec<f32>>) {
+    fn run_pipewire_capture(tx: tokio::sync::mpsc::Sender<Vec<f32>>) {
         pipewire::init();
 
         let mainloop = MainLoopBox::new(None).expect("Failed to create PipeWire mainloop");
@@ -184,7 +184,7 @@ impl AudioCapture {
                     while sample_buffer.len() >= FFT_SIZE {
                         let frame = sample_buffer[..FFT_SIZE].to_vec();
                         sample_buffer.drain(..FFT_SIZE);
-                        let _ = tx.send(frame);
+                        let _ = tx.try_send(frame);
                     }
                 } else if frame_counter.is_multiple_of(50) {
                     warn!("PipeWire process callback fired, but dequeue_buffer() returned None.");

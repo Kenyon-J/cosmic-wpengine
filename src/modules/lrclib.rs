@@ -9,9 +9,7 @@ struct LrclibResponse {
     synced_lyrics: Option<String>,
 }
 
-pub async fn fetch_synced_lyrics(title: &str, artist: &str, album: &str) -> Option<Vec<LyricLine>> {
-    let client = reqwest::Client::new();
-    
+pub async fn fetch_synced_lyrics(title: &str, artist: &str, album: &str, client: &reqwest::Client) -> Option<Vec<LyricLine>> {
     let resp = client.get("https://lrclib.net/api/get")
         .query(&[
             ("track_name", title),
