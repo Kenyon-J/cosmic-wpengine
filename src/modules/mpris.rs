@@ -63,14 +63,20 @@ impl MprisWatcher {
     ) -> Result<()> {
         info!("MPRIS watcher started");
 
+        let http_client = reqwest::Client::builder().user_agent("cosmic-wallpaper/1.0").build()?;
         let (update_tx, mut update_rx) = tokio::sync::mpsc::channel(16);
         
         // Background position polling to handle media players that fail to send Seeked signals
         let poll_tx = tx.clone();
+        let poll_visible = is_visible.clone();
         tokio::task::spawn_blocking(move || {
             let mut finder = mpris::PlayerFinder::new();
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(1));
+                // Suspend D-Bus heavy polling when wallpaper is out of view
+                if !poll_visible.load(std::sync::atomic::Ordering::Relaxed) {
+                    continue;
+                }
                 let f = match finder.as_ref() {
                     Ok(f) => f,
                     Err(_) => {
@@ -243,8 +249,16 @@ impl MprisWatcher {
             // If we are visible and have unprocessed metadata, fetch the art, palette, and lyrics!
             if visible && last_metadata != last_processed_metadata {
                 if let Some(meta) = last_metadata.clone() {
+                    // Prevent boundless memory growth in caches for a long-running process
+                    if palette_cache.len() > 50 {
+                        info!("Clearing MPRIS caches to free memory...");
+                        palette_cache.clear();
+                        lyrics_cache.clear();
+                        video_cache.clear();
+                    }
+
                     info!("Fetching track info for: {} - {}", meta.artist, meta.title);
-                    let track_info = Self::build_track_info(&meta, &mut palette_cache, &mut lyrics_cache, &mut video_cache, current_show_lyrics).await;
+                    let track_info = Self::build_track_info(&meta, &mut palette_cache, &mut lyrics_cache, &mut video_cache, current_show_lyrics, &http_client).await;
                     
                     // Safely kill the previous FFmpeg process if one is running
                     if let Some(cancel) = video_cancel_tx.take() {
@@ -276,6 +290,7 @@ impl MprisWatcher {
         lyrics_cache: &mut std::collections::HashMap<String, Option<Vec<LyricLine>>>,
         video_cache: &mut std::collections::HashMap<String, Option<String>>,
         fetch_lyrics: bool,
+        client: &reqwest::Client,
     ) -> TrackInfo {
         let cache_key = meta.art_url.clone().unwrap_or_else(|| format!("fallback:{}:{}", meta.artist, meta.album));
         let cached_palette = palette_cache.get(&cache_key).cloned();
@@ -286,7 +301,7 @@ impl MprisWatcher {
         let art_future = async {
             let mut local_img = None;
             if let Some(art_url) = &meta.art_url {
-                match Self::fetch_album_art(art_url).await {
+                match Self::fetch_album_art(art_url, client).await {
                     Ok(img) => {
                         local_img = Some(img);
                     }
@@ -300,7 +315,7 @@ impl MprisWatcher {
                 Some(img)
             } else {
                 info!("Attempting to fetch fallback album art online...");
-                match Self::fetch_fallback_album_art(&meta.artist, &meta.album, &meta.title).await {
+                match Self::fetch_fallback_album_art(&meta.artist, &meta.album, &meta.title, client).await {
                     Ok(img) => {
                         Some(img)
                     }
@@ -346,7 +361,7 @@ impl MprisWatcher {
                 if let Some(cached) = video_cache.get(id) {
                     cached.clone()
                 } else {
-                    Self::fetch_spotify_canvas(id).await
+                    Self::fetch_spotify_canvas(id, client).await
                 }
             } else {
                 None
@@ -392,7 +407,7 @@ impl MprisWatcher {
         }
     }
 
-    async fn fetch_album_art(url: &str) -> Result<image::DynamicImage> {
+    async fn fetch_album_art(url: &str, client: &reqwest::Client) -> Result<image::DynamicImage> {
         // Safely decode percent-encoded URLs handling UTF-8 multibyte characters correctly
         let mut bytes = Vec::new();
         let mut chars = url.chars().peekable();
@@ -421,7 +436,6 @@ impl MprisWatcher {
             let bytes = std::fs::read(&decoded_url)?;
             Ok(image::load_from_memory(&bytes)?)
         } else if decoded_url.starts_with("http") {
-            let client = reqwest::Client::builder().user_agent("cosmic-wallpaper/1.0").build()?;
             let bytes = client.get(&decoded_url).send().await?.bytes().await?;
             Ok(image::load_from_memory(&bytes)?)
         } else {
@@ -429,14 +443,12 @@ impl MprisWatcher {
         }
     }
 
-    async fn fetch_fallback_album_art(artist: &str, album: &str, title: &str) -> Result<image::DynamicImage> {
+    async fn fetch_fallback_album_art(artist: &str, album: &str, title: &str, client: &reqwest::Client) -> Result<image::DynamicImage> {
         let search_str = if album.is_empty() || album == "Unknown" {
             format!("{} {}", artist, title)
         } else {
             format!("{} {}", artist, album)
         };
-        
-        let client = reqwest::Client::builder().user_agent("cosmic-wallpaper/1.0").build()?;
         
         let resp: ITunesResponse = client.get("https://itunes.apple.com/search")
             .query(&[("term", search_str.as_str()), ("entity", "song"), ("limit", "1")])
@@ -455,14 +467,13 @@ impl MprisWatcher {
         anyhow::bail!("No fallback art found on iTunes")
     }
 
-    async fn fetch_spotify_canvas(track_id: &str) -> Option<String> {
+    async fn fetch_spotify_canvas(track_id: &str, client: &reqwest::Client) -> Option<String> {
         // Note: The official Spotify Web API does NOT expose Canvas URLs.
         // To get them, the community routes requests through API proxies that
         // handle the internal gRPC/Protobuf token auth (e.g. 'spotify-canvas-api').
         // Replace this URL with your local instance or a trusted public proxy API!
         let proxy_url = format!("http://localhost:3000/api/canvas?track_id={}", track_id);
         
-        let client = reqwest::Client::new();
         if let Ok(resp) = client.get(&proxy_url).send().await {
             if let Ok(data) = resp.json::<CanvasResponse>().await {
                 return data.url; // Contains the raw HTTPS .mp4 stream link!
