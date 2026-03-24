@@ -21,7 +21,7 @@
 
 * **Media Integration**: Displays album art from MPRIS-compatible players (Spotify, VLC, Firefox, etc.).
 * **Artwork Fallback**: Queries the iTunes API for cover art if local artwork is unavailable (e.g., due to sandboxing).
-* **Spotify Canvas**: Fetches and plays looping video backgrounds for supported tracks via FFmpeg.
+* **Spotify Canvas**: Fetches and plays looping video backgrounds for supported tracks via FFmpeg *(Note: Requires a local Canvas API proxy)*.
 * **Synced Lyrics**: Uses the LRCLIB API to display time-synced lyrics with audio-reactive, physics-based animations.
 * **Audio Visualizer**: Captures system audio via PipeWire and renders an FFT-based visualizer with customizable styles.
 * **Desktop Integration**: Reads the active COSMIC desktop wallpaper to render native transparent and frosted-glass effects.
@@ -42,15 +42,19 @@ cosmic-wallpaper/
 │       ├── state.rs         # Render-state interpolation & easing
 │       ├── event.rs         # Concurrency event messaging
 │       ├── mpris.rs         # D-Bus Media Player integration
+│       ├── lrclib.rs        # Time-synced lyrics API integration
+│       ├── video.rs         # FFmpeg background video decoding
+│       ├── tray.rs          # System tray menu and GUI launcher
 │       ├── audio.rs         # PipeWire Capture & FFT computation
 │       ├── weather.rs       # Open-Meteo API polling
 │       ├── renderer.rs      # wgpu multi-surface compositor
 │       ├── wayland.rs       # wlr-layer-shell surface management
-│       └── colour.rs        # K-Means palette extraction
-└── src/shaders/
-    ├── album_art.wgsl       # Frosted glass, dropshadows & art
-    ├── ambient.wgsl         # Procedural sky & weather patterns
-    └── visualiser.wgsl      # Audio-reactive frequency blooms
+│       ├── colour.rs        # K-Means palette extraction
+│       ├── album_art.wgsl   # Frosted glass, dropshadows & art
+│       ├── ambient.wgsl     # Procedural sky & weather patterns
+│       ├── visualiser.wgsl  # Audio-reactive frequency blooms
+│       ├── weather_render.wgsl  # Weather particle rendering
+│       └── weather_compute.wgsl # Weather particle compute physics
 ```
 
 ## Dependencies
@@ -66,7 +70,7 @@ cosmic-wallpaper/
 | `ksni` | D-Bus system tray integration |
 | `image` | Album art decoding |
 | `palette` | Colour manipulation |
-| `reqwest` | HTTP client for weather API |
+| `reqwest` | HTTP client for weather, LRCLIB, and iTunes fallback APIs |
 | `serde` + `toml` | Config file serialisation |
 
 ## Prerequisites
@@ -95,8 +99,8 @@ sudo pacman -S clang pipewire pkgconf
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Clone and build
-git clone https://github.com/yourname/cosmic-wallpaper
-cd cosmic-wallpaper
+git clone https://github.com/Kenyon-J/cosmic-wpengine
+cd cosmic-wpengine
 # This builds both the main engine and the cosmic-wallpaper-gui binary
 cargo build --release
 
