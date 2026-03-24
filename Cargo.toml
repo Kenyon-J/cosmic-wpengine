@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "A live wallpaper engine for the COSMIC desktop"
 license = "MIT"
+default-run = "cosmic-wallpaper"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }
 smithay-client-toolkit = { version = "0.19", features = ["calloop"] }
 wayland-client = "0.31"
 raw-window-handle = "0.6"
@@ -18,7 +19,7 @@ pipewire = "0.9.2"
 rustfft = "6"
 image = { version = "0.24", features = ["jpeg", "png"] }
 palette = "0.7"
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 notify = "6"
@@ -26,7 +27,20 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 ksni = "0.2"
+cosmic = { package = "libcosmic", git = "https://github.com/pop-os/libcosmic.git" }
+iced = { git = "https://github.com/pop-os/libcosmic.git", package = "iced", features = ["highlighter"] }
 
 [profile.release]
 opt-level = 3
 lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[[bin]]
+name = "cosmic-wallpaper"
+path = "src/main.rs"
+
+[[bin]]
+name = "cosmic-wallpaper-gui"
+path = "src/modules/gui.rs"

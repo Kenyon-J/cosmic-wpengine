@@ -18,7 +18,6 @@ pub enum Event {
 pub struct TrackInfo {
     pub title: String,
     pub artist: String,
-    #[allow(dead_code)]
     pub album: String,
     pub album_art: Option<image::RgbaImage>,
     pub palette: Option<Vec<[f32; 3]>>,
@@ -36,8 +35,6 @@ pub struct LyricLine {
 pub struct WeatherData {
     pub condition: WeatherCondition,
     pub temperature_celsius: f32,
-    #[allow(dead_code)]
-    pub location: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]

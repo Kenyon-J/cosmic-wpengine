@@ -6,6 +6,10 @@ struct Uniforms {
     mode: u32,
     bg_alpha: f32,
     art_size: f32,
+    shape: u32,
+    pad1: u32,
+    pad2: u32,
+    pad3: u32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -55,9 +59,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if uniforms.mode == 1u {
         let size = uniforms.art_size;
-        let radius = 0.02;
         let p = vec2<f32>((uv.x - uniforms.art_position.x) * aspect, uv.y - uniforms.art_position.y);
-        let d = length(max(abs(p) - vec2<f32>(size - radius), vec2<f32>(0.0))) - radius;
+        
+        var d: f32 = 0.0;
+        if uniforms.shape == 1u {
+            d = length(p) - size; // Circular mask
+        } else {
+            let radius = 0.02;
+            d = length(max(abs(p) - vec2<f32>(size - radius), vec2<f32>(0.0))) - radius; // Rounded square mask
+        }
 
         if d > 0.0 {
             return vec4<f32>(0.0);

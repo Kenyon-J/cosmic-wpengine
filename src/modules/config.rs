@@ -47,25 +47,44 @@ pub struct AudioConfig {
     pub style: String,
     pub bands: usize,
     pub smoothing: f32,
-    pub color_top: Option<[f32; 3]>,
-    pub color_bottom: Option<[f32; 3]>,
     #[serde(default = "default_show_lyrics")]
     pub show_lyrics: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppearanceConfig {
     #[serde(default)]
     pub disable_blur: bool,
+    #[serde(default = "default_blur_opacity")]
+    pub blur_opacity: f32,
     #[serde(default)]
     pub transparent_background: bool,
+    #[serde(default = "default_true")]
+    pub show_album_art: bool,
+    #[serde(default = "default_true")]
+    pub album_art_background: bool,
     pub custom_background_path: Option<String>,
 }
+
+fn default_true() -> bool { true }
 
 fn default_show_lyrics() -> bool { true }
 fn default_audio_style() -> String { "monstercat".to_string() }
 fn default_temp_unit() -> TemperatureUnit { TemperatureUnit::Celsius }
+fn default_blur_opacity() -> f32 { 0.4 } // 40% blur opacity matches your previous favourite look!
 
+impl Default for AppearanceConfig {
+    fn default() -> Self {
+        Self {
+            disable_blur: false,
+            blur_opacity: 0.4,
+            transparent_background: false,
+            show_album_art: true,
+            album_art_background: true,
+            custom_background_path: None,
+        }
+    }
+}
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ThemeLayout {
     #[serde(default = "default_album_art_layout")]
@@ -78,7 +97,26 @@ pub struct ThemeLayout {
     pub weather: TextLayout,
     #[serde(default = "default_visualiser_layout")]
     pub visualiser: VisualiserLayout,
+    #[serde(default)]
+    pub effects: EffectsLayout,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct EffectsLayout {
+    #[serde(default = "default_lyric_bounce")]
+    pub lyric_bounce: f32,
+    #[serde(default = "default_beat_pulse")]
+    pub beat_pulse: f32,
+}
+
+impl Default for EffectsLayout {
+    fn default() -> Self {
+        Self { lyric_bounce: 1.0, beat_pulse: 1.0 }
+    }
+}
+
+fn default_lyric_bounce() -> f32 { 1.0 }
+fn default_beat_pulse() -> f32 { 1.0 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VisualiserLayout {
@@ -101,6 +139,7 @@ pub struct VisualiserLayout {
 pub enum VisShape {
     Circular,
     Linear,
+    Square,
 }
 
 fn default_vis_shape() -> VisShape { VisShape::Circular }
@@ -199,6 +238,7 @@ impl Default for ThemeLayout {
             lyrics: default_lyrics_layout(),
             weather: default_weather_layout(),
             visualiser: default_visualiser_layout(),
+            effects: EffectsLayout::default(),
         }
     }
 }
@@ -218,14 +258,14 @@ impl ThemeLayout {
         if style == "monstercat" {
             theme.visualiser.shape = VisShape::Linear;
             theme.visualiser.position = [0.5, 0.5];
-            theme.visualiser.size = 1.0;
+            theme.visualiser.size = 0.85;
             theme.visualiser.amplitude = 1.5;
-            theme.album_art.position = [0.15, 0.8];
+            theme.album_art.position = [0.55, 0.7];
             theme.album_art.size = 0.15;
             theme.album_art.shape = ArtShape::Square;
-            theme.track_info.position = [0.28, 0.75];
+            theme.track_info.position = [0.65, 0.65];
             theme.track_info.align = TextAlign::Left;
-            theme.lyrics.position = [0.28, 0.85];
+            theme.lyrics.position = [0.65, 0.75];
             theme.lyrics.align = TextAlign::Left;
         } else if style == "waveform" {
             theme.visualiser.shape = VisShape::Circular;
@@ -266,8 +306,12 @@ align = "right"
 shape = "circular"
 position = [0.5, 0.5]
 size = 0.25
-rotation = 0.0
+rotation = 0.0 # Visualiser angle in degrees (0.0 to 360.0)
 amplitude = 1.0
+
+[effects]
+lyric_bounce = 0.5 # Dialed down for cleaner UI
+beat_pulse = 0.5
 # color_top = [1.0, 0.2, 0.5]      # Optional fixed colours (RGB 0.0 - 1.0)
 # color_bottom = [0.2, 0.5, 1.0]
 "#)?;
@@ -281,15 +325,16 @@ amplitude = 1.0
 # A sleek, linear audio visualiser layout inspired by Monstercat's videos.
 
 [album_art]
-position = [0.15, 0.7]
-size = 0.10
+position = [0.55, 0.7]
+size = 0.15
+shape = "square"
 
 [track_info]
-position = [0.26, 0.65]
+position = [0.65, 0.65]
 align = "left"
 
 [lyrics]
-position = [0.26, 0.75]
+position = [0.65, 0.75]
 align = "left"
 
 [weather]
@@ -298,10 +343,14 @@ align = "right"
 
 [visualiser]
 shape = "linear"
-position = [0.5, 0.95]
+position = [0.5, 0.5]
 size = 0.85
-rotation = 0.0
+rotation = 0.0 # Rotate to 90.0 for a vertical bar!
 amplitude = 1.5
+
+[effects]
+lyric_bounce = 0.5
+beat_pulse = 0.5
 # color_top = [1.0, 0.2, 0.5]      # Optional fixed colours (RGB 0.0 - 1.0)
 # color_bottom = [0.2, 0.5, 1.0]
 "#)?;
@@ -335,8 +384,12 @@ align = "right"
 shape = "circular"
 position = [0.5, 0.5]
 size = 0.25
-rotation = 0.0
+rotation = 0.0 # Visualiser angle in degrees
 amplitude = 1.0
+
+[effects]
+lyric_bounce = 0.5
+beat_pulse = 0.5
 # color_top = [1.0, 0.2, 0.5]      # Optional fixed colours (RGB 0.0 - 1.0)
 # color_bottom = [0.2, 0.5, 1.0]
 "#)?;
@@ -441,6 +494,7 @@ impl Config {
         }
     }
 
+    #[allow(dead_code)]
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path();
         if let Some(parent) = path.parent() {
@@ -527,8 +581,6 @@ impl Default for Config {
                 style: "monstercat".to_string(),
                 bands: 64,
                 smoothing: 0.7,
-                color_top: None,
-                color_bottom: None,
                 show_lyrics: true,
             },
             appearance: AppearanceConfig::default(),

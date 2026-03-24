@@ -131,6 +131,14 @@ impl Renderer {
             .or_else(|_| std::fs::read("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf")) // Debian/Ubuntu
             .or_else(|_| std::fs::read("/usr/share/fonts/cantarell/Cantarell-Regular.ttf")) // Fedora/GNOME
             .or_else(|_| std::fs::read("/usr/share/fonts/TTF/Cantarell-Regular.ttf")) // Arch GNOME
+            // Flatpak Sandbox Host Mounts
+            .or_else(|_| std::fs::read("/run/host/fonts/truetype/ubuntu/Ubuntu-R.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/truetype/dejavu/DejaVuSans.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/liberation/LiberationSans-Regular.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/TTF/DejaVuSans.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/TTF/LiberationSans-Regular.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/noto/NotoSans-Regular.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/cantarell/Cantarell-Regular.ttf"))
             .expect("Could not find a valid system font! Please install 'ttf-dejavu', 'ttf-liberation', or 'noto-fonts'.");
         let primary_font = wgpu_text::glyph_brush::ab_glyph::FontArc::try_from_vec(font_bytes).unwrap();
 
@@ -142,6 +150,11 @@ impl Renderer {
             "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", // Fedora
             "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf", // Generic Fallback
             "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc", // Generic Fallback
+            "/run/host/fonts/noto-cjk/NotoSansCJK-Regular.ttc", // Arch
+            "/run/host/fonts/opentype/noto/NotoSansCJK-Regular.ttc", // Ubuntu/Debian
+            "/run/host/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", // Fedora
+            "/run/host/fonts/truetype/droid/DroidSansFallbackFull.ttf", // Generic Fallback
+            "/run/host/fonts/wqy-microhei/wqy-microhei.ttc", // Generic Fallback
         ];
         for path in fallback_paths {
             if let Ok(bytes) = std::fs::read(path) {
@@ -248,7 +261,7 @@ impl Renderer {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(48),
+                        min_binding_size: wgpu::BufferSize::new(64),
                     },
                     count: None,
                 },
@@ -944,7 +957,9 @@ impl Renderer {
         };
         // Combine the base volume energy with our snappy treble pulse, strictly capped to prevent blown out flashing
         let audio_energy = (base_energy * 0.3 + self.treble_pulse * 0.4).clamp(0.0, 1.0);
-        let has_art = (self.state.current_track.as_ref().and_then(|t| t.album_art.as_ref()).is_some() || force_art) && !force_weather && !force_vis;
+        let has_media = (self.state.current_track.as_ref().and_then(|t| t.album_art.as_ref()).is_some() || force_art) && !force_weather && !force_vis;
+        let show_art_fg = has_media && self.state.config.appearance.show_album_art;
+        let show_art_bg = has_media && self.state.config.appearance.album_art_background;
         
         let clear_colour = self.get_clear_colour();
         // Use our new smart audio-reactive beat detector instead of the generic timer
@@ -1023,8 +1038,8 @@ impl Renderer {
             // 1. Process visualizer uniforms
             if has_audio {
                 let get_colors = |palette: Option<&[[f32; 3]]>| -> ([f32; 3], [f32; 3]) {
-                    let top = self.theme.visualiser.color_top.or(self.state.config.audio.color_top);
-                    let bottom = self.theme.visualiser.color_bottom.or(self.state.config.audio.color_bottom);
+                    let top = self.theme.visualiser.color_top;
+                    let bottom = self.theme.visualiser.color_bottom;
 
                     match palette {
                         _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
@@ -1063,6 +1078,7 @@ impl Renderer {
                 let shape_u32 = match self.theme.visualiser.shape {
                     super::config::VisShape::Circular => 0,
                     super::config::VisShape::Linear => 1,
+                    super::config::VisShape::Square => 2,
                 };
                 let vis_uniforms = VisUniforms {
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
@@ -1082,7 +1098,7 @@ impl Renderer {
             }
 
             // 2. Process album art uniforms
-            if has_art {
+            if show_art_fg || show_art_bg {
                 if let Some(track) = &self.state.current_track {
                     let target_color = track.palette.as_deref().and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
                     let color = if self.state.transition_progress < 1.0 {
@@ -1091,7 +1107,9 @@ impl Renderer {
                     } else { target_color };
 
                     let bg_mode = if self.state.config.appearance.disable_blur { 2 } else { 0 };
-                    let bg_alpha_val = 1.0 - self.state.transparent_fade;
+                    // Fade down to user-configured blur strength when transparent background is enabled
+                    let target_blur = self.state.config.appearance.blur_opacity;
+                    let bg_alpha_val = 1.0 - (self.state.transparent_fade * (1.0 - target_blur));
                     
                     #[repr(C)]
                     struct ArtUniforms { 
@@ -1246,8 +1264,8 @@ impl Renderer {
                 }
 
                 if let Some(text) = current_lyric {
-                    let scale = active_font_size + self.lyric_bounce_value * 8.0;
-                    let active_y = ly - (self.lyric_bounce_value * 12.0);
+                    let scale = active_font_size + (self.lyric_bounce_value * 8.0 * self.theme.effects.lyric_bounce);
+                    let active_y = ly - (self.lyric_bounce_value * 12.0 * self.theme.effects.lyric_bounce);
                     owned_sections.push(Section::default().add_text(Text::new(text).with_scale(scale).with_color([1.0, 1.0, 1.0, 1.0]))
                         .with_screen_position((lx, active_y)).with_layout(Layout::default().h_align(l_align)));
                 }
@@ -1304,18 +1322,14 @@ impl Renderer {
 
                 // 0. Custom Desktop Wallpaper Background
                 if let Some(bind_group) = &self.custom_bg_bind_group {
-                    if self.state.transparent_fade < 1.0 {
-                        render_pass.set_pipeline(&self.album_art_pipeline);
-                        render_pass.set_bind_group(0, bind_group, &[]);
-                        render_pass.draw(0..3, 0..1);
-                    }
+                    render_pass.set_pipeline(&self.album_art_pipeline);
+                    render_pass.set_bind_group(0, bind_group, &[]);
+                    render_pass.draw(0..3, 0..1);
                 } else {
                     // 1. ALWAYS Draw Ambient Weather Background
-                    if self.state.transparent_fade < 1.0 {
-                        render_pass.set_pipeline(&self.ambient_pipeline);
-                        render_pass.set_bind_group(0, &self.ambient_bind_group, &[]);
-                        render_pass.draw(0..3, 0..1);
-                    }
+                    render_pass.set_pipeline(&self.ambient_pipeline);
+                    render_pass.set_bind_group(0, &self.ambient_bind_group, &[]);
+                    render_pass.draw(0..3, 0..1);
                 }
 
                 // 1.5 Overlay Weather Particles (Rain / Snow)
@@ -1323,14 +1337,14 @@ impl Renderer {
                     use super::event::WeatherCondition;
                     matches!(w.condition, WeatherCondition::Rain | WeatherCondition::Snow | WeatherCondition::Thunderstorm)
                 });
-                if is_weather_active && self.state.transparent_fade < 1.0 {
+                if is_weather_active {
                     render_pass.set_pipeline(&self.weather_render_pipeline);
                     render_pass.set_bind_group(0, &self.weather_render_bind_group, &[]);
                     render_pass.draw(0..6, 0..10000); // 6 vertices per quad, 10000 particles!
                 }
 
                 // 2. Overlay Frosted Glass Background (Transparent)
-                if has_art && self.state.transparent_fade < 1.0 {
+                if show_art_bg {
                     if let Some(bind_group) = &self.album_art_bg_bind_group {
                         render_pass.set_pipeline(&self.album_art_pipeline);
                         render_pass.set_bind_group(0, bind_group, &[]);
@@ -1346,7 +1360,7 @@ impl Renderer {
                 }
 
                 // 4. Overlay Foreground Art
-                if has_art {
+                if show_art_fg {
                     if let Some(bind_group) = &self.album_art_fg_bind_group {
                         render_pass.set_pipeline(&self.album_art_pipeline);
                         render_pass.set_bind_group(0, bind_group, &[]);

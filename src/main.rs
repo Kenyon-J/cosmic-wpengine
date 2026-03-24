@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
                 if let Err(e) = Config::watch(config_tx).await { tracing::warn!("Config watcher failed: {}", e); }
             });
             
-            let tray = WallpaperTray::new(config.clone());
+            let tray = WallpaperTray::new();
             ksni::TrayService::new(tray).spawn();
 
             let wayland_manager = WaylandManager::new()?;

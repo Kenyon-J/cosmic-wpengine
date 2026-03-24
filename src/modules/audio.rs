@@ -83,22 +83,7 @@ impl AudioCapture {
             .connect(None)
             .expect("Failed to connect to PipeWire");
 
-        let mut default_sink = String::new();
-        if let Ok(out) = std::process::Command::new("wpctl").arg("inspect").arg("@DEFAULT_AUDIO_SINK@").output() {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for line in stdout.lines() {
-                let line = line.trim();
-                if line.starts_with("* node.name =") || line.starts_with("node.name =") {
-                    let parts: Vec<&str> = line.split('"').collect();
-                    if parts.len() >= 2 {
-                        default_sink = parts[1].to_string();
-                        break;
-                    }
-                }
-            }
-        }
-
-        let mut props = properties! {
+        let props = properties! {
             *pipewire::keys::APP_NAME => "cosmic-wallpaper",
             *pipewire::keys::MEDIA_TYPE => "Audio",
             *pipewire::keys::MEDIA_CATEGORY => "Capture",
@@ -112,11 +97,6 @@ impl AudioCapture {
             "audio.channels" => "2",
             "audio.position" => "FL,FR", 
         };
-
-        if !default_sink.is_empty() {
-            info!("Forcing PipeWire to explicitly link DSP ports to: {}", default_sink);
-            props.insert("target.object", default_sink.as_str());
-        }
 
         let stream = pipewire::stream::StreamBox::new(
             &core,

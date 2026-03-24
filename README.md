@@ -1,12 +1,12 @@
 <div align="center">
   
-# 🌌 cosmic-wallpaper
+# cosmic-wallpaper
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg?logo=rust)](https://www.rust-lang.org)
 [![Wayland](https://img.shields.io/badge/wayland-native-success?logo=linux)](https://wayland.freedesktop.org/)
 [![COSMIC](https://img.shields.io/badge/optimized_for-COSMIC-orange)](#)
 
-**A next-generation, heavily reactive live wallpaper engine natively built for Wayland and the [COSMIC desktop](https://system76.com/cosmic), written in Rust.**
+**A Wayland-native live wallpaper engine optimized for the [COSMIC desktop](https://system76.com/cosmic), written in Rust.**
 
 <br />
 
@@ -17,21 +17,21 @@
 
 ---
 
-## ✨ Features
+## Features
 
-* 🎵 **Dynamic Media Hub** — Displays perfectly scaled, frosted-glass-styled album art from any MPRIS-compatible player (Spotify, VLC, Tidal, Firefox, etc.).
-* 🌐 **Smart Art Fallback** — Automatically queries the iTunes API for gorgeous high-res 600x600 covers if your local media player (e.g., Flatpak/Snap sandboxed apps) fails to provide artwork.
-* 🎤 **Synced Karaoke Lyrics** — Seamlessly polls the free LRCLIB API to render perfectly synced, cleanly shadowed kinetic typography that physically springs and bounces to the beat!
-* 📊 **Realtime Audio Visualiser** — Captures 32-bit float audio directly via PipeWire, feeding a zero-allocation Fast Fourier Transform (FFT) with **perceptual A-weighting** and **logarithmic frequency scaling**. Choose between responsive equalizer "Bars" or "Waveform" styles!
-* 🖼️ **Native Desktop Integration** — Natively parses your active COSMIC desktop wallpaper to draw it natively into the wgpu render pass, bypassing Wayland layer isolation. Toggle "Transparent Background" on the fly for a stunning floating UI over your desktop!
-* 🖱️ **System Tray Applet** — Control your wallpaper engine instantly with a built-in D-Bus system tray menu. Toggle lyrics, frosted blur, and background transparency with zero-latency hot-reloading.
-* �️ **Weather & Time Reactive** — When media is paused, the background gracefully crossfades into a procedural WGSL weather engine. Experience rain streaks, snow, and drifting clouds synced to your local Open-Meteo conditions and time-of-day.
-* 🚀 **Wayland Native** — Built on `smithay-client-toolkit` using `wlr-layer-shell` and `wgpu`. Fully supports HiDPI scaling, fractional rendering, and dynamic multi-monitor ultra-wide arrays out of the box.
-* ⚙️ **Live Configuration** — Config files are hot-reloaded instantly via the system tray or `.toml` file edits.
+* **Media Integration**: Displays album art from MPRIS-compatible players (Spotify, VLC, Firefox, etc.).
+* **Artwork Fallback**: Queries the iTunes API for cover art if local artwork is unavailable (e.g., due to sandboxing).
+* **Spotify Canvas**: Fetches and plays looping video backgrounds for supported tracks via FFmpeg.
+* **Synced Lyrics**: Uses the LRCLIB API to display time-synced lyrics with audio-reactive, physics-based animations.
+* **Audio Visualizer**: Captures system audio via PipeWire and renders an FFT-based visualizer with customizable styles.
+* **Desktop Integration**: Reads the active COSMIC desktop wallpaper to render native transparent and frosted-glass effects.
+* **Settings GUI & Tray**: Includes a `libcosmic`-based configuration app and a D-Bus system tray applet for managing settings.
+* **Weather Effects**: Uses GPU compute shaders to render weather particles (rain, snow) based on local Open-Meteo data.
+* **Wayland Support**: Built with `smithay-client-toolkit` (`wlr-layer-shell`) and `wgpu`, fully supporting multi-monitor setups and fractional scaling.
 
-## 🏗️ Architecture
+## Architecture
 
-The engine is highly parallelized. Subsystems run as independent `tokio` asynchronous tasks, channeling zero-copy events to the main `wgpu` render loop:
+The engine is highly parallelized. Subsystems run as independent `tokio` asynchronous tasks, channeling events to the main `wgpu` render loop:
 
 ```
 cosmic-wallpaper/
@@ -75,6 +75,19 @@ cosmic-wallpaper/
 - PipeWire (standard on modern Linux)
 - A media player that supports MPRIS (Spotify, VLC, Firefox, etc.)
 
+### System Dependencies
+
+To compile the application, you'll need the PipeWire development headers and Clang (required by `bindgen` to generate the PipeWire Rust bindings).
+
+**Ubuntu / Pop!_OS:**
+```bash
+sudo apt install clang libclang-dev libpipewire-0.3-dev pkg-config
+```
+**Arch Linux:**
+```bash
+sudo pacman -S clang pipewire pkgconf
+```
+
 ## Building
 
 ```bash
@@ -84,6 +97,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # Clone and build
 git clone https://github.com/yourname/cosmic-wallpaper
 cd cosmic-wallpaper
+# This builds both the main engine and the cosmic-wallpaper-gui binary
 cargo build --release
 
 # Run
@@ -169,6 +183,9 @@ The renderer processes events each frame, updates `AppState`, and dispatches to 
 
 - [x] System Tray (AppIndicator) menu for quick settings toggles (Blur, Lyrics, Backgrounds)
 - [x] User-loadable custom shaders
-- [ ] Hardware-accelerated compute shaders for weather particles
-- [ ] Spotify Canvas (short video loops) background support
+- [x] Hardware-accelerated compute shaders for weather particles
+- [x] Spotify Canvas (short video loops) background support
 - [x] Advanced beat-detection for more organic lyric bouncing
+- [ ] Interactive mouse-reactive wallpaper effects
+- [ ] Generic video file playback (MP4/WebM) as backgrounds
+- [ ] Plugin API for custom data sources

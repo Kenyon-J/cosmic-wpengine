@@ -67,7 +67,6 @@ impl WeatherWatcher {
         Ok(WeatherData {
             condition,
             temperature_celsius: temp,
-            location: format!("{:.2}, {:.2}", config.latitude, config.longitude),
         })
     }
 

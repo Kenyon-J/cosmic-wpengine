@@ -68,13 +68,17 @@ impl MprisWatcher {
         // Background position polling to handle media players that fail to send Seeked signals
         let poll_tx = tx.clone();
         tokio::task::spawn_blocking(move || {
+            let mut finder = mpris::PlayerFinder::new();
             loop {
-                let finder = match mpris::PlayerFinder::new() {
-                    Ok(f) => f,
-                    Err(_) => continue, // Keep retrying if DBus is temporarily unavailable
-                };
                 std::thread::sleep(std::time::Duration::from_secs(1));
-                if let Ok(player) = finder.find_active() {
+                let f = match finder.as_ref() {
+                    Ok(f) => f,
+                    Err(_) => {
+                        finder = mpris::PlayerFinder::new();
+                        continue;
+                    }
+                };
+                if let Ok(player) = f.find_active() {
                     if let Ok(status) = player.get_playback_status() {
                         if status == mpris::PlaybackStatus::Playing {
                             if let Ok(pos) = player.get_position() {
@@ -87,13 +91,19 @@ impl MprisWatcher {
         });
 
         std::thread::spawn(move || {
-            let finder = match mpris::PlayerFinder::new() {
-                Ok(f) => f,
-                Err(_) => return,
-            };
+            let mut finder = mpris::PlayerFinder::new();
 
             loop {
-                let player = match finder.find_active() {
+                let f = match finder.as_ref() {
+                    Ok(f) => f,
+                    Err(_) => {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        finder = mpris::PlayerFinder::new();
+                        continue;
+                    }
+                };
+
+                let player = match f.find_active() {
                     Ok(p) => p,
                     Err(_) => {
                         let _ = update_tx.blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Stopped));
@@ -145,6 +155,11 @@ impl MprisWatcher {
                             Ok(mpris::Event::PlayerShutDown) => {
                                 let _ = update_tx.blocking_send(MprisUpdate::ShutDown);
                                 break;
+                            }
+                            Err(e) => {
+                                warn!("MPRIS Event stream error: {}", e);
+                                let _ = update_tx.blocking_send(MprisUpdate::ShutDown);
+                                break; // Break out of the infinite iterator safely!
                             }
                             _ => {}
                         }
@@ -378,33 +393,37 @@ impl MprisWatcher {
     }
 
     async fn fetch_album_art(url: &str) -> Result<image::DynamicImage> {
-        // Properly decode all URL percent-encoding (e.g. %27 -> apostrophe)
-        let mut decoded_url = String::with_capacity(url.len());
+        // Safely decode percent-encoded URLs handling UTF-8 multibyte characters correctly
+        let mut bytes = Vec::new();
         let mut chars = url.chars().peekable();
         while let Some(c) = chars.next() {
             if c == '%' {
                 let h1 = chars.next().unwrap_or('0');
                 let h2 = chars.next().unwrap_or('0');
                 let hex = format!("{}{}", h1, h2);
-                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                    decoded_url.push(byte as char);
+                if let Ok(b) = u8::from_str_radix(&hex, 16) {
+                    bytes.push(b);
                 } else {
-                    decoded_url.push('%'); decoded_url.push(h1); decoded_url.push(h2);
+                    bytes.extend_from_slice(&[b'%', h1 as u8, h2 as u8]);
                 }
             } else {
-                decoded_url.push(c);
+                let mut buf = [0; 4];
+                bytes.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
             }
         }
+        let decoded_url = String::from_utf8_lossy(&bytes).to_string();
 
         if decoded_url.starts_with("file://") {
-            let path = decoded_url.trim_start_matches("file://");
+            let path = decoded_url.strip_prefix("file://").unwrap();
             let bytes = std::fs::read(path)?;
-            let img = image::load_from_memory(&bytes)?;
-            Ok(img)
+            Ok(image::load_from_memory(&bytes)?)
+        } else if decoded_url.starts_with('/') {
+            let bytes = std::fs::read(&decoded_url)?;
+            Ok(image::load_from_memory(&bytes)?)
         } else if decoded_url.starts_with("http") {
-            let bytes = reqwest::get(&decoded_url).await?.bytes().await?;
-            let img = image::load_from_memory(&bytes)?;
-            Ok(img)
+            let client = reqwest::Client::builder().user_agent("cosmic-wallpaper/1.0").build()?;
+            let bytes = client.get(&decoded_url).send().await?.bytes().await?;
+            Ok(image::load_from_memory(&bytes)?)
         } else {
             anyhow::bail!("Unsupported art URL scheme: {}", decoded_url)
         }
@@ -417,19 +436,23 @@ impl MprisWatcher {
             format!("{} {}", artist, album)
         };
         
-        let term = search_str.replace(" ", "+");
-        let url = format!("https://itunes.apple.com/search?term={}&entity=song&limit=1", term);
+        let client = reqwest::Client::builder().user_agent("cosmic-wallpaper/1.0").build()?;
         
-        let resp: ITunesResponse = reqwest::get(&url).await?.json().await?;
+        let resp: ITunesResponse = client.get("https://itunes.apple.com/search")
+            .query(&[("term", search_str.as_str()), ("entity", "song"), ("limit", "1")])
+            .send()
+            .await?
+            .json()
+            .await?;
         
         if let Some(first) = resp.results.first() {
             if let Some(art_url) = &first.artwork_url {
                 let high_res_url = art_url.replace("100x100bb", "600x600bb");
-                let bytes = reqwest::get(&high_res_url).await?.bytes().await?;
+                let bytes = client.get(&high_res_url).send().await?.bytes().await?;
                 return Ok(image::load_from_memory(&bytes)?);
             }
         }
-        anyhow::bail!("No fallback art found")
+        anyhow::bail!("No fallback art found on iTunes")
     }
 
     async fn fetch_spotify_canvas(track_id: &str) -> Option<String> {
