@@ -358,6 +358,8 @@ impl MprisWatcher {
                 track_id = meta.track_id.split(':').next_back();
             } else if meta.track_id.contains("open.spotify.com/track/") {
                 track_id = meta.track_id.split('/').next_back();
+            } else if meta.track_id.contains("/com/spotify/track/") {
+                track_id = meta.track_id.split('/').next_back();
             }
             
             if let Some(id) = track_id {
@@ -386,6 +388,8 @@ impl MprisWatcher {
         let raw_id = if meta.track_id.contains("spotify:track:") {
             meta.track_id.split(':').next_back()
         } else if meta.track_id.contains("open.spotify.com/track/") {
+            meta.track_id.split('/').next_back()
+        } else if meta.track_id.contains("/com/spotify/track/") {
             meta.track_id.split('/').next_back()
         } else { None };
         

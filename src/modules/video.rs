@@ -24,6 +24,7 @@ impl VideoDecoder {
             .args([
                 "-hide_banner",
                 "-loglevel", "error",
+                "-re", // Read input at native frame rate so we don't peg the CPU!
                 "-stream_loop", "-1", // Loop the video stream infinitely
                 "-i", &url,
                 // Scale and crop seamlessly to ensure it fits the 9:16 Canvas perfectly

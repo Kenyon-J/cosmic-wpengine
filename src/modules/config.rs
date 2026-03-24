@@ -7,12 +7,12 @@ use tokio::sync::mpsc::Sender;
 use super::event::Event;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
 pub struct Config {
     pub mode: WallpaperMode,
     pub fps: u32,
     pub weather: WeatherConfig,
     pub audio: AudioConfig,
-    #[serde(default)]
     pub appearance: AppearanceConfig,
 }
 
@@ -32,46 +32,57 @@ pub enum WallpaperMode {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
 pub struct WeatherConfig {
     pub enabled: bool,
     pub latitude: f64,
     pub longitude: f64,
     pub poll_interval_minutes: u64,
-    #[serde(default = "default_temp_unit")]
     pub temperature_unit: TemperatureUnit,
 }
 
+impl Default for WeatherConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            latitude: 51.5,
+            longitude: -0.1,
+            poll_interval_minutes: 15,
+            temperature_unit: TemperatureUnit::Celsius,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
 pub struct AudioConfig {
-    #[serde(default = "default_audio_style")]
     pub style: String,
     pub bands: usize,
     pub smoothing: f32,
-    #[serde(default = "default_show_lyrics")]
     pub show_lyrics: bool,
 }
 
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            style: "monstercat".to_string(),
+            bands: 64,
+            smoothing: 0.7,
+            show_lyrics: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
 pub struct AppearanceConfig {
-    #[serde(default)]
     pub disable_blur: bool,
-    #[serde(default = "default_blur_opacity")]
     pub blur_opacity: f32,
-    #[serde(default)]
     pub transparent_background: bool,
-    #[serde(default = "default_true")]
     pub show_album_art: bool,
-    #[serde(default = "default_true")]
     pub album_art_background: bool,
     pub custom_background_path: Option<String>,
 }
-
-fn default_true() -> bool { true }
-
-fn default_show_lyrics() -> bool { true }
-fn default_audio_style() -> String { "monstercat".to_string() }
-fn default_temp_unit() -> TemperatureUnit { TemperatureUnit::Celsius }
-fn default_blur_opacity() -> f32 { 0.4 } // 40% blur opacity matches your previous favourite look!
 
 impl Default for AppearanceConfig {
     fn default() -> Self {
@@ -160,9 +171,14 @@ fn default_visualiser_layout() -> VisualiserLayout {
     }
 }
 
+fn default_art_position() -> [f32; 2] { [0.5, 0.5] }
+fn default_art_size() -> f32 { 0.25 }
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ArtLayout {
+    #[serde(default = "default_art_position")]
     pub position: [f32; 2],
+    #[serde(default = "default_art_size")]
     pub size: f32,
     #[serde(default = "default_art_shape")]
     pub shape: ArtShape,
@@ -175,9 +191,14 @@ pub enum ArtShape {
     Circular,
 }
 
+fn default_text_position() -> [f32; 2] { [0.5, 0.5] }
+fn default_text_align() -> TextAlign { TextAlign::Center }
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TextLayout {
+    #[serde(default = "default_text_position")]
     pub position: [f32; 2],
+    #[serde(default = "default_text_align")]
     pub align: TextAlign,
 }
 
@@ -210,23 +231,33 @@ impl AppearanceConfig {
 
         let cosmic_bg_dir = base.join("cosmic/com.system76.CosmicBackground/v1");
 
+        let mut latest_path = None;
+        let mut latest_time = std::time::SystemTime::UNIX_EPOCH;
+
         if let Ok(entries) = std::fs::read_dir(cosmic_bg_dir) {
             for entry in entries.flatten() {
-                if let Ok(contents) = std::fs::read_to_string(entry.path()) {
-                    // COSMIC uses RON format, storing wallpaper paths like: Path("/path/to/img.jpg")
-                    if let Some(start_idx) = contents.find("Path(\"") {
-                        let path_start = start_idx + 6;
-                        if let Some(end_offset) = contents[path_start..].find("\")") {
-                            let path = &contents[path_start..path_start + end_offset];
-                            if std::path::Path::new(path).exists() {
-                                return Some(path.to_string());
+                if let Ok(meta) = entry.metadata() {
+                    if let Ok(modified) = meta.modified() {
+                        if modified > latest_time {
+                            if let Ok(contents) = std::fs::read_to_string(entry.path()) {
+                                // COSMIC uses RON format, storing wallpaper paths like: Path("/path/to/img.jpg")
+                                if let Some(start_idx) = contents.find("Path(\"") {
+                                    let path_start = start_idx + 6;
+                                    if let Some(end_offset) = contents[path_start..].find("\")") {
+                                        let path = &contents[path_start..path_start + end_offset];
+                                        if std::path::Path::new(path).exists() {
+                                            latest_path = Some(path.to_string());
+                                            latest_time = modified;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        None
+        latest_path
     }
 }
 
@@ -468,6 +499,148 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 "#)?;
         }
 
+        let monstercat_wgsl_path = shaders_dir.join("monstercat.wgsl");
+        if !monstercat_wgsl_path.exists() {
+            std::fs::write(&monstercat_wgsl_path, r#"struct VisualiserUniforms {
+    resolution: vec2<f32>,
+    band_count: u32,
+    lyric_pulse: f32,
+    color_top: vec4<f32>,
+    color_bottom: vec4<f32>,
+    style: u32,
+    size: f32,
+    position: vec2<f32>,
+    rotation: f32,
+    amplitude: f32,
+    pad1: u32,
+    pad2: u32,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: VisualiserUniforms;
+@group(0) @binding(1) var<storage, read> bands: array<f32>;
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
+    var out: VertexOutput;
+    let x = f32((idx << 1u) & 2u);
+    let y = f32(idx & 2u);
+    out.clip_position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+    out.uv = vec2<f32>(x, y);
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let uv = in.uv;
+    let aspect = uniforms.resolution.x / uniforms.resolution.y;
+    
+    // Convert uv to local space using the position uniform
+    let p = vec2<f32>((uv.x - uniforms.position.x) * aspect, uv.y - uniforms.position.y);
+    
+    let s = sin(uniforms.rotation);
+    let c = cos(uniforms.rotation);
+    let p_rot = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
+    
+    let half_width = uniforms.size * 0.5;
+    if p_rot.x < -half_width || p_rot.x > half_width { discard; }
+    
+    let norm_x = (p_rot.x + half_width) / uniforms.size;
+    let band_idx = min(u32(norm_x * f32(uniforms.band_count)), uniforms.band_count - 1u);
+    let val = bands[band_idx] * uniforms.amplitude;
+    
+    let height = (val * 0.3) + 0.005;
+    
+    // Bars grow "up" from the center baseline
+    if p_rot.y > 0.0 || p_rot.y < -height { discard; }
+    
+    let gradient = -p_rot.y / height;
+    let color = mix(uniforms.color_bottom.rgb, uniforms.color_top.rgb, gradient);
+    
+    return vec4<f32>(color, 1.0);
+}
+"#)?;
+        }
+
+        let bars_wgsl_path = shaders_dir.join("bars.wgsl");
+        if !bars_wgsl_path.exists() {
+            std::fs::write(&bars_wgsl_path, r#"struct VisualiserUniforms {
+    resolution: vec2<f32>,
+    band_count: u32,
+    lyric_pulse: f32,
+    color_top: vec4<f32>,
+    color_bottom: vec4<f32>,
+    style: u32,
+    size: f32,
+    position: vec2<f32>,
+    rotation: f32,
+    amplitude: f32,
+    pad1: u32,
+    pad2: u32,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: VisualiserUniforms;
+@group(0) @binding(1) var<storage, read> bands: array<f32>;
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
+    var out: VertexOutput;
+    let x = f32((idx << 1u) & 2u);
+    let y = f32(idx & 2u);
+    out.clip_position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+    out.uv = vec2<f32>(x, y);
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let uv = in.uv;
+    let aspect = uniforms.resolution.x / uniforms.resolution.y;
+    
+    let p = vec2<f32>((uv.x - uniforms.position.x) * aspect, uv.y - uniforms.position.y);
+    let s = sin(uniforms.rotation);
+    let c = cos(uniforms.rotation);
+    let p_rot = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
+    
+    let angle = atan2(p_rot.y, p_rot.x) + 3.14159; 
+    let normalized_angle = angle / 6.28318;
+    var f_band = normalized_angle * 2.0;
+    if f_band > 1.0 { f_band = 2.0 - f_band; }
+
+    let band_idx = min(u32(f_band * f32(uniforms.band_count)), uniforms.band_count - 1u);
+    let val = bands[band_idx];
+
+    let d = length(p_rot);
+    let inner_radius = uniforms.size + (uniforms.lyric_pulse * 0.02);
+    let bar_height = val * uniforms.amplitude * 0.2;
+    let outer_radius = inner_radius + bar_height;
+
+    if d < inner_radius || d > outer_radius {
+        discard;
+    }
+
+    let fract_band = fract(f_band * f32(uniforms.band_count));
+    if fract_band < 0.1 || fract_band > 0.9 {
+        discard;
+    }
+
+    let gradient = (d - inner_radius) / bar_height;
+    let color = mix(uniforms.color_bottom.rgb, uniforms.color_top.rgb, gradient);
+    
+    return vec4<f32>(color, 1.0);
+}
+"#)?;
+        }
+
         Ok(())
     }
 }
@@ -481,8 +654,16 @@ impl Config {
 
         if path.exists() {
             let text = std::fs::read_to_string(&path)?;
-            let config: Config = toml::from_str(&text)?;
-            Ok(config)
+            match toml::from_str(&text) {
+                Ok(config) => Ok(config),
+                Err(e) => {
+                    tracing::error!("Syntax error in config.toml: {}. Falling back to default configuration!", e);
+                    let _ = std::fs::rename(&path, path.with_extension("toml.bak"));
+                    let default_config = Config::default();
+                    let _ = std::fs::write(&path, toml::to_string_pretty(&default_config)?);
+                    Ok(default_config)
+                }
+            }
         } else {
             let config = Config::default();
             if let Some(parent) = path.parent() {
@@ -555,6 +736,9 @@ impl Config {
                 if is_our_config || is_our_shader || is_cosmic_bg {
                     // Slight debounce to ensure the text editor has finished writing the file
                     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    // FLUSH pending events to prevent GUI sliders from queueing 100+ re-renders and locking up the engine!
+                    while let Ok(_) = notify_rx.try_recv() {}
+                    
                     if let Ok(config) = Self::load_or_default() {
                         let _ = tx.send(Event::ConfigUpdated(config)).await;
                     }

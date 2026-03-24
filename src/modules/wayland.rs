@@ -29,6 +29,8 @@ pub struct AppData {
 
     pub is_transparent: bool,
     pub windows: Vec<WaylandWindowInfo>,
+    pub dead_windows: Vec<WaylandWindowInfo>,
+    pub configuration_serial: u32,
 }
 
 pub struct WaylandWindowInfo {
@@ -107,6 +109,7 @@ impl OutputHandler for AppData {
             frame_callback: None,
             last_frame_request: std::time::Instant::now(),
         });
+        self.configuration_serial += 1;
     }
     fn update_output(
         &mut self,
@@ -120,8 +123,16 @@ impl OutputHandler for AppData {
         _qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
-        info!("Monitor disconnected, removing layer surface...");
-        self.windows.retain(|w| w.output != output);
+        info!("Monitor disconnected, scheduling surface removal...");
+        let mut i = 0;
+        while i < self.windows.len() {
+            if self.windows[i].output == output {
+                self.dead_windows.push(self.windows.remove(i));
+                self.configuration_serial += 1;
+            } else {
+                i += 1;
+            }
+        }
     }
 }
 
@@ -174,7 +185,18 @@ impl CompositorHandler for AppData {
 }
 
 impl LayerShellHandler for AppData {
-    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {}
+    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, layer: &LayerSurface) {
+        info!("Layer surface closed by compositor.");
+        let mut i = 0;
+        while i < self.windows.len() {
+            if &self.windows[i].layer == layer {
+                self.dead_windows.push(self.windows.remove(i));
+                self.configuration_serial += 1;
+            } else {
+                i += 1;
+            }
+        }
+    }
     fn configure(
         &mut self,
         _conn: &Connection,
@@ -258,6 +280,8 @@ impl WaylandManager {
                 .context("layer shell not available")?,
             is_transparent: false,
             windows: Vec::new(),
+            dead_windows: Vec::new(),
+            configuration_serial: 0,
         };
 
         event_queue.roundtrip(&mut app_data)?;
@@ -323,6 +347,10 @@ impl WaylandManager {
         }
     }
 
+    pub fn cleanup_dead_windows(&mut self) {
+        self.app_data.dead_windows.clear();
+    }
+
     pub fn mark_frame_rendered(&mut self, index: usize) {
         let qh = self._event_queue.handle();
         if let Some(win) = self.app_data.windows.get_mut(index) {
@@ -333,11 +361,11 @@ impl WaylandManager {
     }
 
     pub fn is_frame_pending(&self, index: usize) -> bool {
-        self.app_data.windows.get(index).is_some_and(|w| w.frame_pending)
+        self.app_data.windows.get(index).is_some_and(|w| w.frame_pending || !w.first_configure)
     }
 
     pub fn any_monitor_ready(&self) -> bool {
-        self.app_data.windows.is_empty() || self.app_data.windows.iter().any(|w| !w.frame_pending)
+        self.app_data.windows.is_empty() || self.app_data.windows.iter().any(|w| !w.frame_pending && w.first_configure)
     }
 
     pub fn is_occluded(&self) -> bool {

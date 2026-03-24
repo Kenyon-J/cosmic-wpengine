@@ -615,6 +615,7 @@ impl Renderer {
         is_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<()> {
         let mut last_frame = Instant::now();
+        let mut last_config_serial = wayland_manager.app_data.configuration_serial;
         
         let mut interval = tokio::time::interval(self.frame_duration);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -630,9 +631,13 @@ impl Renderer {
             wayland_manager.dispatch_events()?;
             
             let current_outputs = wayland_manager.outputs();
-            if current_outputs.len() != self.outputs.len() {
-                info!("Monitor configuration changed ({} -> {} outputs), rebuilding GPU surfaces...", self.outputs.len(), current_outputs.len());
+            if wayland_manager.app_data.configuration_serial != last_config_serial {
+                last_config_serial = wayland_manager.app_data.configuration_serial;
+                info!("Monitor configuration changed ({} outputs), rebuilding GPU surfaces...", current_outputs.len());
+                
                 self.outputs.clear();
+                wayland_manager.cleanup_dead_windows();
+                
                 for info in &current_outputs {
                     let target = wgpu::SurfaceTargetUnsafe::RawHandle {
                         raw_display_handle: info.raw_display_handle(),
@@ -734,6 +739,11 @@ impl Renderer {
             if wayland_manager.any_monitor_ready() {
                 self.draw_frame(&mut wayland_manager, delta)?;
             }
+            
+            // Tell wgpu to process internal garbage collection.
+            // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded), 
+            // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
+            self.device.poll(wgpu::Maintain::Poll);
         }
     }
 
@@ -966,43 +976,50 @@ impl Renderer {
         let pulse = self.beat_pulse;
         let (prev_lyric, current_lyric, next_lyric) = self.state.active_lyrics();
 
-        // --- Dispatch Weather Compute Shader ---
-        // We run this once per frame, updating the positions of all 10,000 particles
-        let mut wind_x = 0.1f32;
-        let mut gravity = 0.5f32;
-        
-        if let Some(weather) = &self.state.weather {
+        let is_weather_active = self.state.weather.as_ref().is_some_and(|w| {
             use super::event::WeatherCondition;
-            match weather.condition {
-                WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
-                    gravity = 1.2; // Rain falls fast
-                    wind_x = 0.2;
-                }
-                WeatherCondition::Snow => {
-                    gravity = 0.2; // Snow drifts slowly
-                    wind_x = 0.5;
-                }
-                _ => {}
-            }
-        }
-        
-        let compute_uniforms = [delta, wind_x, gravity, 0.0f32];
-        let compute_bytes = unsafe { std::slice::from_raw_parts(compute_uniforms.as_ptr() as *const u8, 16) };
-        self.queue.write_buffer(&self.weather_compute_uniform_buffer, 0, compute_bytes);
-
-        let mut compute_encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Compute Encoder"),
+            matches!(w.condition, WeatherCondition::Rain | WeatherCondition::Snow | WeatherCondition::Thunderstorm)
         });
-        {
-            let mut compute_pass = compute_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Weather Compute Pass"),
-                timestamp_writes: None,
+
+        if is_weather_active {
+            // --- Dispatch Weather Compute Shader ---
+            // Only spend GPU time running particle physics if weather is actually visible!
+            let mut wind_x = 0.1f32;
+            let mut gravity = 0.5f32;
+            
+            if let Some(weather) = &self.state.weather {
+                use super::event::WeatherCondition;
+                match weather.condition {
+                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
+                        gravity = 1.2; // Rain falls fast
+                        wind_x = 0.2;
+                    }
+                    WeatherCondition::Snow => {
+                        gravity = 0.2; // Snow drifts slowly
+                        wind_x = 0.5;
+                    }
+                    _ => {}
+                }
+            }
+            
+            let compute_uniforms = [delta, wind_x, gravity, 0.0f32];
+            let compute_bytes = unsafe { std::slice::from_raw_parts(compute_uniforms.as_ptr() as *const u8, 16) };
+            self.queue.write_buffer(&self.weather_compute_uniform_buffer, 0, compute_bytes);
+
+            let mut compute_encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Compute Encoder"),
             });
-            compute_pass.set_pipeline(&self.weather_compute_pipeline);
-            compute_pass.set_bind_group(0, &self.weather_compute_bind_group, &[]);
-            compute_pass.dispatch_workgroups(157, 1, 1); // 10000 particles / 64 threads = ~157 workgroups
+            {
+                let mut compute_pass = compute_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Weather Compute Pass"),
+                    timestamp_writes: None,
+                });
+                compute_pass.set_pipeline(&self.weather_compute_pipeline);
+                compute_pass.set_bind_group(0, &self.weather_compute_bind_group, &[]);
+                compute_pass.dispatch_workgroups(157, 1, 1); // 10000 particles / 64 threads = ~157 workgroups
+            }
+            self.queue.submit(std::iter::once(compute_encoder.finish()));
         }
-        self.queue.submit(std::iter::once(compute_encoder.finish()));
 
         if has_audio {
             let bands_bytes = unsafe {
@@ -1333,10 +1350,6 @@ impl Renderer {
                 }
 
                 // 1.5 Overlay Weather Particles (Rain / Snow)
-                let is_weather_active = self.state.weather.as_ref().is_some_and(|w| {
-                    use super::event::WeatherCondition;
-                    matches!(w.condition, WeatherCondition::Rain | WeatherCondition::Snow | WeatherCondition::Thunderstorm)
-                });
                 if is_weather_active {
                     render_pass.set_pipeline(&self.weather_render_pipeline);
                     render_pass.set_bind_group(0, &self.weather_render_bind_group, &[]);
@@ -1510,8 +1523,13 @@ impl Renderer {
                     },
                     texture.size(),
                 );
+                return;
             }
         }
+        
+        // Slow-path: If dimensions changed (e.g. switching from square album art to 9:16 Canvas video),
+        // this will rebuild the wgpu texture and elegantly crossfade into the video loop!
+        self.update_album_art_texture(rgba);
     }
 
     pub fn load_custom_background(&mut self, path: Option<&str>) {
