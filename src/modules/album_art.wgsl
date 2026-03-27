@@ -95,6 +95,21 @@ fn get_object_contain_uv(uv: vec2<f32>, screen_aspect: f32, image_aspect: f32) -
     return tex_uv + 0.5;
 }
 
+fn get_shape_mask(point: vec2<f32>, size: f32, shape: u32) -> f32 {
+    let half_size = size * 0.5;
+    var mask = 0.0;
+    if shape == 1u { // Circular
+        let dist = length(point);
+        mask = 1.0 - smoothstep(half_size - 0.005, half_size, dist);
+    } else { // Square with soft corners
+        let abs_p = abs(point);
+        let max_dist = max(abs_p.x, abs_p.y);
+        mask = 1.0 - smoothstep(half_size - 0.005, half_size, max_dist);
+    }
+    return mask;
+}
+
+
 // --- Fragment shader ---
 // Runs for every pixel. Returns the colour of that pixel.
 @fragment
@@ -132,34 +147,38 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     if uniforms.mode == 1u {
         let p = uv - uniforms.art_position;
         let p_aspect = p * vec2<f32>(screen_aspect, 1.0);
-        
-        let half_size = uniforms.art_size * 0.5;
-        var mask = 0.0;
 
-        if uniforms.shape == 1u { // Circular
-            let dist = length(p_aspect);
-            mask = 1.0 - smoothstep(half_size - 0.005, half_size, dist);
-        } else { // Square
-            let abs_p = abs(p_aspect);
-            let max_dist = max(abs_p.x, abs_p.y);
-            // Modern softer corner radius for square mode
-            mask = 1.0 - smoothstep(half_size - 0.005, half_size, max_dist);
+        // --- Drop Shadow ---
+        // Create a soft, blurred shadow by sampling the shape mask at an offset.
+        let shadow_offset = vec2<f32>(0.005, 0.005) * (uniforms.art_size / 0.25);
+        let shadow_mask = get_shape_mask(p_aspect - shadow_offset, uniforms.art_size, uniforms.shape);
+
+        // --- Foreground Art ---
+        let art_mask = get_shape_mask(p_aspect, uniforms.art_size, uniforms.shape);
+
+        // If we are fully transparent for both art and shadow, we can discard early.
+        if art_mask < 0.01 && shadow_mask < 0.01 {
+            discard;
         }
 
-        // Map the UV space strictly inside the bounds of the album art shape
         let local_uv = (p_aspect / uniforms.art_size) + 0.5;
-        
-        // Ensure that non-square album art (e.g. 9:16 Canvas videos) don't squash horizontally
         let art_uv = get_object_contain_uv(local_uv, 1.0, image_aspect);
 
-        // If the contain function returns UVs outside the [0,1] range, it means we are
-        // in the letterbox/pillarbox area. We should make these pixels transparent.
-        let bounds_check = art_uv.x < 0.0 || art_uv.x > 1.0 || art_uv.y < 0.0 || art_uv.y > 1.0;
-        if (bounds_check) { discard; }
-
-        let art_color = sample_art(art_uv);
+        var final_color = vec4<f32>(0.0, 0.0, 0.0, shadow_mask * 0.6); // Base shadow
         
-        return vec4<f32>(art_color.rgb, art_color.a * mask);
+        // Only sample the texture if we are inside the letterboxed art bounds
+        if art_mask > 0.01 {
+            if art_uv.x >= 0.0 && art_uv.x <= 1.0 && art_uv.y >= 0.0 && art_uv.y <= 1.0 {
+                let sampled = sample_art(art_uv);
+                // Guarantee alpha is 1.0 to prevent transparent album art from disappearing
+                final_color = mix(final_color, vec4<f32>(sampled.rgb, 1.0), art_mask);
+            } else {
+                // Draw a dark letterbox if the image aspect ratio doesn't fill the shape
+                final_color = mix(final_color, vec4<f32>(0.05, 0.05, 0.05, 1.0), art_mask);
+            }
+        }
+
+        return final_color;
     }
 
     // --- Mode 2: Solid (Un-blurred) Background ---

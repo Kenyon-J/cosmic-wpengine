@@ -955,7 +955,13 @@ impl Renderer {
             Event::TrackChanged(track) => {
                 info!("Now playing: {} - {}", track.artist, track.title);
                 if let Some(art) = &track.album_art {
+                    info!("Track contains album art ({} bytes raw). Sending to GPU...", art.len());
                     self.update_album_art_texture(art);
+                } else {
+                    warn!("Track event received, but album_art payload is None!");
+                    self.album_art_bg_bind_group = None;
+                    self.album_art_fg_bind_group = None;
+                    self.current_album_texture = None;
                 }
                 self.cached_track_str =
                     format!("{} — {}\n{}", track.title, track.artist, track.album);
@@ -993,6 +999,9 @@ impl Renderer {
                     .current_track
                     .as_ref()
                     .and_then(|t| t.palette.clone());
+            self.album_art_bg_bind_group = None;
+            self.album_art_fg_bind_group = None;
+            self.current_album_texture = None;
                 self.state.current_track = None;
                 self.state.is_playing = false;
                 self.current_lyric_idx = 0;
@@ -1172,17 +1181,19 @@ impl Renderer {
         };
         // Combine the base volume energy with our snappy treble pulse, strictly capped to prevent blown out flashing
         let audio_energy = (base_energy * 0.3 + self.treble_pulse * 0.4).clamp(0.0, 1.0);
-        let has_media = (self
-            .state
-            .current_track
-            .as_ref()
-            .and_then(|t| t.album_art.as_ref())
-            .is_some()
-            || force_art)
-            && !force_weather
-            && !force_vis;
-        let show_art_fg = has_media && self.state.config.appearance.show_album_art;
-        let show_art_bg = has_media && self.state.config.appearance.album_art_background;
+
+        // --- IMPORTANT FIX ---
+        // The old state check can fail due to subtle race conditions.
+        // The most robust way to check for media is to see if the GPU resources for it exist.
+        let has_media_check_state = self.state.current_track.as_ref().and_then(|t| t.album_art.as_ref()).is_some();
+        let has_media_check_gpu = self.album_art_fg_bind_group.is_some();
+        if has_media_check_gpu && !has_media_check_state {
+             warn!("Album art visibility check mismatch! State: false, GPU: true. Using GPU state.");
+        }
+
+        // Decouple art visibility from force_vis so you can layer the visualizer AND the album art!
+        let show_art_fg = (has_media_check_gpu || force_art) && self.state.config.appearance.show_album_art;
+        let show_art_bg = (has_media_check_gpu || force_art) && self.state.config.appearance.album_art_background;
 
         let clear_colour = self.get_clear_colour();
         // Use our new smart audio-reactive beat detector instead of the generic timer
@@ -1446,6 +1457,18 @@ impl Renderer {
                     self.queue
                         .write_buffer(&self.album_art_bg_uniform_buffer, 0, bg_bytes);
 
+                    let mut art_position = self.theme.album_art.position;
+                    let mut art_size = self.theme.album_art.size;
+                    let mut art_shape = self.theme.album_art.shape;
+
+                    // If the circular visualiser is active, dynamically override the album art
+                    // layout to fit perfectly inside of it.
+                    if has_audio && self.theme.visualiser.shape == super::config::VisShape::Circular {
+                        art_position = self.theme.visualiser.position;
+                        art_size = self.theme.visualiser.size;
+                        art_shape = super::config::ArtShape::Circular; // Force circular shape to match
+                    }
+
                     let fg_uniforms = ArtUniforms {
                         color_and_transition: [
                             color[0],
@@ -1454,15 +1477,12 @@ impl Renderer {
                             self.state.transition_progress,
                         ],
                         res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                        art_position: self.theme.album_art.position,
+                        art_position,
                         audio_energy,
                         mode: 1,
                         bg_alpha: 1.0, // The sharp foreground art never fades!
-                        art_size: self.theme.album_art.size,
-                        shape: match self.theme.album_art.shape {
-                            super::config::ArtShape::Circular => 1,
-                            super::config::ArtShape::Square => 0,
-                        },
+                        art_size,
+                        shape: if art_shape == super::config::ArtShape::Circular { 1 } else { 0 },
                         blur_opacity: 1.0,
                         image_res: [
                             self.current_album_texture
@@ -1877,14 +1897,13 @@ impl Renderer {
 
     fn update_album_art_texture(&mut self, rgba: &image::RgbaImage) {
         let dimensions = rgba.dimensions();
+        info!("Creating GPU texture for album art. Dimensions: {}x{}", dimensions.0, dimensions.1);
 
         let texture_size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,
             depth_or_array_layers: 1,
         };
-
-        self.current_custom_bg_size = Some((dimensions.0, dimensions.1));
 
         // Guarantee dimensions are compatible with wgpu's 256-byte row alignment!
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -2075,6 +2094,7 @@ impl Renderer {
         };
 
         let dimensions = img.dimensions();
+        self.current_custom_bg_size = Some(dimensions);
         let texture_size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,

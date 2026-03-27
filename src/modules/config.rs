@@ -373,11 +373,12 @@ impl ThemeLayout {
             theme.visualiser.size = 0.6;
             theme.visualiser.rotation = 0.0;
             theme.visualiser.amplitude = 1.5;
-            theme.album_art.position = [0.15, 0.7];
-            theme.album_art.size = 0.10;
+            theme.album_art.position = [0.24, 0.59];
+            theme.album_art.size = 0.15;
+            theme.album_art.shape = ArtShape::Square;
             theme.track_info.position = [0.30, 0.51];
             theme.track_info.align = TextAlign::Left;
-            theme.lyrics.position = [0.56, 0.56];
+            theme.lyrics.position = [0.48, 0.56];
             theme.lyrics.align = TextAlign::Left;
         } else if style == "symmetric" {
             theme.visualiser.shape = VisShape::Linear;
@@ -457,15 +458,16 @@ beat_pulse = 0.5
 # A sleek, linear audio visualiser layout inspired by Monstercat's videos.
 
 [album_art]
-position = [0.15, 0.7]
-size = 0.10
+position = [0.24, 0.59]
+size = 0.15
+shape = "square"
 
 [track_info]
 position = [0.30, 0.51]
 align = "left"
 
 [lyrics]
-position = [0.56, 0.56]
+position = [0.48, 0.56]
 align = "left"
 
 [weather]

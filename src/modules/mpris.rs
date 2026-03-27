@@ -384,9 +384,11 @@ impl MprisWatcher {
         let art_future = async {
             let mut local_img = None;
             if let Some(art_url) = &meta.art_url {
+                info!("Extracted art_url from MPRIS metadata: {}", art_url);
                 match Self::fetch_album_art(art_url, client).await {
                     Ok(img) => {
                         local_img = Some(img);
+                        info!("Successfully loaded and decoded primary album art!");
                     }
                     Err(e) => {
                         warn!(
@@ -514,24 +516,46 @@ impl MprisWatcher {
     }
 
     async fn fetch_album_art(url_str: &str, client: &reqwest::Client) -> Result<image::DynamicImage> {
+        info!("Attempting to fetch album art from: {}", url_str);
         if url_str.starts_with("http") {
-            let bytes = client.get(url_str).send().await?.bytes().await?;
-            return Ok(image::load_from_memory(&bytes)?);
+            let bytes = client.get(url_str).send().await.map_err(|e| {
+                warn!("HTTP request failed for art: {}", e);
+                e
+            })?.bytes().await?;
+            return image::load_from_memory(&bytes).map_err(|e| {
+                warn!("Failed to decode HTTP image data: {}", e);
+                e.into()
+            });
         }
 
         // Use the `url` crate for robust parsing of file:// paths
         if let Ok(url) = Url::parse(url_str) {
             if url.scheme() == "file" {
                 if let Ok(path) = url.to_file_path() {
-                    let bytes = tokio::fs::read(path).await?;
-                    return Ok(image::load_from_memory(&bytes)?);
+                    info!("Successfully parsed file path: {:?}", path);
+                    let bytes = tokio::fs::read(&path).await.map_err(|e| {
+                        warn!("Failed to read art file from disk at {:?}: {}", path, e);
+                        e
+                    })?;
+                    return image::load_from_memory(&bytes).map_err(|e| {
+                        warn!("Failed to decode image from disk {:?}: {}", path, e);
+                        e.into()
+                    });
                 }
+                warn!("Could not cleanly convert URL to valid file path: {}", url_str);
             }
         }
 
         // Fallback for absolute paths that are not valid file URLs (e.g. /tmp/art.png)
-        let bytes = tokio::fs::read(url_str).await?;
-        Ok(image::load_from_memory(&bytes)?)
+        info!("Attempting raw path fallback read for: {}", url_str);
+        let bytes = tokio::fs::read(url_str).await.map_err(|e| {
+            warn!("Failed to read raw path {}: {}", url_str, e);
+            e
+        })?;
+        image::load_from_memory(&bytes).map_err(|e| {
+            warn!("Failed to decode image from raw path {}: {}", url_str, e);
+            e.into()
+        })
     }
 
     async fn fetch_fallback_album_art(
