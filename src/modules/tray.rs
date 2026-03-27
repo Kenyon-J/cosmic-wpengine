@@ -6,9 +6,7 @@ pub struct WallpaperTray {
 
 impl WallpaperTray {
     pub fn new() -> Self {
-        Self {
-            gui_process: None,
-        }
+        Self { gui_process: None }
     }
 
     fn launch_gui(&mut self) {

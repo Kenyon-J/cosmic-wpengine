@@ -12,7 +12,14 @@ pub struct WeatherWatcher;
 
 impl WeatherWatcher {
     pub async fn run(tx: Sender<Event>, config: WeatherConfig) -> Result<()> {
-        info!("Weather watcher started. Initial state: {}", if config.enabled { "enabled" } else { "disabled" });
+        info!(
+            "Weather watcher started. Initial state: {}",
+            if config.enabled {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        );
 
         let client = reqwest::Client::builder()
             .user_agent("cosmic-wallpaper/1.0")
@@ -24,7 +31,9 @@ impl WeatherWatcher {
 
         loop {
             // Read directly to avoid triggering ThemeLayout::write_defaults() and heavy disk checks every 5s
-            let current_config = match std::fs::read_to_string(super::config::Config::config_dir().join("config.toml")) {
+            let current_config = match std::fs::read_to_string(
+                super::config::Config::config_dir().join("config.toml"),
+            ) {
                 Ok(text) => match toml::from_str::<super::config::Config>(&text) {
                     Ok(c) => c.weather,
                     Err(_) => last_config.clone(),
@@ -33,22 +42,31 @@ impl WeatherWatcher {
             };
 
             let mut force_fetch = false;
-            if (current_config.enabled && !last_config.enabled) || current_config.latitude != last_config.latitude || current_config.longitude != last_config.longitude {
+            if (current_config.enabled && !last_config.enabled)
+                || current_config.latitude != last_config.latitude
+                || current_config.longitude != last_config.longitude
+            {
                 force_fetch = true;
             }
 
             if current_config.enabled {
-                let poll_interval = tokio::time::Duration::from_secs(current_config.poll_interval_minutes.max(1) * 60);
+                let poll_interval = tokio::time::Duration::from_secs(
+                    current_config.poll_interval_minutes.max(1) * 60,
+                );
                 if force_fetch || last_fetch.elapsed() >= poll_interval {
                     match Self::fetch_weather(&current_config, &client).await {
                         Ok(data) => {
-                            info!("Weather updated: {:?} {:.1}°C", data.condition, data.temperature_celsius);
+                            info!(
+                                "Weather updated: {:?} {:.1}°C",
+                                data.condition, data.temperature_celsius
+                            );
                             let _ = tx.send(Event::WeatherUpdated(data)).await;
                             last_fetch = tokio::time::Instant::now();
                         }
                         Err(e) => {
                             warn!("Weather fetch failed: {}", e);
-                            last_fetch = tokio::time::Instant::now() - poll_interval + tokio::time::Duration::from_secs(60);
+                            last_fetch = tokio::time::Instant::now() - poll_interval
+                                + tokio::time::Duration::from_secs(60);
                         }
                     }
                 }
@@ -59,7 +77,10 @@ impl WeatherWatcher {
         }
     }
 
-    async fn fetch_weather(config: &WeatherConfig, client: &reqwest::Client) -> Result<WeatherData> {
+    async fn fetch_weather(
+        config: &WeatherConfig,
+        client: &reqwest::Client,
+    ) -> Result<WeatherData> {
         let url = format!(
             "https://api.open-meteo.com/v1/forecast?\
              latitude={}&longitude={}&\

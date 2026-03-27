@@ -4,13 +4,11 @@ struct VisualiserUniforms {
     lyric_pulse: f32,
     color_top: vec4<f32>,
     color_bottom: vec4<f32>,
-    style: u32,
-    size: f32,
-    position: vec2<f32>,
-    rotation: f32,
+    pos_size_rot: vec4<f32>,
     amplitude: f32,
-    pad1: u32,
-    pad2: u32,
+    style: u32,
+    time: f32,
+    align: u32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: VisualiserUniforms;
@@ -47,14 +45,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if uniforms.style == 0u {
         // --- Circular Style ---
-        let p = vec2<f32>((uv.x - uniforms.position.x) * aspect, uv.y - uniforms.position.y);
+        let p = vec2<f32>((uv.x - uniforms.pos_size_rot.x) * aspect, uv.y - uniforms.pos_size_rot.y);
         
-        let s = sin(uniforms.rotation);
-        let c = cos(uniforms.rotation);
+        let s = sin(uniforms.pos_size_rot.w);
+        let c = cos(uniforms.pos_size_rot.w);
         let p_rot = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
         let angle = atan2(p_rot.y, p_rot.x) + 3.14159; 
         
-        let d = length(p_rot) - uniforms.size;
+        let d = length(p_rot) - uniforms.pos_size_rot.z;
         if d < 0.0 {
             return vec4<f32>(0.0);
         }
@@ -69,7 +67,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         if within_bar > 0.85 { return vec4<f32>(0.0); }
 
         let band_val = bands[band_idx];
-        let max_dist = max(band_val, 0.02) * 0.25 * uniforms.amplitude + (uniforms.lyric_pulse * 0.05);
+        let max_dist = max(band_val, 0.02) * 0.25 * uniforms.amplitude * (1.0 + uniforms.lyric_pulse * 1.5);
 
         if d <= max_dist {
             let t = d / max_dist;
@@ -82,9 +80,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(uniforms.color_top.rgb * glow, min(glow, 1.0));
     } else {
         // --- Linear Style (Monstercat) ---
-        let s = sin(uniforms.rotation);
-        let c = cos(uniforms.rotation);
-        let shifted = uv - uniforms.position;
+        let s = sin(uniforms.pos_size_rot.w);
+        let c = cos(uniforms.pos_size_rot.w);
+        let shifted = uv - vec2<f32>(uniforms.pos_size_rot.x, uniforms.pos_size_rot.y);
         
         // Adjust aspect ratio only for the rotation matrix to keep horizontal bands evenly sized
         let p_rot = vec2<f32>(
@@ -92,21 +90,29 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             shifted.x * aspect * s + shifted.y * c
         );
         
-        let local_uv = p_rot + uniforms.position;
-        let hw = uniforms.size / 2.0; 
-        if local_uv.x < uniforms.position.x - hw || local_uv.x > uniforms.position.x + hw {
+        let local_uv = p_rot + vec2<f32>(uniforms.pos_size_rot.x, uniforms.pos_size_rot.y);
+        let hw = uniforms.pos_size_rot.z / 2.0; 
+        if local_uv.x < uniforms.pos_size_rot.x - hw || local_uv.x > uniforms.pos_size_rot.x + hw {
             return vec4<f32>(0.0);
         }
 
-        let normalized_x = (local_uv.x - (uniforms.position.x - hw)) / uniforms.size;
-        let band_idx = u32(normalized_x * f32(uniforms.band_count));
+        let normalized_x = (local_uv.x - (uniforms.pos_size_rot.x - hw)) / uniforms.pos_size_rot.z;
+        
+        var mapped_x = normalized_x;
+        if uniforms.align == 1u { // Center
+            mapped_x = abs(normalized_x - 0.5) * 2.0;
+        } else if uniforms.align == 2u { // Right
+            mapped_x = 1.0 - normalized_x;
+        }
+        
+        let band_idx = u32(mapped_x * f32(uniforms.band_count));
         let within_bar = fract(normalized_x * f32(uniforms.band_count));
         if within_bar > 0.85 { return vec4<f32>(0.0); }
 
         let val = bands[band_idx];
-        let max_h = max(val, 0.02) * 0.25 * uniforms.amplitude + (uniforms.lyric_pulse * 0.05);
+        let max_h = max(val, 0.02) * 0.25 * uniforms.amplitude * (1.0 + uniforms.lyric_pulse * 1.5);
 
-        let h = uniforms.position.y - local_uv.y;
+        let h = uniforms.pos_size_rot.y - local_uv.y;
         if h < 0.0 { return vec4<f32>(0.0); }
 
         if h <= max_h {

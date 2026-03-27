@@ -15,11 +15,12 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
-    var out: VertexOutput;
     let x = f32((in_vertex_index << 1u) & 2u);
     let y = f32(in_vertex_index & 2u);
-    out.clip_position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
-    out.uv = vec2<f32>(x, y);
+    var out: VertexOutput = VertexOutput(
+        vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0),
+        vec2<f32>(x, y)
+    );
     return out;
 }
 
@@ -31,7 +32,7 @@ fn hash12(p: vec2<f32>) -> f32 {
 }
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let uv = in.uv;
     
     // Base sky gradient (darker at the top, matching the time of day)

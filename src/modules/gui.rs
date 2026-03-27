@@ -1,7 +1,7 @@
 use cosmic::app::Core;
+use cosmic::iced::widget::{checkbox, pick_list, slider};
 use cosmic::iced::Length;
 use cosmic::iced::Task;
-use cosmic::iced::widget::{checkbox, pick_list, slider};
 use cosmic::widget::{column, row, text, text_editor, text_input};
 use cosmic::{Application, Element};
 
@@ -51,14 +51,18 @@ fn set_autostart(enable: bool) {
         // Execute a D-Bus call to the portal using busctl (standard in Freedesktop runtimes)
         let _ = std::process::Command::new("busctl")
             .args([
-                "--user", "call",
+                "--user",
+                "call",
                 "org.freedesktop.portal.Desktop",
                 "/org/freedesktop/portal/desktop",
                 "org.freedesktop.portal.Background",
                 "RequestBackground",
-                "sa{sv}", 
-                "", // parent_window 
-                "1", "autostart", "b", enable_str
+                "sa{sv}",
+                "", // parent_window
+                "1",
+                "autostart",
+                "b",
+                enable_str,
             ])
             .output();
         return;
@@ -69,12 +73,15 @@ fn set_autostart(enable: bool) {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let _ = std::fs::write(&path, r#"[Desktop Entry]
+        let _ = std::fs::write(
+            &path,
+            r#"[Desktop Entry]
 Type=Application
 Exec=cosmic-wallpaper
 Hidden=false
 X-GNOME-Autostart-enabled=true
-Name=COSMIC Wallpaper"#);
+Name=COSMIC Wallpaper"#,
+        );
     } else {
         let _ = std::fs::remove_file(path);
     }
@@ -96,18 +103,45 @@ fn load_files() -> Vec<String> {
     files
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackgroundMode {
+    Solid,
+    FrostedGlass,
+    Transparent,
+    AlbumArt,
+}
+
+impl BackgroundMode {
+    const ALL: [BackgroundMode; 4] = [
+        BackgroundMode::Solid,
+        BackgroundMode::FrostedGlass,
+        BackgroundMode::Transparent,
+        BackgroundMode::AlbumArt,
+    ];
+}
+
+impl std::fmt::Display for BackgroundMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BackgroundMode::Solid => write!(f, "Solid Desktop Wallpaper"),
+            BackgroundMode::FrostedGlass => write!(f, "Frosted Glass (Blur)"),
+            BackgroundMode::Transparent => write!(f, "Fully Transparent"),
+            BackgroundMode::AlbumArt => write!(f, "Album Art Background"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Message {
-    ToggleBlur(bool),
-    ToggleTransparent(bool),
+    BackgroundModeSelected(BackgroundMode),
     ToggleShowAlbumArt(bool),
-    ToggleAlbumArtBackground(bool),
     FileSelected(String),
     EditorAction(text_editor::Action),
     SaveFile,
     ApplyTheme,
     FpsChanged(f32),
     BlurOpacityChanged(f32),
+    ToggleShowLyrics(bool),
     ToggleAutostart(bool),
     NewThemeNameChanged(String),
     CreateTheme,
@@ -132,42 +166,57 @@ impl Application for SettingsApp {
         let wp_config = config::Config::load_or_default().unwrap_or_default();
         let available_files = load_files();
         let selected_file = Some("config.toml".to_string());
-        
+
         let path = config::Config::config_dir().join("config.toml");
         let content_str = std::fs::read_to_string(path).unwrap_or_default();
         let editor_content = text_editor::Content::with_text(&content_str);
-        
-        (SettingsApp {
-            core, 
-            wp_config, 
-            available_files, 
-            selected_file, 
-            editor_content, 
-            autostart: autostart_path().exists(),
-            new_theme_name: String::new(), 
-            status_msg: "Ready.".into() 
-        }, Task::none())
+
+        (
+            SettingsApp {
+                core,
+                wp_config,
+                available_files,
+                selected_file,
+                editor_content,
+                autostart: autostart_path().exists(),
+                new_theme_name: String::new(),
+                status_msg: "Ready.".into(),
+            },
+            Task::none(),
+        )
     }
 
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
         match message {
-            Message::ToggleBlur(state) => {
-                self.wp_config.appearance.disable_blur = !state; // Inverted logic from your tray
-                let _ = self.wp_config.save();
-                self.refresh_editor();
-            }
-            Message::ToggleTransparent(state) => {
-                self.wp_config.appearance.transparent_background = state;
+            Message::BackgroundModeSelected(mode) => {
+                match mode {
+                    BackgroundMode::Solid => {
+                        self.wp_config.appearance.disable_blur = true;
+                        self.wp_config.appearance.transparent_background = false;
+                        self.wp_config.appearance.album_art_background = false;
+                    }
+                    BackgroundMode::FrostedGlass => {
+                        self.wp_config.appearance.disable_blur = false;
+                        self.wp_config.appearance.transparent_background = false;
+                        self.wp_config.appearance.album_art_background = false;
+                    }
+                    BackgroundMode::Transparent => {
+                        self.wp_config.appearance.disable_blur = true;
+                        self.wp_config.appearance.transparent_background = true;
+                        self.wp_config.appearance.album_art_background = false;
+                    }
+                    BackgroundMode::AlbumArt => {
+                        // Album Art typically looks best with some blur fallback or as its own layer
+                        self.wp_config.appearance.disable_blur = false;
+                        self.wp_config.appearance.transparent_background = false;
+                        self.wp_config.appearance.album_art_background = true;
+                    }
+                }
                 let _ = self.wp_config.save();
                 self.refresh_editor();
             }
             Message::ToggleShowAlbumArt(state) => {
                 self.wp_config.appearance.show_album_art = state;
-                let _ = self.wp_config.save();
-                self.refresh_editor();
-            }
-            Message::ToggleAlbumArtBackground(state) => {
-                self.wp_config.appearance.album_art_background = state;
                 let _ = self.wp_config.save();
                 self.refresh_editor();
             }
@@ -202,7 +251,9 @@ impl Application for SettingsApp {
             Message::ApplyTheme => {
                 if let Some(file) = &self.selected_file {
                     if file.starts_with("shaders/") && file.ends_with(".toml") {
-                        let theme_name = file.trim_start_matches("shaders/").trim_end_matches(".toml");
+                        let theme_name = file
+                            .trim_start_matches("shaders/")
+                            .trim_end_matches(".toml");
                         self.wp_config.audio.style = theme_name.to_string();
                         if let Err(e) = self.wp_config.save() {
                             self.status_msg = format!("Error applying theme: {}", e);
@@ -210,17 +261,25 @@ impl Application for SettingsApp {
                             self.status_msg = format!("Applied theme: '{}'", theme_name);
                         }
                     } else {
-                        self.status_msg = "Please select a theme (.toml in shaders/) to apply.".into();
+                        self.status_msg =
+                            "Please select a theme (.toml in shaders/) to apply.".into();
                     }
                 }
             }
             Message::FpsChanged(fps) => {
                 self.wp_config.fps = fps as u32;
                 let _ = self.wp_config.save(); // Instantly hot-reloads the engine!
+                self.refresh_editor();
             }
             Message::BlurOpacityChanged(opacity) => {
                 self.wp_config.appearance.blur_opacity = opacity;
                 let _ = self.wp_config.save();
+                self.refresh_editor();
+            }
+            Message::ToggleShowLyrics(state) => {
+                self.wp_config.audio.show_lyrics = state;
+                let _ = self.wp_config.save();
+                self.refresh_editor();
             }
             Message::ToggleAutostart(state) => {
                 self.autostart = state;
@@ -234,7 +293,7 @@ impl Application for SettingsApp {
                     let name = self.new_theme_name.trim().trim_end_matches(".toml");
                     let file_name = format!("shaders/{}.toml", name);
                     let path = config::Config::config_dir().join(&file_name);
-                    
+
                     if !path.exists() {
                         let default_content = r#"[visualiser]
 shape = "linear"
@@ -261,45 +320,93 @@ amplitude = 1.5"#;
     fn view(&self) -> Element<'_, Self::Message> {
         let font = cosmic::iced::Font::DEFAULT;
 
+        let current_bg_mode = if self.wp_config.appearance.album_art_background {
+            BackgroundMode::AlbumArt
+        } else if self.wp_config.appearance.transparent_background {
+            BackgroundMode::Transparent
+        } else if !self.wp_config.appearance.disable_blur {
+            BackgroundMode::FrostedGlass
+        } else {
+            BackgroundMode::Solid
+        };
+
+        let bg_mode_selector = pick_list(
+            &BackgroundMode::ALL[..],
+            Some(current_bg_mode),
+            Message::BackgroundModeSelected,
+        );
+
         let toggles_row = column()
             .push(
                 row()
                     .push(
-                        row().push(checkbox(!self.wp_config.appearance.disable_blur).on_toggle(Message::ToggleBlur))
-                             .push(text("Enable Frosted Blur").font(font)).spacing(8)
+                        text("Background Style:")
+                            .font(font)
+                            .width(Length::Fixed(200.0)),
                     )
-                    .push(
-                        row().push(checkbox(self.wp_config.appearance.transparent_background).on_toggle(Message::ToggleTransparent))
-                             .push(text("Transparent Background").font(font)).spacing(8)
-                    )
-                    .push(
-                        row().push(checkbox(self.autostart).on_toggle(Message::ToggleAutostart))
-                             .push(text("Autostart on Login").font(font)).spacing(8)
-                    )
-                    .spacing(20)
+                    .push(bg_mode_selector)
+                    .spacing(20),
             )
             .push(
                 row()
                     .push(
-                        row().push(checkbox(self.wp_config.appearance.show_album_art).on_toggle(Message::ToggleShowAlbumArt))
-                             .push(text("Show Album Art Foreground").font(font)).spacing(8)
+                        row()
+                            .push(
+                                checkbox(self.wp_config.appearance.show_album_art)
+                                    .on_toggle(Message::ToggleShowAlbumArt),
+                            )
+                            .push(text("Show Album Art Foreground").font(font))
+                            .spacing(8),
                     )
                     .push(
-                        row().push(checkbox(self.wp_config.appearance.album_art_background).on_toggle(Message::ToggleAlbumArtBackground))
-                             .push(text("Use Album Art as Background").font(font)).spacing(8)
+                        row()
+                            .push(
+                                checkbox(self.wp_config.audio.show_lyrics)
+                                    .on_toggle(Message::ToggleShowLyrics),
+                            )
+                            .push(text("Show Lyrics").font(font))
+                            .spacing(8),
                     )
-                    .spacing(20)
+                    .push(
+                        row()
+                            .push(checkbox(self.autostart).on_toggle(Message::ToggleAutostart))
+                            .push(text("Autostart on Login").font(font))
+                            .spacing(8),
+                    )
+                    .spacing(20),
             )
             .spacing(15);
 
         let fps_row = row()
-            .push(text(format!("Target Framerate: {} FPS", self.wp_config.fps)).font(font).width(Length::Fixed(200.0)))
-            .push(slider(15.0..=144.0, self.wp_config.fps as f32, Message::FpsChanged))
+            .push(
+                text(format!("Target Framerate: {} FPS", self.wp_config.fps))
+                    .font(font)
+                    .width(Length::Fixed(200.0)),
+            )
+            .push(slider(
+                15.0..=144.0,
+                self.wp_config.fps as f32,
+                Message::FpsChanged,
+            ))
             .spacing(20);
 
         let blur_row = row()
-            .push(text(format!("Blur Strength: {:.2}", self.wp_config.appearance.blur_opacity)).font(font).width(Length::Fixed(200.0)))
-            .push(slider(0.0..=1.0, self.wp_config.appearance.blur_opacity, Message::BlurOpacityChanged).step(0.05))
+            .push(
+                text(format!(
+                    "Blur Strength: {:.2}",
+                    self.wp_config.appearance.blur_opacity
+                ))
+                .font(font)
+                .width(Length::Fixed(200.0)),
+            )
+            .push(
+                slider(
+                    0.0..=1.0,
+                    self.wp_config.appearance.blur_opacity,
+                    Message::BlurOpacityChanged,
+                )
+                .step(0.05),
+            )
             .spacing(20);
 
         let file_selector = pick_list(
@@ -308,15 +415,18 @@ amplitude = 1.5"#;
             Message::FileSelected,
         );
 
-        let save_btn = cosmic::iced::widget::button(text("Save File").font(font)).on_press(Message::SaveFile);
-        
-        let apply_btn = cosmic::iced::widget::button(text("Apply Theme").font(font)).on_press(Message::ApplyTheme);
+        let save_btn =
+            cosmic::iced::widget::button(text("Save File").font(font)).on_press(Message::SaveFile);
+
+        let apply_btn = cosmic::iced::widget::button(text("Apply Theme").font(font))
+            .on_press(Message::ApplyTheme);
 
         let new_theme_input = text_input("New Theme Name...", &self.new_theme_name)
             .on_input(Message::NewThemeNameChanged)
             .on_submit(|_| Message::CreateTheme);
-        
-        let create_btn = cosmic::iced::widget::button(text("Create Theme").font(font)).on_press(Message::CreateTheme);
+
+        let create_btn = cosmic::iced::widget::button(text("Create Theme").font(font))
+            .on_press(Message::CreateTheme);
 
         let toolbar = row()
             .push(text("Edit File:").font(font).width(Length::Shrink))

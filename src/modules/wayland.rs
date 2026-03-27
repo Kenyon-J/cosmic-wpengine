@@ -1,12 +1,14 @@
 use anyhow::{Context, Result};
-use tracing::info;
-use raw_window_handle::{RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle};
+use raw_window_handle::{
+    RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
+};
 use std::ptr::NonNull;
+use tracing::info;
 
 use wayland_client::{
     backend::WaylandError,
-    protocol::{wl_callback::WlCallback, wl_output, wl_region::WlRegion, wl_surface::WlSurface},
     globals::registry_queue_init,
+    protocol::{wl_callback::WlCallback, wl_output, wl_region::WlRegion, wl_surface::WlSurface},
     Connection, Dispatch, EventQueue, Proxy, QueueHandle,
 };
 
@@ -116,7 +118,8 @@ impl OutputHandler for AppData {
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
         _output: wl_output::WlOutput,
-    ) {}
+    ) {
+    }
     fn output_destroyed(
         &mut self,
         _conn: &Connection,
@@ -155,7 +158,8 @@ impl CompositorHandler for AppData {
         _qh: &QueueHandle<Self>,
         _surface: &WlSurface,
         _new_transform: wl_output::Transform,
-    ) {}
+    ) {
+    }
     fn frame(
         &mut self,
         _conn: &Connection,
@@ -174,14 +178,16 @@ impl CompositorHandler for AppData {
         _qh: &QueueHandle<Self>,
         _surface: &WlSurface,
         _output: &wl_output::WlOutput,
-    ) {}
+    ) {
+    }
     fn surface_leave(
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
         _surface: &WlSurface,
         _output: &wl_output::WlOutput,
-    ) {}
+    ) {
+    }
 }
 
 impl LayerShellHandler for AppData {
@@ -276,8 +282,7 @@ impl WaylandManager {
             output_state: OutputState::new(&globals, &qh),
             compositor_state: CompositorState::bind(&globals, &qh)
                 .context("wl_compositor not available")?,
-            layer_shell: LayerShell::bind(&globals, &qh)
-                .context("layer shell not available")?,
+            layer_shell: LayerShell::bind(&globals, &qh).context("layer shell not available")?,
             is_transparent: false,
             windows: Vec::new(),
             dead_windows: Vec::new(),
@@ -289,12 +294,15 @@ impl WaylandManager {
         while app_data.windows.iter().any(|w| !w.first_configure) {
             event_queue.blocking_dispatch(&mut app_data)?;
         }
-        
+
         for win in &app_data.windows {
             win.surface.commit();
         }
 
-        info!("Layer surfaces created for {} output(s)", app_data.windows.len());
+        info!(
+            "Layer surfaces created for {} output(s)",
+            app_data.windows.len()
+        );
 
         let display_ptr = conn.backend().display_ptr() as *mut std::ffi::c_void;
 
@@ -307,12 +315,16 @@ impl WaylandManager {
     }
 
     pub fn outputs(&self) -> Vec<WaylandOutput> {
-        self.app_data.windows.iter().map(|w| WaylandOutput {
-            width: w.width * (w.scale_factor as u32),
-            height: w.height * (w.scale_factor as u32),
-            display_ptr: self.display_ptr,
-            surface_ptr: w.surface.id().as_ptr() as *mut _,
-        }).collect()
+        self.app_data
+            .windows
+            .iter()
+            .map(|w| WaylandOutput {
+                width: w.width * (w.scale_factor as u32),
+                height: w.height * (w.scale_factor as u32),
+                display_ptr: self.display_ptr,
+                surface_ptr: w.surface.id().as_ptr() as *mut _,
+            })
+            .collect()
     }
 
     pub fn dispatch_events(&mut self) -> Result<()> {
@@ -325,7 +337,9 @@ impl WaylandManager {
                 }
             }
         }
-        self._event_queue.dispatch_pending(&mut self.app_data).context("Wayland event dispatch failed")?;
+        self._event_queue
+            .dispatch_pending(&mut self.app_data)
+            .context("Wayland event dispatch failed")?;
         Ok(())
     }
 
@@ -333,7 +347,7 @@ impl WaylandManager {
         self.app_data.is_transparent = is_transparent;
         let compositor = self.app_data.compositor_state.wl_compositor().clone();
         let qh = self._event_queue.handle();
-        
+
         for win in &self.app_data.windows {
             if !is_transparent && win.width > 0 && win.height > 0 {
                 let region = compositor.create_region(&qh, ());
@@ -361,11 +375,19 @@ impl WaylandManager {
     }
 
     pub fn is_frame_pending(&self, index: usize) -> bool {
-        self.app_data.windows.get(index).is_some_and(|w| w.frame_pending || !w.first_configure)
+        self.app_data
+            .windows
+            .get(index)
+            .is_some_and(|w| w.frame_pending || !w.first_configure)
     }
 
     pub fn any_monitor_ready(&self) -> bool {
-        self.app_data.windows.is_empty() || self.app_data.windows.iter().any(|w| !w.frame_pending && w.first_configure)
+        self.app_data.windows.is_empty()
+            || self
+                .app_data
+                .windows
+                .iter()
+                .any(|w| !w.frame_pending && w.first_configure)
     }
 
     pub fn is_occluded(&self) -> bool {
@@ -373,7 +395,8 @@ impl WaylandManager {
             return false;
         }
         self.app_data.windows.iter().all(|w| {
-            w.frame_pending && w.last_frame_request.elapsed() > std::time::Duration::from_millis(100)
+            w.frame_pending
+                && w.last_frame_request.elapsed() > std::time::Duration::from_millis(100)
         })
     }
 }

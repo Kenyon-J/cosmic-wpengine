@@ -8,9 +8,24 @@ use super::{
     colour::{lerp_colour, time_to_sky_colour},
     event::Event,
     state::{AppState, SceneHint},
-    wayland::WaylandManager,
     visualiser_pass::VisualiserPass,
+    wayland::WaylandManager,
 };
+
+#[repr(C, align(16))]
+#[derive(Copy, Clone, Debug)]
+struct ArtUniforms {
+    color_and_transition: [f32; 4],
+    res: [f32; 2],
+    art_position: [f32; 2],
+    audio_energy: f32,
+    mode: u32,
+    bg_alpha: f32,
+    art_size: f32,
+    shape: u32,
+    blur_opacity: f32,
+    image_res: [f32; 2],
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -42,15 +57,15 @@ pub struct Renderer {
     album_art_fg_uniform_buffer: wgpu::Buffer,
     album_art_bg_bind_group: Option<wgpu::BindGroup>,
     album_art_fg_bind_group: Option<wgpu::BindGroup>,
-    previous_album_view: wgpu::TextureView,
-    current_album_view: wgpu::TextureView,
     current_album_texture: Option<wgpu::Texture>,
+    album_art_sampler: wgpu::Sampler,
     ambient_pipeline: wgpu::RenderPipeline,
     ambient_bind_group: wgpu::BindGroup,
     ambient_uniform_buffer: wgpu::Buffer,
     custom_bg_uniform_buffer: wgpu::Buffer,
     custom_bg_bind_group: Option<wgpu::BindGroup>,
     current_bg_path: Option<String>,
+    current_custom_bg_size: Option<(u32, u32)>,
     _particle_buffer: wgpu::Buffer,
     weather_compute_uniform_buffer: wgpu::Buffer,
     weather_compute_bind_group: wgpu::BindGroup,
@@ -75,11 +90,16 @@ pub struct Renderer {
     lyric_bounce_velocity: f32,
     cached_track_str: String,
     cached_weather_str: String,
+    cached_track_section: Option<wgpu_text::glyph_brush::OwnedSection>,
+    cached_weather_section: Option<wgpu_text::glyph_brush::OwnedSection>,
+    current_lyric_idx: usize,
+    lyric_scroll_offset: f32,
+    video_frame_buffer: Vec<u8>,
 }
 
 impl Renderer {
     pub async fn new(
-        wayland_manager: &WaylandManager, 
+        wayland_manager: &WaylandManager,
         state: AppState,
         show_lyrics_atomic: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<Self> {
@@ -106,20 +126,25 @@ impl Renderer {
             surfaces.push(unsafe { instance.create_surface_unsafe(target) }?);
         }
 
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::LowPower,
-            compatible_surface: Some(&surfaces[0]),
-            force_fallback_adapter: false,
-        }).await.expect("No suitable GPU adapter found");
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: Some(&surfaces[0]),
+                force_fallback_adapter: false,
+            })
+            .await
+            .expect("No suitable GPU adapter found");
 
-        let (device, queue) = adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("COSMIC Wallpaper Device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-            },
-            None
-        ).await?;
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("COSMIC Wallpaper Device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
+                },
+                None,
+            )
+            .await?;
 
         // Lookup a reliable system font used in Linux/COSMIC environments
         let font_bytes = std::fs::read("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf")
@@ -140,25 +165,28 @@ impl Renderer {
             .or_else(|_| std::fs::read("/run/host/fonts/noto/NotoSans-Regular.ttf"))
             .or_else(|_| std::fs::read("/run/host/fonts/cantarell/Cantarell-Regular.ttf"))
             .expect("Could not find a valid system font! Please install 'ttf-dejavu', 'ttf-liberation', or 'noto-fonts'.");
-        let primary_font = wgpu_text::glyph_brush::ab_glyph::FontArc::try_from_vec(font_bytes).unwrap();
+        let primary_font =
+            wgpu_text::glyph_brush::ab_glyph::FontArc::try_from_vec(font_bytes).unwrap();
 
         let mut fonts = vec![primary_font];
-        
+
         let fallback_paths = [
             "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", // Arch
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", // Ubuntu/Debian
             "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", // Fedora
             "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf", // Generic Fallback
-            "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc", // Generic Fallback
-            "/run/host/fonts/noto-cjk/NotoSansCJK-Regular.ttc", // Arch
+            "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",    // Generic Fallback
+            "/run/host/fonts/noto-cjk/NotoSansCJK-Regular.ttc",  // Arch
             "/run/host/fonts/opentype/noto/NotoSansCJK-Regular.ttc", // Ubuntu/Debian
             "/run/host/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", // Fedora
             "/run/host/fonts/truetype/droid/DroidSansFallbackFull.ttf", // Generic Fallback
-            "/run/host/fonts/wqy-microhei/wqy-microhei.ttc", // Generic Fallback
+            "/run/host/fonts/wqy-microhei/wqy-microhei.ttc",     // Generic Fallback
         ];
         for path in fallback_paths {
             if let Ok(bytes) = std::fs::read(path) {
-                if let Ok(fallback_font) = wgpu_text::glyph_brush::ab_glyph::FontArc::try_from_vec(bytes) {
+                if let Ok(fallback_font) =
+                    wgpu_text::glyph_brush::ab_glyph::FontArc::try_from_vec(bytes)
+                {
                     fonts.push(fallback_font);
                 }
             }
@@ -167,11 +195,22 @@ impl Renderer {
         let mut outputs = Vec::new();
         for (info, surface) in outputs_info.into_iter().zip(surfaces) {
             let caps = surface.get_capabilities(&adapter);
-            let format = caps.formats.iter().copied().find(|f| f.is_srgb()).unwrap_or(caps.formats[0]);
+            let format = caps
+                .formats
+                .iter()
+                .copied()
+                .find(|f| f.is_srgb())
+                .unwrap_or(caps.formats[0]);
 
-            let alpha_mode = if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
+            let alpha_mode = if caps
+                .alpha_modes
+                .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+            {
                 wgpu::CompositeAlphaMode::PreMultiplied
-            } else if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PostMultiplied) {
+            } else if caps
+                .alpha_modes
+                .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
+            {
                 wgpu::CompositeAlphaMode::PostMultiplied
             } else {
                 caps.alpha_modes[0]
@@ -196,21 +235,39 @@ impl Renderer {
                 desired_maximum_frame_latency: 2,
             };
             surface.configure(&device, &config);
-            
-            let text_brush = wgpu_text::BrushBuilder::using_fonts(fonts.clone())
-                .build(&device, info.width, info.height, format);
-                
-            outputs.push(GpuOutput { surface, config, text_brush });
+
+            let text_brush = wgpu_text::BrushBuilder::using_fonts(fonts.clone()).build(
+                &device,
+                info.width,
+                info.height,
+                format,
+            );
+
+            outputs.push(GpuOutput {
+                surface,
+                config,
+                text_brush,
+            });
         }
 
         let config_format = outputs[0].config.format;
 
         // --- Visualiser Pipeline Setup ---
-        let visualiser_pass = VisualiserPass::new(&device, config_format, state.config.audio.bands, &state.config.audio.style).await;
+        let visualiser_pass = VisualiserPass::new(
+            &device,
+            config_format,
+            state.config.audio.bands,
+            &state.config.audio.style,
+        )
+        .await;
 
         // --- Album Art Pipeline Setup ---
         let empty_texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -233,11 +290,12 @@ impl Renderer {
                 bytes_per_row: Some(4),
                 rows_per_image: Some(1),
             },
-            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
         );
-
-        let previous_album_view = empty_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let current_album_view = empty_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let album_art_bg_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Album Art BG Uniform Buffer"),
@@ -281,16 +339,6 @@ impl Renderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
             ],
         });
 
@@ -299,11 +347,12 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("album_art.wgsl").into()),
         });
 
-        let album_art_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Album Art Pipeline Layout"),
-            bind_group_layouts: &[&album_art_layout],
-            push_constant_ranges: &[],
-        });
+        let album_art_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Album Art Pipeline Layout"),
+                bind_group_layouts: &[&album_art_layout],
+                push_constant_ranges: &[],
+            });
 
         let album_art_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Album Art Render Pipeline"),
@@ -336,15 +385,15 @@ impl Renderer {
         // --- Ambient Pipeline Setup ---
         let ambient_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Ambient Uniform Buffer"),
-            size: 64, 
+            size: 64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let ambient_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Ambient Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        let ambient_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Ambient Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
@@ -353,19 +402,16 @@ impl Renderer {
                         min_binding_size: wgpu::BufferSize::new(64),
                     },
                     count: None,
-                },
-            ],
-        });
+                }],
+            });
 
         let ambient_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Ambient Bind Group"),
             layout: &ambient_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: ambient_uniform_buffer.as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: ambient_uniform_buffer.as_entire_binding(),
+            }],
         });
 
         let ambient_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -373,11 +419,12 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("ambient.wgsl").into()),
         });
 
-        let ambient_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Ambient Pipeline Layout"),
-            bind_group_layouts: &[&ambient_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let ambient_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Ambient Pipeline Layout"),
+                bind_group_layouts: &[&ambient_bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
         let ambient_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Ambient Render Pipeline"),
@@ -420,7 +467,7 @@ impl Renderer {
             initial_particles.push(Particle {
                 pos: [
                     (i as f32 * 12.9898).sin().fract() * 2.0 - 0.5, // Random X scatter
-                    -0.2 - (i as f32 * 0.01),                       // Staggered starting heights
+                    (i as f32 * 7.2345).sin().fract() * 2.4 - 1.2, // Naturally spread across the entire vertical space
                 ],
                 vel: [0.0, 0.5 + (i as f32 % 5.0) * 0.1], // Base downward velocity
                 lifetime: 5.0 + (i as f32 % 5.0),
@@ -429,16 +476,22 @@ impl Renderer {
             });
         }
 
-        let particle_buffer_size = (initial_particles.len() * std::mem::size_of::<Particle>()) as wgpu::BufferAddress;
+        let particle_buffer_size =
+            (initial_particles.len() * std::mem::size_of::<Particle>()) as wgpu::BufferAddress;
         let particle_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Particle Storage Buffer"),
             size: particle_buffer_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let particles_bytes = unsafe {
-            std::slice::from_raw_parts(initial_particles.as_ptr() as *const u8, particle_buffer_size as usize)
+            std::slice::from_raw_parts(
+                initial_particles.as_ptr() as *const u8,
+                particle_buffer_size as usize,
+            )
         };
         queue.write_buffer(&particle_buffer, 0, particles_bytes);
 
@@ -449,38 +502,47 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
-        let weather_compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Weather Compute Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry { // Storage Buffer (Read/Write)
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(particle_buffer_size),
+        let weather_compute_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Weather Compute Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        // Storage Buffer (Read/Write)
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(particle_buffer_size),
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry { // Uniform Buffer (delta_time, physics)
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(16),
+                    wgpu::BindGroupLayoutEntry {
+                        // Uniform Buffer (delta_time, physics)
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(16),
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-        });
+                ],
+            });
 
         let weather_compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Weather Compute Bind Group"),
             layout: &weather_compute_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: particle_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: weather_compute_uniform_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: particle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: weather_compute_uniform_buffer.as_entire_binding(),
+                },
             ],
         });
 
@@ -489,25 +551,27 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("weather_compute.wgsl").into()),
         });
 
-        let weather_compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Weather Compute Pipeline Layout"),
-            bind_group_layouts: &[&weather_compute_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let weather_compute_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Weather Compute Pipeline Layout"),
+                bind_group_layouts: &[&weather_compute_bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
-        let weather_compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Weather Compute Pipeline"),
-            layout: Some(&weather_compute_pipeline_layout),
-            module: &weather_compute_shader,
-            entry_point: "main",
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-        });
+        let weather_compute_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Weather Compute Pipeline"),
+                layout: Some(&weather_compute_pipeline_layout),
+                module: &weather_compute_shader,
+                entry_point: "main",
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            });
 
         // --- Weather Render Pipeline Setup ---
-        let weather_render_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Weather Render Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        let weather_render_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Weather Render Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
@@ -516,14 +580,16 @@ impl Renderer {
                         min_binding_size: wgpu::BufferSize::new(particle_buffer_size),
                     },
                     count: None,
-                },
-            ],
-        });
+                }],
+            });
 
         let weather_render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Weather Render Bind Group"),
             layout: &weather_render_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: particle_buffer.as_entire_binding() }],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: particle_buffer.as_entire_binding(),
+            }],
         });
 
         let weather_render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -531,25 +597,56 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("weather_render.wgsl").into()),
         });
 
-        let weather_render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Weather Render Pipeline Layout"),
-            bind_group_layouts: &[&weather_render_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let weather_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Weather Render Pipeline Layout"),
+                bind_group_layouts: &[&weather_render_bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
-        let weather_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Weather Render Pipeline"),
-            layout: Some(&weather_render_pipeline_layout),
-            vertex: wgpu::VertexState { module: &weather_render_shader, entry_point: "vs_main", buffers: &[], compilation_options: Default::default() },
-            fragment: Some(wgpu::FragmentState { module: &weather_render_shader, entry_point: "fs_main", targets: &[Some(wgpu::ColorTargetState { format: config_format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })], compilation_options: Default::default() }),
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
-            depth_stencil: None, multisample: wgpu::MultisampleState::default(), multiview: None,
-        });
+        let weather_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Weather Render Pipeline"),
+                layout: Some(&weather_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &weather_render_shader,
+                    entry_point: "vs_main",
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &weather_render_shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            });
 
         let theme = super::config::ThemeLayout::load(&state.config.audio.style);
         let a_weighting_curve = Self::build_a_weighting_curve(state.config.audio.bands);
         let frequency_bin_ranges = Self::build_frequency_bin_ranges(state.config.audio.bands);
         let waveform_bin_ranges = Self::build_waveform_bin_ranges(state.config.audio.bands);
+
+        let album_art_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
 
         let mut renderer = Self {
             instance,
@@ -565,15 +662,15 @@ impl Renderer {
             album_art_fg_uniform_buffer,
             album_art_bg_bind_group: None,
             album_art_fg_bind_group: None,
-            previous_album_view,
-            current_album_view,
-            current_album_texture: None,
+            current_album_texture: Some(empty_texture),
+            album_art_sampler,
             ambient_pipeline,
             ambient_bind_group,
             ambient_uniform_buffer,
             custom_bg_uniform_buffer,
             custom_bg_bind_group: None,
             current_bg_path: None,
+            current_custom_bg_size: None,
             _particle_buffer: particle_buffer,
             weather_compute_uniform_buffer,
             weather_compute_bind_group,
@@ -598,6 +695,11 @@ impl Renderer {
             lyric_bounce_velocity: 0.0,
             cached_track_str: String::new(),
             cached_weather_str: String::new(),
+            cached_track_section: None,
+            cached_weather_section: None,
+            current_lyric_idx: 0,
+            lyric_scroll_offset: 0.0,
+            video_frame_buffer: Vec::new(),
         };
 
         let path = renderer.state.config.appearance.resolved_background_path();
@@ -616,7 +718,7 @@ impl Renderer {
     ) -> Result<()> {
         let mut last_frame = Instant::now();
         let mut last_config_serial = wayland_manager.app_data.configuration_serial;
-        
+
         let mut interval = tokio::time::interval(self.frame_duration);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -624,20 +726,23 @@ impl Renderer {
 
         loop {
             interval.tick().await;
-            
+
             let occluded = wayland_manager.is_occluded();
             is_visible.store(!occluded, std::sync::atomic::Ordering::Relaxed);
 
             wayland_manager.dispatch_events()?;
-            
+
             let current_outputs = wayland_manager.outputs();
             if wayland_manager.app_data.configuration_serial != last_config_serial {
                 last_config_serial = wayland_manager.app_data.configuration_serial;
-                info!("Monitor configuration changed ({} outputs), rebuilding GPU surfaces...", current_outputs.len());
-                
+                info!(
+                    "Monitor configuration changed ({} outputs), rebuilding GPU surfaces...",
+                    current_outputs.len()
+                );
+
                 self.outputs.clear();
                 wayland_manager.cleanup_dead_windows();
-                
+
                 for info in &current_outputs {
                     let target = wgpu::SurfaceTargetUnsafe::RawHandle {
                         raw_display_handle: info.raw_display_handle(),
@@ -647,11 +752,22 @@ impl Renderer {
                         .expect("Failed to recreate surface");
 
                     let caps = surface.get_capabilities(&self.adapter);
-                    let format = caps.formats.iter().copied().find(|f| f.is_srgb()).unwrap_or(caps.formats[0]);
+                    let format = caps
+                        .formats
+                        .iter()
+                        .copied()
+                        .find(|f| f.is_srgb())
+                        .unwrap_or(caps.formats[0]);
 
-                    let alpha_mode = if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
+                    let alpha_mode = if caps
+                        .alpha_modes
+                        .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+                    {
                         wgpu::CompositeAlphaMode::PreMultiplied
-                    } else if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PostMultiplied) {
+                    } else if caps
+                        .alpha_modes
+                        .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
+                    {
                         wgpu::CompositeAlphaMode::PostMultiplied
                     } else {
                         caps.alpha_modes[0]
@@ -676,22 +792,37 @@ impl Renderer {
                         desired_maximum_frame_latency: 2,
                     };
                     surface.configure(&self.device, &config);
-                    
+
                     let text_brush = wgpu_text::BrushBuilder::using_fonts(self.fonts.clone())
                         .build(&self.device, config.width, config.height, format);
-                        
-                    self.outputs.push(GpuOutput { surface, config, text_brush });
+
+                    self.outputs.push(GpuOutput {
+                        surface,
+                        config,
+                        text_brush,
+                    });
                 }
             }
-            
+
             for (i, win) in wayland_manager.app_data.windows.iter().enumerate() {
                 if let Some(gpu_out) = self.outputs.get_mut(i) {
-                    if gpu_out.config.width != win.width || gpu_out.config.height != win.height {
-                        info!("Resizing output {} to {}x{}", i, win.width, win.height);
-                        gpu_out.config.width = win.width.max(1);
-                        gpu_out.config.height = win.height.max(1);
+                    let target_width = win.width * (win.scale_factor as u32);
+                    let target_height = win.height * (win.scale_factor as u32);
+                    if gpu_out.config.width != target_width
+                        || gpu_out.config.height != target_height
+                    {
+                        info!(
+                            "Resizing output {} to {}x{}",
+                            i, target_width, target_height
+                        );
+                        gpu_out.config.width = target_width.max(1);
+                        gpu_out.config.height = target_height.max(1);
                         gpu_out.surface.configure(&self.device, &gpu_out.config);
-                        gpu_out.text_brush.resize_view(gpu_out.config.width as f32, gpu_out.config.height as f32, &self.queue);
+                        gpu_out.text_brush.resize_view(
+                            gpu_out.config.width as f32,
+                            gpu_out.config.height as f32,
+                            &self.queue,
+                        );
                     }
                 }
             }
@@ -701,7 +832,9 @@ impl Renderer {
 
             while let Ok(event) = event_rx.try_recv() {
                 if let Event::ConfigUpdated(ref config) = event {
-                    if config.appearance.transparent_background != self.state.config.appearance.transparent_background {
+                    if config.appearance.transparent_background
+                        != self.state.config.appearance.transparent_background
+                    {
                         transparent_changed = true;
                     }
                 }
@@ -709,7 +842,8 @@ impl Renderer {
             }
 
             if transparent_changed {
-                wayland_manager.update_opaque_regions(self.state.config.appearance.transparent_background);
+                wayland_manager
+                    .update_opaque_regions(self.state.config.appearance.transparent_background);
             }
 
             if self.frame_duration != previous_duration {
@@ -720,28 +854,56 @@ impl Renderer {
             self.state.update_time();
 
             let now = Instant::now();
-            let delta = now.duration_since(last_frame).as_secs_f32();
+            // Cap the delta to 100ms to prevent the Explicit Euler physics from exploding after a monitor sleep!
+            let delta = now.duration_since(last_frame).as_secs_f32().min(0.1);
             self.state.tick_transition(delta);
             last_frame = now;
-            
+
             // Exponential decay for the beat pulse so it snaps up and softly falls down
             self.beat_pulse *= (-12.0 * delta).exp();
             // Treble decays slightly faster for snappier, rapid hi-hats
             self.treble_pulse *= (-15.0 * delta).exp();
 
             // Spring physics for organic lyric bounce (Hooke's Law)
-            let stiffness = 150.0;
-            let damping = 12.0; // Slightly underdamped for a natural spring overshoot
-            let spring_force = -stiffness * self.lyric_bounce_value - damping * self.lyric_bounce_velocity;
+            let stiffness = self.theme.effects.lyric_spring_stiffness;
+            let damping = self.theme.effects.lyric_spring_damping;
+            let spring_force =
+                -stiffness * self.lyric_bounce_value - damping * self.lyric_bounce_velocity;
             self.lyric_bounce_velocity += spring_force * delta;
             self.lyric_bounce_value += self.lyric_bounce_velocity * delta;
+
+            let current_idx = self
+                .state
+                .current_track
+                .as_ref()
+                .and_then(|t| t.lyrics.as_ref())
+                .map(|l| {
+                    l.partition_point(|line| {
+                        line.start_time_secs <= self.state.playback_position.as_secs_f32()
+                    })
+                })
+                .unwrap_or(0);
+
+            if current_idx != self.current_lyric_idx {
+                if (current_idx as isize - self.current_lyric_idx as isize).abs() > 2 {
+                    // Prevent massive scroll jumps on track init or seeking
+                    self.current_lyric_idx = current_idx;
+                    self.lyric_scroll_offset = 0.0;
+                } else {
+                    self.lyric_scroll_offset += self.current_lyric_idx as f32 - current_idx as f32;
+                    self.current_lyric_idx = current_idx;
+                }
+            }
+
+            // Smoothly interpolate the scroll offset back to 0
+            self.lyric_scroll_offset *= (-12.0 * delta).exp();
 
             if wayland_manager.any_monitor_ready() {
                 self.draw_frame(&mut wayland_manager, delta)?;
             }
-            
+
             // Tell wgpu to process internal garbage collection.
-            // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded), 
+            // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded),
             // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
             self.device.poll(wgpu::Maintain::Poll);
         }
@@ -750,9 +912,12 @@ impl Renderer {
     async fn handle_event(&mut self, event: Event) {
         match event {
             Event::ConfigUpdated(config) => {
-                self.show_lyrics_atomic.store(config.audio.show_lyrics, std::sync::atomic::Ordering::Relaxed);
+                self.show_lyrics_atomic.store(
+                    config.audio.show_lyrics,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 self.frame_duration = Duration::from_secs_f64(1.0 / config.fps as f64);
-                
+
                 let new_bg = config.appearance.resolved_background_path();
                 if new_bg != self.current_bg_path {
                     self.load_custom_background(new_bg.as_deref());
@@ -761,18 +926,29 @@ impl Renderer {
 
                 if config.audio.bands != self.state.config.audio.bands {
                     self.state.audio_bands = vec![0.0; config.audio.bands];
+                    self.state.audio_waveform = vec![0.0; config.audio.bands];
                     self.a_weighting_curve = Self::build_a_weighting_curve(config.audio.bands);
-                    self.frequency_bin_ranges = Self::build_frequency_bin_ranges(config.audio.bands);
+                    self.frequency_bin_ranges =
+                        Self::build_frequency_bin_ranges(config.audio.bands);
                     self.waveform_bin_ranges = Self::build_waveform_bin_ranges(config.audio.bands);
                 }
-                
+
                 // Always reload the shader pipeline so live WGSL edits apply instantly!
                 let format = self.outputs[0].config.format;
-                self.visualiser_pass.reload(&self.device, format, &config.audio.style, config.audio.bands).await;
+                self.visualiser_pass
+                    .reload(
+                        &self.device,
+                        format,
+                        &config.audio.style,
+                        config.audio.bands,
+                    )
+                    .await;
 
                 // Always reload the theme layout so live edits to the .toml apply instantly!
                 self.theme = super::config::ThemeLayout::load(&config.audio.style);
                 self.state.config = config;
+                self.cached_track_section = None; // Force rebuild of text with new theme
+                self.cached_weather_section = None;
                 self.update_weather_string();
                 info!("Live settings applied!");
             }
@@ -781,10 +957,18 @@ impl Renderer {
                 if let Some(art) = &track.album_art {
                     self.update_album_art_texture(art);
                 }
-                self.cached_track_str = format!("{} — {}\n{}", track.title, track.artist, track.album);
-                self.state.previous_palette = self.state.current_track.as_ref().and_then(|t| t.palette.clone());
+                self.cached_track_str =
+                    format!("{} — {}\n{}", track.title, track.artist, track.album);
+                self.cached_track_section = None; // Invalidate cache
+                self.state.previous_palette = self
+                    .state
+                    .current_track
+                    .as_ref()
+                    .and_then(|t| t.palette.clone());
                 self.state.current_track = Some(track);
                 self.state.is_playing = true;
+                self.current_lyric_idx = 0;
+                self.lyric_scroll_offset = 0.0;
                 self.state.begin_transition();
             }
 
@@ -803,9 +987,16 @@ impl Renderer {
 
             Event::PlayerShutDown => {
                 self.cached_track_str.clear();
-                self.state.previous_palette = self.state.current_track.as_ref().and_then(|t| t.palette.clone());
+                self.cached_track_section = None; // Invalidate cache
+                self.state.previous_palette = self
+                    .state
+                    .current_track
+                    .as_ref()
+                    .and_then(|t| t.palette.clone());
                 self.state.current_track = None;
                 self.state.is_playing = false;
+                self.current_lyric_idx = 0;
+                self.lyric_scroll_offset = 0.0;
                 self.state.begin_transition();
             }
 
@@ -816,18 +1007,18 @@ impl Renderer {
             Event::AudioFrame { bands, waveform } => {
                 let smoothing = self.state.config.audio.smoothing;
                 let target_len = self.state.audio_bands.len();
-                
+
                 let min_freq = 40.0f32;
                 let max_freq = 16000.0f32;
                 let sample_rate = 48000.0f32;
                 let fft_size = 2048.0f32;
                 let freq_per_bin = sample_rate / fft_size;
-                
+
                 // --- Smart Beat Detection ---
                 // We focus strictly on the low-end frequencies (e.g. 20Hz - 120Hz)
                 let bass_min_bin = (20.0 / freq_per_bin).floor() as usize;
                 let bass_max_bin = (120.0 / freq_per_bin).ceil() as usize;
-                
+
                 let mut current_bass = 0.0f32;
                 let mut count = 0;
                 for &val in &bands[bass_min_bin..=bass_max_bin.min(bands.len() - 1)] {
@@ -837,25 +1028,29 @@ impl Renderer {
                 if count > 0 {
                     current_bass /= count as f32;
                 }
-                
+
                 // Moving average for a local bass energy threshold (~1 second tracker)
                 self.bass_moving_average = self.bass_moving_average * 0.95 + current_bass * 0.05;
-                
+
                 // Trigger a beat if the bass spikes significantly above the recent average
-                if current_bass > self.bass_moving_average * 1.5 && current_bass > 0.02
-                    && self.last_beat_time.elapsed().as_millis() > 200 { // 200ms cooldown prevents double-triggering
-                        self.beat_pulse = 1.0;
-                        
-                        // Add physical velocity to the lyric spring. The harder the bass spike, the bigger the bounce!
-                        let spike = (current_bass / self.bass_moving_average.max(0.001)).clamp(1.5, 3.0);
-                        self.lyric_bounce_velocity += 15.0 * spike;
-                        self.last_beat_time = Instant::now();
-                    }
+                if current_bass > self.bass_moving_average * 1.3
+                    && current_bass > 0.005
+                    && self.last_beat_time.elapsed().as_millis() > 200
+                {
+                    // 200ms cooldown prevents double-triggering
+                    self.beat_pulse = 1.0;
+
+                    // Add physical velocity to the lyric spring. The harder the bass spike, the bigger the bounce!
+                    let spike =
+                        (current_bass / self.bass_moving_average.max(0.001)).clamp(1.2, 3.0);
+                    self.lyric_bounce_velocity += (15.0 * spike) * self.theme.effects.lyric_bounce;
+                    self.last_beat_time = Instant::now();
+                }
 
                 // --- Smart Treble Detection (Snares / Hi-Hats) ---
                 let treble_min_bin = (3000.0 / freq_per_bin).floor() as usize;
                 let treble_max_bin = (8000.0 / freq_per_bin).ceil() as usize;
-                
+
                 let mut current_treble = 0.0f32;
                 let mut t_count = 0;
                 for &val in &bands[treble_min_bin..=treble_max_bin.min(bands.len() - 1)] {
@@ -865,71 +1060,78 @@ impl Renderer {
                 if t_count > 0 {
                     current_treble /= t_count as f32;
                 }
-                
-                self.treble_moving_average = self.treble_moving_average * 0.90 + current_treble * 0.10;
-                
-                if current_treble > self.treble_moving_average * 1.3 && current_treble > 0.01
-                    && self.last_treble_time.elapsed().as_millis() > 50 { // Fast 50ms cooldown for rapid 16th-note hi-hats
-                        self.treble_pulse = 1.0;
-                        self.last_treble_time = Instant::now();
-                    }
-                
+
+                self.treble_moving_average =
+                    self.treble_moving_average * 0.90 + current_treble * 0.10;
+
+                if current_treble > self.treble_moving_average * 1.2
+                    && current_treble > 0.002
+                    && self.last_treble_time.elapsed().as_millis() > 50
+                {
+                    // Fast 50ms cooldown for rapid 16th-note hi-hats
+                    self.treble_pulse = 1.0;
+                    self.last_treble_time = Instant::now();
+                }
+
                 let min_log = min_freq.log2();
                 let max_log = max_freq.log2();
 
                 for (i, current) in self.state.audio_bands.iter_mut().enumerate() {
                     let t_lo = i as f32 / target_len as f32;
                     let t_hi = (i + 1) as f32 / target_len as f32;
-                    
+
                     let freq_lo = (min_log + t_lo * (max_log - min_log)).exp2();
                     let freq_hi = (min_log + t_hi * (max_log - min_log)).exp2();
-                    
+
                     let mut bin_lo = (freq_lo / freq_per_bin).round() as usize;
                     let mut bin_hi = (freq_hi / freq_per_bin).round() as usize;
-                    
+
                     bin_lo = bin_lo.clamp(0, bands.len() - 1);
                     bin_hi = bin_hi.clamp(0, bands.len());
-                    
+
                     if bin_hi <= bin_lo {
                         bin_hi = (bin_lo + 1).min(bands.len());
                     }
-                    
-                    let max_val = bands[bin_lo..bin_hi].iter().fold(0.0f32, |acc, &val| acc.max(val));
-                    
+
+                    let max_val = bands[bin_lo..bin_hi]
+                        .iter()
+                        .fold(0.0f32, |acc, &val| acc.max(val));
+
                     // Calculate the geometric mean frequency of the current band
                     let f = (freq_lo * freq_hi).sqrt();
                     let f2 = f * f;
                     let f4 = f2 * f2;
-                    
+
                     // A-Weighting filter curve formula
-                    let a_weighting = (12200.0 * 12200.0 * f4) / 
-                        ((f2 + 20.6 * 20.6) * 
-                         (f2 + 12200.0 * 12200.0) * 
-                         ((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)).sqrt());
-                         
+                    let a_weighting = (12200.0 * 12200.0 * f4)
+                        / ((f2 + 20.6 * 20.6)
+                            * (f2 + 12200.0 * 12200.0)
+                            * ((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)).sqrt());
+
                     // Normalize to 1.0 at 1 kHz and apply a visual scalar to keep bars punchy
                     let a_weighting_norm = a_weighting * 1.2589;
                     let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
-                    
+
                     if target > *current {
                         *current = *current * 0.2 + target * 0.8;
                     } else {
                         *current = *current * smoothing + target * (1.0 - smoothing);
                     }
                 }
-                
+
                 if self.state.audio_waveform.len() != target_len {
                     self.state.audio_waveform = vec![0.0; target_len];
                 }
-                
+
                 let chunk_size = waveform.len() as f32 / target_len as f32;
                 for (i, current) in self.state.audio_waveform.iter_mut().enumerate() {
                     let start = (i as f32 * chunk_size) as usize;
                     let end = ((i + 1) as f32 * chunk_size) as usize;
-                    
-                    let peak = waveform[start..end.min(waveform.len())]
-                        .iter()
-                        .fold(0.0f32, |max, &val| if val.abs() > max.abs() { val } else { max });
+
+                    let peak = waveform[start..end.min(waveform.len())].iter().fold(
+                        0.0f32,
+                        |max, &val| if val.abs() > max.abs() { val } else { max },
+                    );
 
                     *current = *current * smoothing + peak * (1.0 - smoothing);
                 }
@@ -941,6 +1143,7 @@ impl Renderer {
                     weather.condition, weather.temperature_celsius
                 );
                 self.state.weather = Some(weather);
+                self.cached_weather_section = None; // Invalidate cache
                 self.update_weather_string();
                 self.state.begin_transition();
             }
@@ -949,50 +1152,74 @@ impl Renderer {
 
     fn draw_frame(&mut self, wayland_manager: &mut WaylandManager, delta: f32) -> Result<()> {
         let _scene = self.state.scene_description();
-        
+
         let audio_data = match self.state.config.audio.style.as_str() {
             "waveform" => &self.state.audio_waveform,
             _ => &self.state.audio_bands,
         };
-        
+
         let force_weather = self.state.config.mode == super::config::WallpaperMode::Weather;
         let force_vis = self.state.config.mode == super::config::WallpaperMode::AudioVisualiser;
         let force_art = self.state.config.mode == super::config::WallpaperMode::AlbumArt;
 
         let max_energy = audio_data.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
         let has_audio = (max_energy > 0.001 || force_vis) && !force_weather && !force_art;
-        
-        let base_energy = if self.state.audio_bands.is_empty() { 0.0 } else {
+
+        let base_energy = if self.state.audio_bands.is_empty() {
+            0.0
+        } else {
             (self.state.audio_bands.iter().sum::<f32>() / self.state.audio_bands.len() as f32) * 5.0
         };
         // Combine the base volume energy with our snappy treble pulse, strictly capped to prevent blown out flashing
         let audio_energy = (base_energy * 0.3 + self.treble_pulse * 0.4).clamp(0.0, 1.0);
-        let has_media = (self.state.current_track.as_ref().and_then(|t| t.album_art.as_ref()).is_some() || force_art) && !force_weather && !force_vis;
+        let has_media = (self
+            .state
+            .current_track
+            .as_ref()
+            .and_then(|t| t.album_art.as_ref())
+            .is_some()
+            || force_art)
+            && !force_weather
+            && !force_vis;
         let show_art_fg = has_media && self.state.config.appearance.show_album_art;
         let show_art_bg = has_media && self.state.config.appearance.album_art_background;
-        
+
         let clear_colour = self.get_clear_colour();
         // Use our new smart audio-reactive beat detector instead of the generic timer
         let pulse = self.beat_pulse;
-        let (prev_lyric, current_lyric, next_lyric) = self.state.active_lyrics();
 
         let is_weather_active = self.state.weather.as_ref().is_some_and(|w| {
             use super::event::WeatherCondition;
-            matches!(w.condition, WeatherCondition::Rain | WeatherCondition::Snow | WeatherCondition::Thunderstorm)
+            matches!(
+                w.condition,
+                WeatherCondition::Rain | WeatherCondition::Snow | WeatherCondition::Thunderstorm
+            )
         });
 
-        if is_weather_active {
+        let active_particles = if let Some(weather) = &self.state.weather {
+            use super::event::WeatherCondition;
+            match weather.condition {
+                WeatherCondition::Rain => 800,
+                WeatherCondition::Thunderstorm => 1500,
+                WeatherCondition::Snow => 2500,
+                _ => 0,
+            }
+        } else {
+            0
+        };
+
+        if is_weather_active && active_particles > 0 {
             // --- Dispatch Weather Compute Shader ---
             // Only spend GPU time running particle physics if weather is actually visible!
             let mut wind_x = 0.1f32;
             let mut gravity = 0.5f32;
-            
+
             if let Some(weather) = &self.state.weather {
                 use super::event::WeatherCondition;
                 match weather.condition {
                     WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
-                        gravity = 1.2; // Rain falls fast
-                        wind_x = 0.2;
+                        gravity = 0.85; // Slower, more elegant rain
+                        wind_x = 0.15;
                     }
                     WeatherCondition::Snow => {
                         gravity = 0.2; // Snow drifts slowly
@@ -1001,22 +1228,30 @@ impl Renderer {
                     _ => {}
                 }
             }
-            
-            let compute_uniforms = [delta, wind_x, gravity, 0.0f32];
-            let compute_bytes = unsafe { std::slice::from_raw_parts(compute_uniforms.as_ptr() as *const u8, 16) };
-            self.queue.write_buffer(&self.weather_compute_uniform_buffer, 0, compute_bytes);
 
-            let mut compute_encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Compute Encoder"),
-            });
+            let compute_uniforms = [delta, wind_x, gravity, 0.0f32];
+            let compute_bytes =
+                unsafe { std::slice::from_raw_parts(compute_uniforms.as_ptr() as *const u8, 16) };
+            self.queue
+                .write_buffer(&self.weather_compute_uniform_buffer, 0, compute_bytes);
+
+            let mut compute_encoder =
+                self.device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("Compute Encoder"),
+                    });
             {
-                let mut compute_pass = compute_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("Weather Compute Pass"),
-                    timestamp_writes: None,
-                });
+                let mut compute_pass =
+                    compute_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                        label: Some("Weather Compute Pass"),
+                        timestamp_writes: None,
+                    });
                 compute_pass.set_pipeline(&self.weather_compute_pipeline);
                 compute_pass.set_bind_group(0, &self.weather_compute_bind_group, &[]);
-                compute_pass.dispatch_workgroups(157, 1, 1); // 10000 particles / 64 threads = ~157 workgroups
+                let workgroups = ((active_particles as f32) / 64.0).ceil() as u32;
+                if workgroups > 0 {
+                    compute_pass.dispatch_workgroups(workgroups, 1, 1);
+                }
             }
             self.queue.submit(std::iter::once(compute_encoder.finish()));
         }
@@ -1028,7 +1263,8 @@ impl Renderer {
                     audio_data.len() * std::mem::size_of::<f32>(),
                 )
             };
-            self.queue.write_buffer(&self.visualiser_pass.bands_buffer, 0, bands_bytes);
+            self.queue
+                .write_buffer(&self.visualiser_pass.bands_buffer, 0, bands_bytes);
         }
 
         for (i, gpu_out) in self.outputs.iter_mut().enumerate() {
@@ -1061,158 +1297,231 @@ impl Renderer {
                     match palette {
                         _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
                         Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
-                        Some(p) if p.len() == 1 => (top.unwrap_or(p[0]), bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5])),
-                        _ => (top.unwrap_or([1.0, 0.2, 0.5]), bottom.unwrap_or([0.2, 0.5, 1.0])),
+                        Some(p) if p.len() == 1 => (
+                            top.unwrap_or(p[0]),
+                            bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
+                        ),
+                        _ => (
+                            top.unwrap_or([1.0, 0.2, 0.5]),
+                            bottom.unwrap_or([0.2, 0.5, 1.0]),
+                        ),
                     }
                 };
-                let target_colors = get_colors(self.state.current_track.as_ref().and_then(|t| t.palette.as_deref()));
+                let target_colors = get_colors(
+                    self.state
+                        .current_track
+                        .as_ref()
+                        .and_then(|t| t.palette.as_deref()),
+                );
                 let (top_col, bottom_col) = if self.state.transition_progress < 1.0 {
                     let prev_colors = get_colors(self.state.previous_palette.as_deref());
                     let t = self.state.transition_progress;
                     let top_rgb = lerp_colour(prev_colors.0, target_colors.0, t);
                     let bottom_rgb = lerp_colour(prev_colors.1, target_colors.1, t);
-                    ([top_rgb[0], top_rgb[1], top_rgb[2], 1.0], [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0])
+                    (
+                        [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
+                        [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
+                    )
                 } else {
                     let top_rgb = target_colors.0;
                     let bottom_rgb = target_colors.1;
-                    ([top_rgb[0], top_rgb[1], top_rgb[2], 1.0], [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0])
+                    (
+                        [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
+                        [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
+                    )
                 };
 
-                #[repr(C)]
-                struct VisUniforms { 
-                    res: [f32; 2], 
-                    bands: u32, 
-                    pulse: f32, 
-                    top: [f32; 4], 
+                #[repr(C, align(16))]
+                struct VisUniforms {
+                    res: [f32; 2],
+                    bands: u32,
+                    pulse: f32,
+                    top: [f32; 4],
                     bottom: [f32; 4],
-                    style: u32,
-                    size: f32,
-                    position: [f32; 2],
-                    rotation: f32,
+                    pos_size_rot: [f32; 4],
                     amplitude: f32,
-                    padding: [u32; 2], 
+                    style: u32,
+                    time: f32,
+                    align: u32,
                 }
                 let shape_u32 = match self.theme.visualiser.shape {
                     super::config::VisShape::Circular => 0,
                     super::config::VisShape::Linear => 1,
                     super::config::VisShape::Square => 2,
                 };
+                let align_u32 = match self.theme.visualiser.align {
+                    super::config::VisAlign::Left => 0,
+                    super::config::VisAlign::Center => 1,
+                    super::config::VisAlign::Right => 2,
+                };
                 let vis_uniforms = VisUniforms {
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                     bands: self.state.config.audio.bands as u32,
-                    pulse,
+                    pulse: pulse * 2.0, // Multiplier guarantees visible beat effects
                     top: top_col,
                     bottom: bottom_col,
-                    style: shape_u32,
-                    size: self.theme.visualiser.size,
-                    position: self.theme.visualiser.position,
-                    rotation: self.theme.visualiser.rotation.to_radians(),
+                    pos_size_rot: [
+                        self.theme.visualiser.position[0],
+                        self.theme.visualiser.position[1],
+                        self.theme.visualiser.size,
+                        self.theme.visualiser.rotation.to_radians(),
+                    ],
                     amplitude: self.theme.visualiser.amplitude,
-                    padding: [0; 2],
+                    style: shape_u32,
+                    time: self.start_time.elapsed().as_secs_f32(),
+                    align: align_u32,
                 };
-                let vis_bytes = unsafe { std::slice::from_raw_parts(&vis_uniforms as *const _ as *const u8, std::mem::size_of::<VisUniforms>()) };
-                self.queue.write_buffer(&self.visualiser_pass.uniform_buffer, 0, vis_bytes);
+                let vis_bytes = unsafe {
+                    std::slice::from_raw_parts(
+                        &vis_uniforms as *const _ as *const u8,
+                        std::mem::size_of::<VisUniforms>(),
+                    )
+                };
+                self.queue
+                    .write_buffer(&self.visualiser_pass.uniform_buffer, 0, vis_bytes);
             }
 
             // 2. Process album art uniforms
             if show_art_fg || show_art_bg {
                 if let Some(track) = &self.state.current_track {
-                    let target_color = track.palette.as_deref().and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
+                    let target_color = track
+                        .palette
+                        .as_deref()
+                        .and_then(|p| p.first())
+                        .copied()
+                        .unwrap_or([0.1, 0.1, 0.1]);
                     let color = if self.state.transition_progress < 1.0 {
-                        let prev_color = self.state.previous_palette.as_deref().and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
+                        let prev_color = self
+                            .state
+                            .previous_palette
+                            .as_deref()
+                            .and_then(|p| p.first())
+                            .copied()
+                            .unwrap_or([0.1, 0.1, 0.1]);
                         lerp_colour(prev_color, target_color, self.state.transition_progress)
-                    } else { target_color };
+                    } else {
+                        target_color
+                    };
 
-                    let bg_mode = if self.state.config.appearance.disable_blur { 2 } else { 0 };
-                    // Fade down to user-configured blur strength when transparent background is enabled
-                    let target_blur = self.state.config.appearance.blur_opacity;
-                    let bg_alpha_val = 1.0 - (self.state.transparent_fade * (1.0 - target_blur));
-                    
-                    #[repr(C)]
-                    struct ArtUniforms { 
-                        color_and_transition: [f32; 4], 
-                        res: [f32; 2], 
-                        art_position: [f32; 2],
-                        audio_energy: f32, 
-                        mode: u32,
-                        bg_alpha: f32,
-                        art_size: f32,
-                        shape: u32,
-                        padding: [u32; 3],
-                    }
-                    
+                    let bg_mode = if self.state.config.appearance.disable_blur {
+                        2
+                    } else {
+                        0
+                    };
+                    // Fade out the album art background completely when transparent background is enabled
+                    let bg_alpha_val = 1.0 - self.state.transparent_fade;
+
                     let bg_uniforms = ArtUniforms {
-                        color_and_transition: [color[0], color[1], color[2], self.state.transition_progress],
+                        color_and_transition: [
+                            color[0],
+                            color[1],
+                            color[2],
+                            self.state.transition_progress,
+                        ],
                         res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                        art_position: self.theme.album_art.position,
+                        art_position: [0.5, 0.5],
                         audio_energy,
                         mode: bg_mode,
                         bg_alpha: bg_alpha_val,
-                        art_size: self.theme.album_art.size,
-                        shape: match self.theme.album_art.shape {
-                            super::config::ArtShape::Square => 0,
-                            super::config::ArtShape::Circular => 1,
-                        },
-                        padding: [0; 3],
+                        art_size: 1.0,
+                        shape: 0,
+                        blur_opacity: self.state.config.appearance.blur_opacity,
+                        image_res: [
+                            self.current_album_texture
+                                .as_ref()
+                                .map(|t| t.size().width as f32)
+                                .unwrap_or(1.0),
+                            self.current_album_texture
+                                .as_ref()
+                                .map(|t| t.size().height as f32)
+                                .unwrap_or(1.0),
+                        ],
                     };
-                    let bg_bytes = unsafe { std::slice::from_raw_parts(&bg_uniforms as *const _ as *const u8, std::mem::size_of::<ArtUniforms>()) };
-                    self.queue.write_buffer(&self.album_art_bg_uniform_buffer, 0, bg_bytes);
+                    let bg_bytes = unsafe {
+                        std::slice::from_raw_parts(
+                            &bg_uniforms as *const _ as *const u8,
+                            std::mem::size_of::<ArtUniforms>(),
+                        )
+                    };
+                    self.queue
+                        .write_buffer(&self.album_art_bg_uniform_buffer, 0, bg_bytes);
 
                     let fg_uniforms = ArtUniforms {
-                        color_and_transition: [color[0], color[1], color[2], self.state.transition_progress],
+                        color_and_transition: [
+                            color[0],
+                            color[1],
+                            color[2],
+                            self.state.transition_progress,
+                        ],
                         res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                         art_position: self.theme.album_art.position,
                         audio_energy,
                         mode: 1,
                         bg_alpha: 1.0, // The sharp foreground art never fades!
                         art_size: self.theme.album_art.size,
-                    shape: match self.theme.album_art.shape {
-                        super::config::ArtShape::Square => 0,
-                        super::config::ArtShape::Circular => 1,
-                    },
-                    padding: [0; 3],
+                        shape: match self.theme.album_art.shape {
+                            super::config::ArtShape::Circular => 1,
+                            super::config::ArtShape::Square => 0,
+                        },
+                        blur_opacity: 1.0,
+                        image_res: [
+                            self.current_album_texture
+                                .as_ref()
+                                .map(|t| t.size().width as f32)
+                                .unwrap_or(1.0),
+                            self.current_album_texture
+                                .as_ref()
+                                .map(|t| t.size().height as f32)
+                                .unwrap_or(1.0),
+                        ],
                     };
-                    let fg_bytes = unsafe { std::slice::from_raw_parts(&fg_uniforms as *const _ as *const u8, std::mem::size_of::<ArtUniforms>()) };
-                    self.queue.write_buffer(&self.album_art_fg_uniform_buffer, 0, fg_bytes);
+                    let fg_bytes = unsafe {
+                        std::slice::from_raw_parts(
+                            &fg_uniforms as *const _ as *const u8,
+                            std::mem::size_of::<ArtUniforms>(),
+                        )
+                    };
+                    self.queue
+                        .write_buffer(&self.album_art_fg_uniform_buffer, 0, fg_bytes);
                 }
             }
 
             if self.custom_bg_bind_group.is_some() {
                 // 4. Process custom background uniforms
-                let bg_mode = if self.state.config.appearance.disable_blur { 2 } else { 0 };
+                let bg_mode = if self.state.config.appearance.disable_blur {
+                    2
+                } else {
+                    0
+                };
                 let bg_alpha_val = 1.0 - self.state.transparent_fade;
-                
-                #[repr(C)]
-                struct ArtUniforms { 
-                    color_and_transition: [f32; 4], 
-                    res: [f32; 2], 
-                    art_position: [f32; 2],
-                    audio_energy: f32, 
-                    mode: u32,
-                    bg_alpha: f32,
-                    art_size: f32,
-                    shape: u32,
-                    padding: [u32; 3],
-                }
-                
-                let target_color = self.state.current_track.as_ref().and_then(|t| t.palette.as_deref()).and_then(|p| p.first()).copied().unwrap_or([0.1, 0.1, 0.1]);
-                
+
                 let custom_bg_uniforms = ArtUniforms {
-                    color_and_transition: [target_color[0], target_color[1], target_color[2], self.state.transition_progress],
+                    color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    art_position: self.theme.album_art.position,
+                    art_position: [0.5, 0.5],
                     audio_energy,
                     mode: bg_mode,
-                    bg_alpha: bg_alpha_val, 
-                    art_size: self.theme.album_art.size,
-                    shape: match self.theme.album_art.shape {
-                        super::config::ArtShape::Square => 0,
-                        super::config::ArtShape::Circular => 1,
-                    },
-                    padding: [0; 3],
+                    bg_alpha: bg_alpha_val,
+                    art_size: 1.0,
+                    shape: 0,
+                    blur_opacity: self.state.config.appearance.blur_opacity,
+                    image_res: [
+                        self.current_custom_bg_size
+                            .map(|s| s.0 as f32)
+                            .unwrap_or(1.0),
+                        self.current_custom_bg_size
+                            .map(|s| s.1 as f32)
+                            .unwrap_or(1.0),
+                    ],
                 };
-                let cbg_bytes = unsafe { std::slice::from_raw_parts(&custom_bg_uniforms as *const _ as *const u8, std::mem::size_of::<ArtUniforms>()) };
-                self.queue.write_buffer(&self.custom_bg_uniform_buffer, 0, cbg_bytes);
+                let cbg_bytes = unsafe {
+                    std::slice::from_raw_parts(
+                        &custom_bg_uniforms as *const _ as *const u8,
+                        std::mem::size_of::<ArtUniforms>(),
+                    )
+                };
+                self.queue
+                    .write_buffer(&self.custom_bg_uniform_buffer, 0, cbg_bytes);
             } else {
                 // 3. Process ambient uniforms
                 let elapsed = self.start_time.elapsed().as_secs_f32();
@@ -1227,99 +1536,228 @@ impl Renderer {
                         WeatherCondition::Snow => 3,
                     };
                     match weather.condition {
-                        WeatherCondition::Rain | WeatherCondition::Thunderstorm => lerp_colour(sky, [0.2, 0.2, 0.25], 0.6),
+                        WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
+                            lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
+                        }
                         WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
                         _ => sky,
                     }
-                } else { sky };
-                
+                } else {
+                    sky
+                };
+
                 let bg_alpha_val = 1.0 - self.state.transparent_fade;
 
-                #[repr(C)]
-                struct AmbUniforms { 
-                    res: [f32; 2], 
-                    time: f32, 
-                    weather: u32, 
+                #[repr(C, align(16))]
+                struct AmbUniforms {
+                    res: [f32; 2],
+                    time: f32,
+                    weather: u32,
                     sky: [f32; 4],
                     bg_alpha: f32,
-                    padding: [u32; 7],
+                    // Padding to match std140 layout alignment rules for vec4/arrays
+                    _padding: [f32; 3],
                 }
                 let amb_uniforms = AmbUniforms {
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    time: elapsed, weather: weather_type, sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
+                    time: elapsed,
+                    weather: weather_type,
+                    sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
                     bg_alpha: bg_alpha_val,
-                    padding: [0; 7],
+                    _padding: [0.0; 3],
                 };
-                let amb_bytes = unsafe { std::slice::from_raw_parts(&amb_uniforms as *const _ as *const u8, std::mem::size_of::<AmbUniforms>()) };
-                self.queue.write_buffer(&self.ambient_uniform_buffer, 0, amb_bytes);
+                let amb_bytes = unsafe {
+                    std::slice::from_raw_parts(
+                        &amb_uniforms as *const _ as *const u8,
+                        std::mem::size_of::<AmbUniforms>(),
+                    )
+                };
+                self.queue
+                    .write_buffer(&self.ambient_uniform_buffer, 0, amb_bytes);
             }
 
             // --- Construct Text Layouts ---
-            let mut owned_sections = Vec::new();
-
             let width_f = gpu_out.config.width as f32;
             let height_f = gpu_out.config.height as f32;
-            
+
+            // Calculate perceived brightness of the background to ensure lyrics are always readable!
+            let text_bg_color = self
+                .state
+                .current_track
+                .as_ref()
+                .and_then(|t| t.palette.as_deref())
+                .and_then(|p| p.first())
+                .copied()
+                .unwrap_or([0.1, 0.1, 0.1]);
+            let text_accent = self
+                .state
+                .current_track
+                .as_ref()
+                .and_then(|t| t.palette.as_deref())
+                .and_then(|p| p.get(1).or_else(|| p.first()))
+                .copied()
+                .unwrap_or([1.0, 1.0, 1.0]);
+
+            let luminance =
+                0.299 * text_bg_color[0] + 0.587 * text_bg_color[1] + 0.114 * text_bg_color[2];
+            let (primary_text, secondary_text) = if luminance > 0.55 {
+                // Dark text for bright backgrounds, tinted with the accent color
+                let tint = [
+                    text_accent[0] * 0.3,
+                    text_accent[1] * 0.3,
+                    text_accent[2] * 0.3,
+                ];
+                (
+                    [tint[0], tint[1], tint[2], 1.0],
+                    [tint[0], tint[1], tint[2], 0.7],
+                )
+            } else {
+                // Light text for dark backgrounds, lightly tinted with the accent color
+                let tint = [
+                    text_accent[0] * 0.3 + 0.7,
+                    text_accent[1] * 0.3 + 0.7,
+                    text_accent[2] * 0.3 + 0.7,
+                ];
+                (
+                    [tint[0], tint[1], tint[2], 1.0],
+                    [tint[0], tint[1], tint[2], 0.45],
+                )
+            };
+
             let map_align = |a: &super::config::TextAlign| match a {
                 super::config::TextAlign::Left => HorizontalAlign::Left,
                 super::config::TextAlign::Center => HorizontalAlign::Center,
                 super::config::TextAlign::Right => HorizontalAlign::Right,
             };
-            
+
+            let mut sections_to_render = Vec::new();
             if self.state.config.audio.show_lyrics {
-                let base_font_size = (height_f * 0.04).clamp(16.0, 48.0);
-                let active_font_size = base_font_size * 1.5;
-                let line_spacing = active_font_size * 1.2;
-                
-                let lx = width_f * self.theme.lyrics.position[0];
-                let ly = height_f * self.theme.lyrics.position[1];
-                let l_align = map_align(&self.theme.lyrics.align);
+                if let Some(track) = &self.state.current_track {
+                    if let Some(lyrics) = &track.lyrics {
+                        let base_font_size = (height_f * 0.04).clamp(16.0, 48.0);
+                        let active_font_size = base_font_size * 1.5;
+                        let line_spacing = active_font_size * 1.2;
 
-                if let Some(text) = prev_lyric {
-                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.35]))
-                        .with_screen_position((lx, ly - line_spacing)).with_layout(Layout::default().h_align(l_align)));
-                }
+                        let lx = width_f * self.theme.lyrics.position[0];
+                        let ly = height_f * self.theme.lyrics.position[1];
+                        let l_align = map_align(&self.theme.lyrics.align);
 
-                if let Some(text) = current_lyric {
-                    let scale = active_font_size + (self.lyric_bounce_value * 8.0 * self.theme.effects.lyric_bounce);
-                    let active_y = ly - (self.lyric_bounce_value * 12.0 * self.theme.effects.lyric_bounce);
-                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(scale).with_color([1.0, 1.0, 1.0, 1.0]))
-                        .with_screen_position((lx, active_y)).with_layout(Layout::default().h_align(l_align)));
-                }
+                        let start_idx = self.current_lyric_idx.saturating_sub(2);
+                        let end_idx = (self.current_lyric_idx + 2).min(lyrics.len());
 
-                if let Some(text) = next_lyric {
-                    owned_sections.push(Section::default().add_text(Text::new(text).with_scale(base_font_size).with_color([1.0, 1.0, 1.0, 0.35]))
-                        .with_screen_position((lx, ly + line_spacing)).with_layout(Layout::default().h_align(l_align)));
+                        for i in start_idx..=end_idx {
+                            if i == 0 || i > lyrics.len() {
+                                continue;
+                            }
+
+                            let lyric_line = &lyrics[i - 1];
+                            // Compute exactly how far this string is from the "current active string"
+                            let dist = (i as f32)
+                                - (self.current_lyric_idx as f32)
+                                - self.lyric_scroll_offset;
+                            let abs_dist = dist.abs();
+
+                            if abs_dist > 2.0 {
+                                continue;
+                            }
+
+                            let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
+
+                            let mut scale = base_font_size
+                                + (active_font_size - base_font_size) * center_weight;
+                            scale += (self.lyric_bounce_value * 8.0) * center_weight;
+
+                            let bounce_y = (self.lyric_bounce_value * 12.0) * center_weight;
+                            let y_pos = ly + (dist * line_spacing) - bounce_y;
+
+                            let color = [
+                                secondary_text[0]
+                                    + (primary_text[0] - secondary_text[0]) * center_weight,
+                                secondary_text[1]
+                                    + (primary_text[1] - secondary_text[1]) * center_weight,
+                                secondary_text[2]
+                                    + (primary_text[2] - secondary_text[2]) * center_weight,
+                                secondary_text[3]
+                                    + (primary_text[3] - secondary_text[3]) * center_weight,
+                            ];
+
+                            // Fade out gracefully to prevent popping strings at top/bottom
+                            let alpha_fade = (1.5 - abs_dist).clamp(0.0, 1.0);
+                            let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
+
+                            if final_color[3] > 0.01 {
+                                sections_to_render.push(
+                                    Section::default()
+                                        .add_text(
+                                            Text::new(&lyric_line.text)
+                                                .with_scale(scale)
+                                                .with_color(final_color),
+                                        )
+                                        .with_screen_position((lx, y_pos))
+                                        .with_layout(Layout::default().h_align(l_align)),
+                                );
+                            }
+                        }
+                    }
                 }
             }
 
-            if self.state.current_track.is_some() {
+            if self.cached_track_section.is_none() && self.state.current_track.is_some() {
                 let info_scale = (height_f * 0.025).clamp(16.0, 36.0);
                 let tx = width_f * self.theme.track_info.position[0];
                 let ty = height_f * self.theme.track_info.position[1];
                 let t_align = map_align(&self.theme.track_info.align);
-                owned_sections.push(Section::default().add_text(Text::new(&self.cached_track_str).with_scale(info_scale).with_color([0.8, 0.8, 0.8, 0.8]))
-                    .with_screen_position((tx, ty)).with_layout(Layout::default().h_align(t_align)));
+                self.cached_track_section = Some(
+                    Section::default()
+                        .add_text(
+                            Text::new(&self.cached_track_str)
+                                .with_scale(info_scale)
+                                .with_color(secondary_text),
+                        )
+                        .with_screen_position((tx, ty))
+                        .with_layout(Layout::default().h_align(t_align))
+                        .to_owned(),
+                );
             }
-            
-            // Optionally draw weather to the top right corner
-            if self.state.weather.is_some() {
+            if let Some(section) = &self.cached_track_section {
+                sections_to_render.push(section.to_borrowed());
+            }
+
+            if self.cached_weather_section.is_none() && self.state.weather.is_some() {
                 let weather_scale = (height_f * 0.02).clamp(14.0, 24.0);
                 let wx = width_f * self.theme.weather.position[0];
                 let wy = height_f * self.theme.weather.position[1];
                 let w_align = map_align(&self.theme.weather.align);
-                owned_sections.push(Section::default().add_text(Text::new(&self.cached_weather_str).with_scale(weather_scale).with_color([0.9, 0.9, 0.9, 0.8]))
-                    .with_screen_position((wx, wy))
-                    .with_layout(Layout::default().h_align(w_align)));
+                self.cached_weather_section = Some(
+                    Section::default()
+                        .add_text(
+                            Text::new(&self.cached_weather_str)
+                                .with_scale(weather_scale)
+                                .with_color(secondary_text),
+                        )
+                        .with_screen_position((wx, wy))
+                        .with_layout(Layout::default().h_align(w_align))
+                        .to_owned(),
+                );
+            }
+            if let Some(section) = &self.cached_weather_section {
+                sections_to_render.push(section.to_borrowed());
             }
 
-            let text_sections: Vec<&Section> = owned_sections.iter().collect();
-            gpu_out.text_brush.queue(&self.device, &self.queue, text_sections).unwrap();
+            let text_sections: Vec<&Section> = sections_to_render.iter().collect();
+            gpu_out
+                .text_brush
+                .queue(&self.device, &self.queue, text_sections)
+                .unwrap();
 
-            let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Frame Encoder"),
-            });
+            let view = output
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Frame Encoder"),
+                });
 
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1337,42 +1775,39 @@ impl Renderer {
                     occlusion_query_set: None,
                 });
 
-                // 0. Custom Desktop Wallpaper Background
-                if let Some(bind_group) = &self.custom_bg_bind_group {
-                    render_pass.set_pipeline(&self.album_art_pipeline);
-                    render_pass.set_bind_group(0, bind_group, &[]);
-                    render_pass.draw(0..3, 0..1);
-                } else {
-                    // 1. ALWAYS Draw Ambient Weather Background
-                    render_pass.set_pipeline(&self.ambient_pipeline);
-                    render_pass.set_bind_group(0, &self.ambient_bind_group, &[]);
-                    render_pass.draw(0..3, 0..1);
-                }
-
-                // 1.5 Overlay Weather Particles (Rain / Snow)
-                if is_weather_active {
-                    render_pass.set_pipeline(&self.weather_render_pipeline);
-                    render_pass.set_bind_group(0, &self.weather_render_bind_group, &[]);
-                    render_pass.draw(0..6, 0..10000); // 6 vertices per quad, 10000 particles!
-                }
-
-                // 2. Overlay Frosted Glass Background (Transparent)
+                // --- Background Rendering ---
+                // Simplified logic with clear precedence: Album Art > Custom BG > Ambient
                 if show_art_bg {
                     if let Some(bind_group) = &self.album_art_bg_bind_group {
                         render_pass.set_pipeline(&self.album_art_pipeline);
                         render_pass.set_bind_group(0, bind_group, &[]);
                         render_pass.draw(0..3, 0..1);
                     }
+                } else if let Some(bind_group) = &self.custom_bg_bind_group {
+                    // Custom Desktop Wallpaper Background (Frosted Glass)
+                    render_pass.set_pipeline(&self.album_art_pipeline);
+                    render_pass.set_bind_group(0, bind_group, &[]);
+                    render_pass.draw(0..3, 0..1);
+                } else {
+                    // Ambient Procedural Sky
+                    render_pass.set_pipeline(&self.ambient_pipeline);
+                    render_pass.set_bind_group(0, &self.ambient_bind_group, &[]);
+                    render_pass.draw(0..3, 0..1);
                 }
 
-                // 3. Overlay Visualiser
+                // --- Overlay Layers ---
+                if is_weather_active && active_particles > 0 {
+                    render_pass.set_pipeline(&self.weather_render_pipeline);
+                    render_pass.set_bind_group(0, &self.weather_render_bind_group, &[]);
+                    render_pass.draw(0..6, 0..active_particles); // 6 vertices per quad
+                }
+
                 if has_audio {
                     render_pass.set_pipeline(&self.visualiser_pass.pipeline);
                     render_pass.set_bind_group(0, &self.visualiser_pass.bind_group, &[]);
                     render_pass.draw(0..3, 0..1);
                 }
 
-                // 4. Overlay Foreground Art
                 if show_art_fg {
                     if let Some(bind_group) = &self.album_art_fg_bind_group {
                         render_pass.set_pipeline(&self.album_art_pipeline);
@@ -1395,7 +1830,7 @@ impl Renderer {
         if self.state.config.appearance.transparent_background {
             return wgpu::Color::TRANSPARENT;
         }
-        
+
         let scene = match self.state.config.mode {
             super::config::WallpaperMode::Weather => SceneHint::Ambient,
             super::config::WallpaperMode::AlbumArt => SceneHint::AlbumArt,
@@ -1418,10 +1853,25 @@ impl Renderer {
                 } else {
                     sky
                 };
-                wgpu::Color { r: final_sky[0] as f64, g: final_sky[1] as f64, b: final_sky[2] as f64, a: 1.0 }
+                wgpu::Color {
+                    r: final_sky[0] as f64,
+                    g: final_sky[1] as f64,
+                    b: final_sky[2] as f64,
+                    a: 1.0,
+                }
             }
-            SceneHint::AlbumArt => wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 },
-            SceneHint::AudioVisualiser => wgpu::Color { r: 0.1, g: 0.1, b: 0.15, a: 1.0 },
+            SceneHint::AlbumArt => wgpu::Color {
+                r: 0.05,
+                g: 0.05,
+                b: 0.05,
+                a: 1.0,
+            },
+            SceneHint::AudioVisualiser => wgpu::Color {
+                r: 0.1,
+                g: 0.1,
+                b: 0.15,
+                a: 1.0,
+            },
         }
     }
 
@@ -1434,6 +1884,13 @@ impl Renderer {
             depth_or_array_layers: 1,
         };
 
+        self.current_custom_bg_size = Some((dimensions.0, dimensions.1));
+
+        // Guarantee dimensions are compatible with wgpu's 256-byte row alignment!
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let unpadded_bytes_per_row = dimensions.0 * 4;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             size: texture_size,
             mip_level_count: 1,
@@ -1445,43 +1902,66 @@ impl Renderer {
             view_formats: &[],
         });
 
-        self.queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            rgba,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * dimensions.0),
-                rows_per_image: Some(dimensions.1),
-            },
-            texture_size,
-        );
+        if unpadded_bytes_per_row == padded_bytes_per_row {
+            self.queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                rgba.as_raw(),
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(unpadded_bytes_per_row),
+                    rows_per_image: Some(dimensions.1),
+                },
+                texture_size,
+            );
+        } else {
+            let mut padded_data = vec![0; (padded_bytes_per_row * dimensions.1) as usize];
+            let raw_rgba = rgba.as_raw();
+            for y in 0..dimensions.1 {
+                let src_start = (y * unpadded_bytes_per_row) as usize;
+                let src_end = src_start + unpadded_bytes_per_row as usize;
+                let dst_start = (y * padded_bytes_per_row) as usize;
+                let dst_slice = &mut padded_data[dst_start..dst_start + unpadded_bytes_per_row as usize];
+                dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
+            }
+            self.queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &padded_data,
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(dimensions.1),
+                },
+                texture_size,
+            );
+        }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        self.previous_album_view = std::mem::replace(&mut self.current_album_view, view);
-
-        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
 
         let bg_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.album_art_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.album_art_bg_uniform_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&self.current_album_view) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
-                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&self.previous_album_view) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.album_art_bg_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.album_art_sampler),
+                },
             ],
             label: Some("Album Art BG Bind Group"),
         });
@@ -1489,10 +1969,18 @@ impl Renderer {
         let fg_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.album_art_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.album_art_fg_uniform_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&self.current_album_view) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
-                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&self.previous_album_view) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.album_art_fg_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.album_art_sampler),
+                },
             ],
             label: Some("Album Art FG Bind Group"),
         });
@@ -1503,30 +1991,68 @@ impl Renderer {
     }
 
     fn update_video_frame(&mut self, rgba: &image::RgbaImage) {
-        // Fast-path: If the texture already exists and dimensions match perfectly, 
+        // Fast-path: If the texture already exists and dimensions match perfectly,
         // we can copy the raw video frame bytes straight into the GPU's VRAM!
         if let Some(texture) = &self.current_album_texture {
             let dimensions = rgba.dimensions();
             if texture.size().width == dimensions.0 && texture.size().height == dimensions.1 {
-                self.queue.write_texture(
-                    wgpu::ImageCopyTexture {
-                        texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    rgba,
-                    wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(4 * dimensions.0),
-                        rows_per_image: Some(dimensions.1),
-                    },
-                    texture.size(),
-                );
+                let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+                let unpadded_bytes_per_row = dimensions.0 * 4;
+                let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+
+                if unpadded_bytes_per_row == padded_bytes_per_row {
+                    self.queue.write_texture(
+                        wgpu::ImageCopyTexture {
+                            texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        rgba.as_raw(),
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(unpadded_bytes_per_row),
+                            rows_per_image: Some(dimensions.1),
+                        },
+                        texture.size(),
+                    );
+                } else {
+                    let required_size = (padded_bytes_per_row * dimensions.1) as usize;
+                    if self.video_frame_buffer.len() < required_size {
+                        self.video_frame_buffer.resize(required_size, 0);
+                    }
+
+                    let raw_rgba = rgba.as_raw();
+                    for y in 0..dimensions.1 {
+                        let src_start = (y * unpadded_bytes_per_row) as usize;
+                        let src_end = src_start + unpadded_bytes_per_row as usize;
+                        let dst_start = (y * padded_bytes_per_row) as usize;
+                        let dst_slice = &mut self.video_frame_buffer
+                            [dst_start..dst_start + unpadded_bytes_per_row as usize];
+                        dst_slice
+                            .copy_from_slice(&raw_rgba[src_start..src_end]);
+                    }
+
+                    self.queue.write_texture(
+                        wgpu::ImageCopyTexture {
+                            texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &self.video_frame_buffer[..required_size],
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(padded_bytes_per_row),
+                            rows_per_image: Some(dimensions.1),
+                        },
+                        texture.size(),
+                    );
+                }
                 return;
             }
         }
-        
+
         // Slow-path: If dimensions changed (e.g. switching from square album art to 9:16 Canvas video),
         // this will rebuild the wgpu texture and elegantly crossfade into the video loop!
         self.update_album_art_texture(rgba);
@@ -1547,13 +2073,18 @@ impl Renderer {
                 return;
             }
         };
-        
+
         let dimensions = img.dimensions();
         let texture_size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,
             depth_or_array_layers: 1,
         };
+
+        // Guarantee dimensions are compatible with wgpu's 256-byte row alignment!
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let unpadded_bytes_per_row = dimensions.0 * 4;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
 
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             size: texture_size,
@@ -1566,43 +2097,70 @@ impl Renderer {
             view_formats: &[],
         });
 
-        self.queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &img,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * dimensions.0),
-                rows_per_image: Some(dimensions.1),
-            },
-            texture_size,
-        );
+        if unpadded_bytes_per_row == padded_bytes_per_row {
+            self.queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                img.as_raw(),
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(unpadded_bytes_per_row),
+                    rows_per_image: Some(dimensions.1),
+                },
+                texture_size,
+            );
+        } else {
+            let mut padded_data = vec![0; (padded_bytes_per_row * dimensions.1) as usize];
+            let raw_rgba = img.as_raw();
+            for y in 0..dimensions.1 {
+                let src_start = (y * unpadded_bytes_per_row) as usize;
+                let src_end = src_start + unpadded_bytes_per_row as usize;
+                let dst_start = (y * padded_bytes_per_row) as usize;
+                let dst_slice = &mut padded_data[dst_start..dst_start + unpadded_bytes_per_row as usize];
+                dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
+            }
+            self.queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &padded_data,
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(dimensions.1),
+                },
+                texture_size,
+            );
+        }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
 
-        self.custom_bg_bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.album_art_layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.custom_bg_uniform_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
-                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&view) }, // No previous view needed for static desktop bg
-            ],
-            label: Some("Custom Background Bind Group"),
-        }));
+        self.custom_bg_bind_group =
+            Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.album_art_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.custom_bg_uniform_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.album_art_sampler),
+                    },
+                ],
+                label: Some("Custom Background Bind Group"),
+            }));
     }
 
     fn build_a_weighting_curve(band_count: usize) -> Vec<f32> {
@@ -1623,10 +2181,10 @@ impl Renderer {
             let f2 = f * f;
             let f4 = f2 * f2;
 
-            let a_weighting = (12200.0 * 12200.0 * f4) /
-                ((f2 + 20.6 * 20.6) *
-                 (f2 + 12200.0 * 12200.0) *
-                 ((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)).sqrt());
+            let a_weighting = (12200.0 * 12200.0 * f4)
+                / ((f2 + 20.6 * 20.6)
+                    * (f2 + 12200.0 * 12200.0)
+                    * ((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)).sqrt());
 
             curve.push(a_weighting * 1.2589);
         }
@@ -1656,7 +2214,9 @@ impl Renderer {
 
             bin_lo = bin_lo.clamp(0, max_bins.saturating_sub(1));
             bin_hi = bin_hi.clamp(0, max_bins);
-            if bin_hi <= bin_lo { bin_hi = (bin_lo + 1).min(max_bins); }
+            if bin_hi <= bin_lo {
+                bin_hi = (bin_lo + 1).min(max_bins);
+            }
             ranges.push((bin_lo, bin_hi));
         }
         ranges
@@ -1664,22 +2224,36 @@ impl Renderer {
 
     fn build_waveform_bin_ranges(band_count: usize) -> Vec<(usize, usize)> {
         let chunk_size = 2048.0 / band_count as f32;
-        (0..band_count).map(|i| {
-            let start = (i as f32 * chunk_size) as usize;
-            let end = ((i + 1) as f32 * chunk_size) as usize;
-            (start, end.min(2048))
-        }).collect()
+        (0..band_count)
+            .map(|i| {
+                let start = (i as f32 * chunk_size) as usize;
+                let end = ((i + 1) as f32 * chunk_size) as usize;
+                (start, end.min(2048))
+            })
+            .collect()
     }
 
     fn update_weather_string(&mut self) {
         if let Some(weather) = &self.state.weather {
             let mut val = weather.temperature_celsius;
             let mut unit = "C";
-            if self.state.config.weather.temperature_unit == super::config::TemperatureUnit::Fahrenheit {
+            if self.state.config.weather.temperature_unit
+                == super::config::TemperatureUnit::Fahrenheit
+            {
                 val = (val * 9.0 / 5.0) + 32.0;
                 unit = "F";
             }
-            self.cached_weather_str = format!("{:?} {:.1}°{}", weather.condition, val, unit);
+            let condition_str = match weather.condition {
+                super::event::WeatherCondition::Clear => "Clear",
+                super::event::WeatherCondition::PartlyCloudy => "Partly Cloudy",
+                super::event::WeatherCondition::Cloudy => "Cloudy",
+                super::event::WeatherCondition::Rain => "Rain",
+                super::event::WeatherCondition::Snow => "Snow",
+                super::event::WeatherCondition::Thunderstorm => "Thunderstorm",
+                super::event::WeatherCondition::Fog => "Fog",
+            };
+            self.cached_weather_str = format!("{} {:.1}°{}", condition_str, val, unit);
+            self.cached_weather_section = None;
         } else {
             self.cached_weather_str.clear();
         }

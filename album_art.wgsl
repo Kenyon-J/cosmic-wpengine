@@ -1,19 +1,3 @@
-// =============================================================================
-// shaders/album_art.wgsl
-// =============================================================================
-// WGSL (WebGPU Shading Language) shader for the album art wallpaper scene.
-//
-// This shader runs entirely on the GPU. It:
-//   1. Takes the album art as a texture
-//   2. Applies a Gaussian blur
-//   3. Overlays a colour wash from the dominant palette colours
-//   4. Vignettes the edges for a cinematic look
-//
-// For beginners: a shader is a small program uploaded to the GPU. The "vertex
-// shader" runs once per corner of our rectangle, the "fragment shader" runs
-// once per pixel and decides its colour.
-// =============================================================================
-
 // --- Uniforms (values we send from Rust to the GPU each frame) ---
 struct Uniforms {
     // How far through the transition we are (0.0 = old scene, 1.0 = new scene)
@@ -53,16 +37,17 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
         vec2(1.0, 0.0),
     );
 
-    var out: VertexOutput;
-    out.position = vec4(positions[idx], 0.0, 1.0);
-    out.uv = uvs[idx];
+    var out: VertexOutput = VertexOutput(
+        vec4(positions[idx], 0.0, 1.0),
+        uvs[idx]
+    );
     return out;
 }
 
 // --- Fragment shader ---
 // Runs for every pixel. Returns the colour of that pixel.
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let uv = in.uv;
 
     // --- Frosted Glass (Aero) Blur ---
@@ -80,7 +65,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let dist_sq = f32(x * x + y * y);
             let w = exp(-0.15 * dist_sq);
             
-            colour += textureSample(album_art, art_sampler, sample_uv).rgb * w;
+            colour += textureSampleLevel(album_art, art_sampler, sample_uv, 0.0).rgb * w;
             weight += w;
         }
     }

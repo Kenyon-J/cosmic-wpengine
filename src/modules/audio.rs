@@ -10,12 +10,15 @@ use super::event::Event;
 
 const FFT_SIZE: usize = 2048;
 // Tweak this value to change how tall the bars render at normal volumes
-const SCALE_FACTOR: f32 = 100.0; 
+const SCALE_FACTOR: f32 = 100.0;
 
 pub struct AudioCapture;
 
 impl AudioCapture {
-    pub async fn run(tx: Sender<Event>, is_visible: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Result<()> {
+    pub async fn run(
+        tx: Sender<Event>,
+        is_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<()> {
         info!("Audio capture started");
 
         let (audio_tx, mut audio_rx) = tokio::sync::mpsc::channel::<Vec<f32>>(16);
@@ -28,7 +31,9 @@ impl AudioCapture {
         let mut last_warn = std::time::Instant::now() - std::time::Duration::from_secs(5);
 
         loop {
-            match tokio::time::timeout(tokio::time::Duration::from_millis(250), audio_rx.recv()).await {
+            match tokio::time::timeout(tokio::time::Duration::from_millis(250), audio_rx.recv())
+                .await
+            {
                 Ok(Some(samples)) => {
                     if !is_visible.load(std::sync::atomic::Ordering::Relaxed) {
                         continue;
@@ -38,15 +43,22 @@ impl AudioCapture {
                         .iter()
                         .enumerate()
                         .map(|(i, &s)| {
-                            let window = 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE as f32 - 1.0)).cos());
-                            Complex { re: s * window, im: 0.0 }
+                            let window = 0.5
+                                * (1.0
+                                    - (2.0 * std::f32::consts::PI * i as f32
+                                        / (FFT_SIZE as f32 - 1.0))
+                                        .cos());
+                            Complex {
+                                re: s * window,
+                                im: 0.0,
+                            }
                         })
                         .collect();
 
                     fft.process(&mut buffer);
 
                     let half = FFT_SIZE / 2;
-                    
+
                     let normalised: Vec<f32> = buffer[0..half]
                         .iter()
                         .map(|c| {
@@ -55,7 +67,12 @@ impl AudioCapture {
                         })
                         .collect();
 
-                    let _ = tx.send(Event::AudioFrame { bands: normalised, waveform: samples.clone() }).await;
+                    let _ = tx
+                        .send(Event::AudioFrame {
+                            bands: normalised,
+                            waveform: samples.clone(),
+                        })
+                        .await;
                 }
                 Ok(None) => break,
                 Err(_) => {
@@ -63,10 +80,12 @@ impl AudioCapture {
                         warn!("PipeWire audio receive timeout - no data arriving. (Is stream paused/empty?)");
                         last_warn = std::time::Instant::now();
                     }
-                    let _ = tx.send(Event::AudioFrame { 
-                        bands: vec![0.0; FFT_SIZE / 2],
-                        waveform: vec![0.0; FFT_SIZE],
-                    }).await;
+                    let _ = tx
+                        .send(Event::AudioFrame {
+                            bands: vec![0.0; FFT_SIZE / 2],
+                            waveform: vec![0.0; FFT_SIZE],
+                        })
+                        .await;
                 }
             }
         }
@@ -78,7 +97,8 @@ impl AudioCapture {
         pipewire::init();
 
         let mainloop = MainLoopBox::new(None).expect("Failed to create PipeWire mainloop");
-        let context = ContextBox::new(mainloop.loop_(), None).expect("Failed to create PipeWire context");
+        let context =
+            ContextBox::new(mainloop.loop_(), None).expect("Failed to create PipeWire context");
         let core = context
             .connect(None)
             .expect("Failed to connect to PipeWire");
@@ -87,22 +107,19 @@ impl AudioCapture {
             *pipewire::keys::APP_NAME => "cosmic-wallpaper",
             *pipewire::keys::MEDIA_TYPE => "Audio",
             *pipewire::keys::MEDIA_CATEGORY => "Capture",
-            *pipewire::keys::MEDIA_ROLE => "Music", 
-            *pipewire::keys::MEDIA_CLASS => "Stream/Input/Audio", 
+            *pipewire::keys::MEDIA_ROLE => "Music",
+            *pipewire::keys::MEDIA_CLASS => "Stream/Input/Audio",
             *pipewire::keys::STREAM_CAPTURE_SINK => "true",
-            *pipewire::keys::NODE_ALWAYS_PROCESS => "true", 
+            *pipewire::keys::NODE_ALWAYS_PROCESS => "true",
             *pipewire::keys::NODE_PAUSE_ON_IDLE => "false",
-            "audio.format" => "F32P", 
+            "audio.format" => "F32P",
             "audio.rate" => "48000",
             "audio.channels" => "2",
-            "audio.position" => "FL,FR", 
+            "audio.position" => "FL,FR",
         };
 
-        let stream = pipewire::stream::StreamBox::new(
-            &core,
-            "cosmic-wallpaper",
-            props,
-        ).expect("Failed to create stream");
+        let stream = pipewire::stream::StreamBox::new(&core, "cosmic-wallpaper", props)
+            .expect("Failed to create stream");
 
         let mut sample_buffer = Vec::with_capacity(FFT_SIZE * 2);
         let mut frame_counter = 0u32;
@@ -119,27 +136,41 @@ impl AudioCapture {
             })
             .process(move |stream, _| {
                 frame_counter += 1;
-                
+
                 if let Some(mut buffer) = stream.dequeue_buffer() {
                     let datas = buffer.datas_mut();
-                    if datas.is_empty() { return; }
-                        
+                    if datas.is_empty() {
+                        return;
+                    }
+
                     let mut mono_samples = Vec::new();
                     let mut valid = 0;
 
                     if datas.len() >= 2 {
                         let left_size = datas[0].chunk().size() as usize;
                         let right_size = datas[1].chunk().size() as usize;
-                        
+
                         let (left_part, right_part) = datas.split_at_mut(1);
-                        if let (Some(left_data), Some(right_data)) = (left_part[0].data(), right_part[0].data()) {
+                        if let (Some(left_data), Some(right_data)) =
+                            (left_part[0].data(), right_part[0].data())
+                        {
                             let valid_l = std::cmp::min(left_data.len(), left_size) / 4;
                             let valid_r = std::cmp::min(right_data.len(), right_size) / 4;
                             valid = std::cmp::min(valid_l, valid_r);
-                            
+
                             if valid > 0 {
-                                let left_f32 = unsafe { std::slice::from_raw_parts(left_data.as_ptr() as *const f32, valid) };
-                                let right_f32 = unsafe { std::slice::from_raw_parts(right_data.as_ptr() as *const f32, valid) };
+                                let left_f32 = unsafe {
+                                    std::slice::from_raw_parts(
+                                        left_data.as_ptr() as *const f32,
+                                        valid,
+                                    )
+                                };
+                                let right_f32 = unsafe {
+                                    std::slice::from_raw_parts(
+                                        right_data.as_ptr() as *const f32,
+                                        valid,
+                                    )
+                                };
                                 for i in 0..valid {
                                     mono_samples.push((left_f32[i] + right_f32[i]) * 0.5);
                                 }
@@ -149,9 +180,11 @@ impl AudioCapture {
                         let size = datas[0].chunk().size() as usize;
                         if let Some(data) = datas[0].data() {
                             valid = std::cmp::min(data.len(), size) / 4;
-                            
+
                             if valid > 0 {
-                                let f32_samples = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, valid) };
+                                let f32_samples = unsafe {
+                                    std::slice::from_raw_parts(data.as_ptr() as *const f32, valid)
+                                };
                                 for chunk in f32_samples.chunks(2) {
                                     if chunk.len() == 2 {
                                         mono_samples.push((chunk[0] + chunk[1]) * 0.5);
@@ -173,10 +206,13 @@ impl AudioCapture {
                         if valid_chunks == 1 {
                             info!("PipeWire process: First valid audio chunk received!");
                         } else if valid_chunks.is_multiple_of(500) {
-                            info!("PipeWire process: Heartbeat - {} valid chunks processed.", valid_chunks);
+                            info!(
+                                "PipeWire process: Heartbeat - {} valid chunks processed.",
+                                valid_chunks
+                            );
                         }
                     }
-                    
+
                     for s in mono_samples {
                         sample_buffer.push(s);
                     }
@@ -193,22 +229,28 @@ impl AudioCapture {
             .register()
             .expect("Failed to register stream listener");
 
-// 1. Build the Rust Object AST (Keep your exact param macro from before)
+        // 1. Build the Rust Object AST (Keep your exact param macro from before)
         let param = pipewire::spa::pod::object!(
             // ... [Your existing macro code here] ...
             pipewire::spa::utils::SpaTypes::ObjectParamFormat,
             pipewire::spa::param::ParamType::EnumFormat,
             pipewire::spa::pod::property!(
                 pipewire::spa::param::format::FormatProperties::MediaType,
-                pipewire::spa::pod::Value::Id(pipewire::spa::utils::Id(pipewire::spa::param::format::MediaType::Audio.as_raw()))
+                pipewire::spa::pod::Value::Id(pipewire::spa::utils::Id(
+                    pipewire::spa::param::format::MediaType::Audio.as_raw()
+                ))
             ),
             pipewire::spa::pod::property!(
                 pipewire::spa::param::format::FormatProperties::MediaSubtype,
-                pipewire::spa::pod::Value::Id(pipewire::spa::utils::Id(pipewire::spa::param::format::MediaSubtype::Raw.as_raw()))
+                pipewire::spa::pod::Value::Id(pipewire::spa::utils::Id(
+                    pipewire::spa::param::format::MediaSubtype::Raw.as_raw()
+                ))
             ),
             pipewire::spa::pod::property!(
                 pipewire::spa::param::format::FormatProperties::AudioFormat,
-                pipewire::spa::pod::Value::Id(pipewire::spa::utils::Id(pipewire::spa::param::audio::AudioFormat::F32P.as_raw()))
+                pipewire::spa::pod::Value::Id(pipewire::spa::utils::Id(
+                    pipewire::spa::param::audio::AudioFormat::F32P.as_raw()
+                ))
             ),
             pipewire::spa::pod::property!(
                 pipewire::spa::param::format::FormatProperties::AudioRate,
@@ -222,25 +264,30 @@ impl AudioCapture {
 
         // 2. Wrap it in the `Value` enum so the Serializer accepts it!
         let param_value = pipewire::spa::pod::Value::Object(param);
-        
+
         // 3. Serialize into bytes
         let values: Vec<u8> = pipewire::spa::pod::serialize::PodSerializer::serialize(
             std::io::Cursor::new(Vec::new()),
-            &param_value
-        ).expect("Failed to serialize POD").0.into_inner();
+            &param_value,
+        )
+        .expect("Failed to serialize POD")
+        .0
+        .into_inner();
 
         // 4. Cast the raw bytes into the binary C-level Pod
         let pod = pipewire::spa::pod::Pod::from_bytes(&values).expect("Failed to parse POD bytes");
 
         // 5. Connect perfectly
-        stream.connect(
-            pipewire::spa::utils::Direction::Input,
-            Some(0xffffffff), 
-            pipewire::stream::StreamFlags::AUTOCONNECT
-                | pipewire::stream::StreamFlags::MAP_BUFFERS
-                | pipewire::stream::StreamFlags::RT_PROCESS,
-            &mut [pod], // Pass the perfectly formatted binary Pod
-        ).expect("Failed to connect stream");
+        stream
+            .connect(
+                pipewire::spa::utils::Direction::Input,
+                Some(0xffffffff),
+                pipewire::stream::StreamFlags::AUTOCONNECT
+                    | pipewire::stream::StreamFlags::MAP_BUFFERS
+                    | pipewire::stream::StreamFlags::RT_PROCESS,
+                &mut [pod], // Pass the perfectly formatted binary Pod
+            )
+            .expect("Failed to connect stream");
 
         info!("PipeWire capture stream created");
         mainloop.run();

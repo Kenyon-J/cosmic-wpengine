@@ -23,16 +23,23 @@ impl VideoDecoder {
         let mut child = Command::new("ffmpeg")
             .args([
                 "-hide_banner",
-                "-loglevel", "error",
+                "-loglevel",
+                "error",
                 "-re", // Read input at native frame rate so we don't peg the CPU!
-                "-stream_loop", "-1", // Loop the video stream infinitely
-                "-i", &url,
+                "-stream_loop",
+                "-1", // Loop the video stream infinitely
+                "-i",
+                &url,
                 // Scale and crop seamlessly to ensure it fits the 9:16 Canvas perfectly
-                "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
-                "-f", "rawvideo",
-                "-pix_fmt", "rgba",
-                "-r", "30", // Lock output to 30fps
-                "-"
+                "-vf",
+                "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgba",
+                "-r",
+                "30", // Lock output to 30fps
+                "-",
             ])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())

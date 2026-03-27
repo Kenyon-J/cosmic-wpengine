@@ -6,8 +6,8 @@ use tokio::sync::mpsc;
 use tracing::info;
 
 use modules::{
-    audio::AudioCapture, config::Config, mpris::MprisWatcher, renderer::Renderer,
-    state::AppState, tray::WallpaperTray, wayland::WaylandManager, weather::WeatherWatcher,
+    audio::AudioCapture, config::Config, mpris::MprisWatcher, renderer::Renderer, state::AppState,
+    tray::WallpaperTray, wayland::WaylandManager, weather::WeatherWatcher,
 };
 
 #[tokio::main]
@@ -32,7 +32,9 @@ async fn main() -> Result<()> {
             let mpris_tx = event_tx.clone();
             let mpris_vis = is_visible.clone();
             let mpris_lyrics = show_lyrics.clone();
-            tokio::task::spawn_local(async move { MprisWatcher::run(mpris_tx, mpris_vis, mpris_lyrics).await });
+            tokio::task::spawn_local(async move {
+                MprisWatcher::run(mpris_tx, mpris_vis, mpris_lyrics).await
+            });
 
             let audio_tx = event_tx.clone();
             let audio_vis = is_visible.clone();
@@ -44,15 +46,18 @@ async fn main() -> Result<()> {
 
             let config_tx = event_tx.clone();
             tokio::spawn(async move {
-                if let Err(e) = Config::watch(config_tx).await { tracing::warn!("Config watcher failed: {}", e); }
+                if let Err(e) = Config::watch(config_tx).await {
+                    tracing::warn!("Config watcher failed: {}", e);
+                }
             });
-            
+
             let tray = WallpaperTray::new();
             ksni::TrayService::new(tray).spawn();
 
             let wayland_manager = WaylandManager::new()?;
 
-            let mut renderer: Renderer = Renderer::new(&wayland_manager, state, show_lyrics).await?;
+            let mut renderer: Renderer =
+                Renderer::new(&wayland_manager, state, show_lyrics).await?;
 
             info!("All subsystems started. Entering render loop.");
 

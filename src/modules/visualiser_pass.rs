@@ -62,28 +62,59 @@ impl VisualiserPass {
         });
 
         let bind_group = Self::create_bind_group(device, &layout, &uniform_buffer, &bands_buffer);
-        
-        let mut pipeline = Self::create_pipeline(device, format, &layout, style).await;
+
+        let theme = super::config::ThemeLayout::load(style);
+        let mut pipeline = Self::create_pipeline(
+            device,
+            format,
+            &layout,
+            style,
+            theme.visualiser.shader.as_deref(),
+        )
+        .await;
         if pipeline.is_none() {
             tracing::warn!("Falling back to 'bars' due to invalid initial shader.");
-            pipeline = Self::create_pipeline(device, format, &layout, "bars").await;
+            pipeline = Self::create_pipeline(device, format, &layout, "bars", None).await;
         }
 
-        Self { pipeline: pipeline.unwrap(), bind_group, uniform_buffer, bands_buffer, layout }
+        Self {
+            pipeline: pipeline.unwrap(),
+            bind_group,
+            uniform_buffer,
+            bands_buffer,
+            layout,
+        }
     }
 
-    fn create_bind_group(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, uniform_buf: &wgpu::Buffer, bands_buf: &wgpu::Buffer) -> wgpu::BindGroup {
+    fn create_bind_group(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        uniform_buf: &wgpu::Buffer,
+        bands_buf: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Visualiser Bind Group"),
             layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: uniform_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: bands_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: bands_buf.as_entire_binding(),
+                },
             ],
         })
     }
 
-    pub async fn reload(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat, style: &str, band_count: usize) {
+    pub async fn reload(
+        &mut self,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        style: &str,
+        band_count: usize,
+    ) {
         let bands_size = (band_count * std::mem::size_of::<f32>()) as wgpu::BufferAddress;
         if self.bands_buffer.size() != bands_size {
             self.bands_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -92,23 +123,56 @@ impl VisualiserPass {
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            self.bind_group = Self::create_bind_group(device, &self.layout, &self.uniform_buffer, &self.bands_buffer);
+            self.bind_group = Self::create_bind_group(
+                device,
+                &self.layout,
+                &self.uniform_buffer,
+                &self.bands_buffer,
+            );
         }
-        
-        if let Some(new_pipeline) = Self::create_pipeline(device, format, &self.layout, style).await {
+
+        let theme = super::config::ThemeLayout::load(style);
+        if let Some(new_pipeline) = Self::create_pipeline(
+            device,
+            format,
+            &self.layout,
+            style,
+            theme.visualiser.shader.as_deref(),
+        )
+        .await
+        {
             self.pipeline = new_pipeline;
         } else {
             tracing::warn!("Keeping previous visualiser shader due to compilation failure.");
         }
     }
 
-    async fn create_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat, layout: &wgpu::BindGroupLayout, style: &str) -> Option<wgpu::RenderPipeline> {
+    async fn create_pipeline(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        layout: &wgpu::BindGroupLayout,
+        style: &str,
+        custom_shader: Option<&str>,
+    ) -> Option<wgpu::RenderPipeline> {
         let shader_src = {
-            let path = super::config::Config::config_dir().join("shaders").join(format!("{}.wgsl", style));
-            if path.exists() {
-                std::fs::read_to_string(&path).unwrap_or_else(|_| include_str!("visualiser.wgsl").to_string())
+            if let Some(shader_name) = custom_shader {
+                let path = super::config::Config::config_dir()
+                    .join("shaders")
+                    .join(shader_name);
+                std::fs::read_to_string(&path).unwrap_or_else(|e| {
+                    tracing::warn!("Failed to read custom shader '{shader_name}': {e}. Falling back to default.");
+                    include_str!("visualiser.wgsl").to_string()
+                })
             } else {
-                include_str!("visualiser.wgsl").to_string()
+                let path = super::config::Config::config_dir()
+                    .join("shaders")
+                    .join(format!("{}.wgsl", style));
+                if path.exists() {
+                    std::fs::read_to_string(&path)
+                        .unwrap_or_else(|_| include_str!("visualiser.wgsl").to_string())
+                } else {
+                    include_str!("visualiser.wgsl").to_string()
+                }
             }
         };
 
@@ -128,16 +192,29 @@ impl VisualiserPass {
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Visualiser Render Pipeline"),
             layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState { module: &shader, entry_point: "vs_main", buffers: &[], compilation_options: Default::default() },
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
             fragment: Some(wgpu::FragmentState {
-                module: &shader, entry_point: "fs_main",
+                module: &shader,
+                entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
-                    format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL,
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),
             }),
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
-            depth_stencil: None, multisample: wgpu::MultisampleState::default(), multiview: None,
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
         });
 
         if let Some(err) = device.pop_error_scope().await {

@@ -9,8 +9,14 @@ struct LrclibResponse {
     synced_lyrics: Option<String>,
 }
 
-pub async fn fetch_synced_lyrics(title: &str, artist: &str, album: &str, client: &reqwest::Client) -> Option<Vec<LyricLine>> {
-    let resp = client.get("https://lrclib.net/api/get")
+pub async fn fetch_synced_lyrics(
+    title: &str,
+    artist: &str,
+    album: &str,
+    client: &reqwest::Client,
+) -> Option<Vec<LyricLine>> {
+    let resp = client
+        .get("https://lrclib.net/api/get")
         .query(&[
             ("track_name", title),
             ("artist_name", artist),
@@ -43,7 +49,10 @@ fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
             let mut parts = time_str.split(':');
             if let (Some(m), Some(s)) = (parts.next(), parts.next()) {
                 if let (Ok(mins), Ok(secs)) = (m.parse::<f32>(), s.parse::<f32>()) {
-                    lines.push(LyricLine { start_time_secs: mins * 60.0 + secs, text });
+                    lines.push(LyricLine {
+                        start_time_secs: mins * 60.0 + secs,
+                        text,
+                    });
                 }
             }
         }

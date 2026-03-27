@@ -171,6 +171,41 @@ To create a new theme:
 3. **Live Reloading:** Any edits you make to the `.toml` file while the wallpaper is running will be instantly applied to your desktop!
 4. *(Advanced)* You can also provide a custom `my_theme.wgsl` shader file alongside your `.toml` to completely rewrite the graphics pipeline!
 
+[album_art]
+position = [0.5, 0.5]
+size = 0.25
+shape = "circular"
+
+[visualiser]
+shape = "circular"
+position = [0.5, 0.5]
+size = 0.25
+amplitude = 1.0
+# Point this theme to your custom shader!
+shader = "radial_spin.wgsl" 
+### Writing Custom WGSL Shaders
+
+If you provide a custom `shader = "my_shader.wgsl"` in your theme's `.toml`, place the `.wgsl` file in `~/.config/cosmic-wallpaper/shaders/`.
+The engine will inject the following uniform struct. Ensure your custom shader uses this exact layout:
+
+```wgsl
+struct VisualiserUniforms {
+    resolution: vec2<f32>,
+    band_count: u32,
+    lyric_pulse: f32,          // Beats snap to 1.0 and exponentially decay
+    color_top: vec4<f32>,
+    color_bottom: vec4<f32>,
+    pos_size_rot: vec4<f32>,   // x: pos.x, y: pos.y, z: size, w: rotation (rads)
+    amplitude: f32,
+    style: u32,
+    time: f32,                 // Elapsed time in seconds for scrolling effects!
+    pad1: u32,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: VisualiserUniforms;
+@group(0) @binding(1) var<storage, read> bands: array<f32>;
+```
+
 ## How it works
 
 Each subsystem runs as an independent `tokio` task, sending events over async channels to the renderer:
