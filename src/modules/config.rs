@@ -81,6 +81,8 @@ pub struct AppearanceConfig {
     pub transparent_background: bool,
     pub show_album_art: bool,
     pub album_art_background: bool,
+    #[serde(default)]
+    pub album_color_background: bool,
     pub custom_background_path: Option<String>,
 }
 
@@ -92,6 +94,7 @@ impl Default for AppearanceConfig {
             transparent_background: false,
             show_album_art: true,
             album_art_background: true,
+            album_color_background: false,
             custom_background_path: None,
         }
     }
@@ -533,11 +536,11 @@ beat_pulse = 0.5
 
         let waveform_wgsl_path = shaders_dir.join("waveform.wgsl");
         let write_waveform = !waveform_wgsl_path.exists()
-            || !std::fs::read_to_string(&waveform_wgsl_path).is_ok_and(|c| c.contains("// v5"));
+            || !std::fs::read_to_string(&waveform_wgsl_path).is_ok_and(|c| c.contains("// v6"));
         if write_waveform {
             std::fs::write(
                 &waveform_wgsl_path,
-                r#"// v5
+                r#"// v6
 struct VisualiserUniforms {
     resolution: vec2<f32>,
     band_count: u32,
@@ -569,9 +572,7 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
     return out;
 }
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let uv = in.uv;
+fn get_vis(uv: vec2<f32>) -> vec4<f32> {
     let aspect = uniforms.resolution.x / uniforms.resolution.y;
 
     let p = vec2<f32>((uv.x - uniforms.pos_size_rot.x) * aspect, uv.y - uniforms.pos_size_rot.y);
@@ -622,9 +623,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let final_color = base_color * edge + vec3<f32>(core) + (base_color * glow);
     let final_alpha = max(edge, glow);
 
-    if final_alpha < 0.01 { discard; }
-
     return vec4<f32>(final_color, final_alpha);
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let fg = get_vis(in.uv);
+    let shadow_offset = vec2<f32>(0.005, 0.005) * uniforms.pos_size_rot.z;
+    let bg = get_vis(in.uv - shadow_offset);
+    
+    let shadow_alpha = bg.a * 0.5;
+    if fg.a < 0.01 && shadow_alpha < 0.01 { discard; }
+    
+    let shadow_color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
+    return mix(shadow_color, vec4<f32>(fg.rgb, 1.0), fg.a);
 }
 "#,
             )?;
@@ -662,11 +674,11 @@ align = "center"
 
         let monstercat_wgsl_path = shaders_dir.join("monstercat.wgsl");
         let write_monstercat = !monstercat_wgsl_path.exists()
-            || !std::fs::read_to_string(&monstercat_wgsl_path).is_ok_and(|c| c.contains("// v5"));
+            || !std::fs::read_to_string(&monstercat_wgsl_path).is_ok_and(|c| c.contains("// v6"));
         if write_monstercat {
             std::fs::write(
                 &monstercat_wgsl_path,
-                r#"// v5
+                r#"// v6
 struct VisualiserUniforms {
     resolution: vec2<f32>,
     band_count: u32,
@@ -698,9 +710,7 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
     return out;
 }
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let uv = in.uv;
+fn get_vis(uv: vec2<f32>) -> vec4<f32> {
     let aspect = uniforms.resolution.x / uniforms.resolution.y;
     
     // Shift origin to configured position
@@ -716,7 +726,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     );
     
     let half_width = uniforms.pos_size_rot.z * 0.5;
-    if p_rot.x < -half_width || p_rot.x > half_width { discard; }
+    if p_rot.x < -half_width || p_rot.x > half_width { return vec4<f32>(0.0); }
     
     let norm_x = (p_rot.x + half_width) / uniforms.pos_size_rot.z;
     
@@ -734,12 +744,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let height = (val * 0.25) + 0.005;
     
     // UV Y-axis increases downwards, so 'above' the baseline means negative p_rot.y
-    if p_rot.y > 0.0 || p_rot.y < -height { discard; }
+    if p_rot.y > 0.0 || p_rot.y < -height { return vec4<f32>(0.0); }
     
     let gradient = abs(p_rot.y) / height;
     let color = mix(uniforms.color_bottom.rgb, uniforms.color_top.rgb, gradient);
     
     return vec4<f32>(color, 1.0);
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let fg = get_vis(in.uv);
+    let shadow_offset = vec2<f32>(0.005, 0.005) * uniforms.pos_size_rot.z;
+    let bg = get_vis(in.uv - shadow_offset);
+    
+    let shadow_alpha = bg.a * 0.6;
+    if fg.a < 0.01 && shadow_alpha < 0.01 { discard; }
+    
+    let shadow_color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
+    return mix(shadow_color, vec4<f32>(fg.rgb, 1.0), fg.a);
 }
 "#,
             )?;
@@ -747,11 +770,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         let bars_wgsl_path = shaders_dir.join("bars.wgsl");
         let write_bars = !bars_wgsl_path.exists()
-            || !std::fs::read_to_string(&bars_wgsl_path).is_ok_and(|c| c.contains("// v5"));
+            || !std::fs::read_to_string(&bars_wgsl_path).is_ok_and(|c| c.contains("// v6"));
         if write_bars {
             std::fs::write(
                 &bars_wgsl_path,
-                r#"// v5
+                r#"// v6
 struct VisualiserUniforms {
     resolution: vec2<f32>,
     band_count: u32,
@@ -783,9 +806,7 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
     return out;
 }
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let uv = in.uv;
+fn get_vis(uv: vec2<f32>) -> vec4<f32> {
     let aspect = uniforms.resolution.x / uniforms.resolution.y;
     
     let p = vec2<f32>((uv.x - uniforms.pos_size_rot.x) * aspect, uv.y - uniforms.pos_size_rot.y);
@@ -806,19 +827,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let bar_height = val * uniforms.amplitude * 0.2;
     let outer_radius = inner_radius + bar_height;
 
-    if d < inner_radius || d > outer_radius {
-        discard;
-    }
+    if d < inner_radius || d > outer_radius { return vec4<f32>(0.0); }
 
     let fract_band = fract(f_band * f32(uniforms.band_count));
-    if fract_band < 0.1 || fract_band > 0.9 {
-        discard;
-    }
+    if fract_band < 0.1 || fract_band > 0.9 { return vec4<f32>(0.0); }
 
     let gradient = (d - inner_radius) / bar_height;
     let color = mix(uniforms.color_bottom.rgb, uniforms.color_top.rgb, gradient);
     
     return vec4<f32>(color, 1.0);
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let fg = get_vis(in.uv);
+    let shadow_offset = vec2<f32>(0.005, 0.005) * uniforms.pos_size_rot.z;
+    let bg = get_vis(in.uv - shadow_offset);
+    
+    let shadow_alpha = bg.a * 0.6;
+    if fg.a < 0.01 && shadow_alpha < 0.01 { discard; }
+    
+    let shadow_color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
+    return mix(shadow_color, vec4<f32>(fg.rgb, 1.0), fg.a);
 }
 "#,
             )?;

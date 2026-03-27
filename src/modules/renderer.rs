@@ -1194,6 +1194,7 @@ impl Renderer {
         // Decouple art visibility from force_vis so you can layer the visualizer AND the album art!
         let show_art_fg = (has_media_check_gpu || force_art) && self.state.config.appearance.show_album_art;
         let show_art_bg = (has_media_check_gpu || force_art) && self.state.config.appearance.album_art_background;
+        let show_color_bg = (has_media_check_gpu || force_art) && self.state.config.appearance.album_color_background;
 
         let clear_colour = self.get_clear_colour();
         // Use our new smart audio-reactive beat detector instead of the generic timer
@@ -1393,7 +1394,7 @@ impl Renderer {
             }
 
             // 2. Process album art uniforms
-            if show_art_fg || show_art_bg {
+            if show_art_fg || show_art_bg || show_color_bg {
                 if let Some(track) = &self.state.current_track {
                     let target_color = track
                         .palette
@@ -1414,7 +1415,9 @@ impl Renderer {
                         target_color
                     };
 
-                    let bg_mode = if self.state.config.appearance.disable_blur {
+                    let bg_mode = if show_color_bg {
+                        3
+                    } else if self.state.config.appearance.disable_blur {
                         2
                     } else {
                         0
@@ -1797,7 +1800,7 @@ impl Renderer {
 
                 // --- Background Rendering ---
                 // Simplified logic with clear precedence: Album Art > Custom BG > Ambient
-                if show_art_bg {
+                if show_art_bg || show_color_bg {
                     if let Some(bind_group) = &self.album_art_bg_bind_group {
                         render_pass.set_pipeline(&self.album_art_pipeline);
                         render_pass.set_bind_group(0, bind_group, &[]);

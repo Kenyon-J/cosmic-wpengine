@@ -105,28 +105,28 @@ fn load_files() -> Vec<String> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BackgroundMode {
-    Solid,
     FrostedGlass,
     Transparent,
     AlbumArt,
+    AlbumPalette,
 }
 
 impl BackgroundMode {
     const ALL: [BackgroundMode; 4] = [
-        BackgroundMode::Solid,
         BackgroundMode::FrostedGlass,
         BackgroundMode::Transparent,
         BackgroundMode::AlbumArt,
+        BackgroundMode::AlbumPalette,
     ];
 }
 
 impl std::fmt::Display for BackgroundMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BackgroundMode::Solid => write!(f, "Solid Desktop Wallpaper"),
             BackgroundMode::FrostedGlass => write!(f, "Frosted Glass (Blur)"),
             BackgroundMode::Transparent => write!(f, "Fully Transparent"),
             BackgroundMode::AlbumArt => write!(f, "Album Art Background"),
+            BackgroundMode::AlbumPalette => write!(f, "Album Colour"),
         }
     }
 }
@@ -190,26 +190,30 @@ impl Application for SettingsApp {
         match message {
             Message::BackgroundModeSelected(mode) => {
                 match mode {
-                    BackgroundMode::Solid => {
-                        self.wp_config.appearance.disable_blur = true;
-                        self.wp_config.appearance.transparent_background = false;
-                        self.wp_config.appearance.album_art_background = false;
-                    }
                     BackgroundMode::FrostedGlass => {
                         self.wp_config.appearance.disable_blur = false;
                         self.wp_config.appearance.transparent_background = false;
                         self.wp_config.appearance.album_art_background = false;
+                        self.wp_config.appearance.album_color_background = false;
                     }
                     BackgroundMode::Transparent => {
                         self.wp_config.appearance.disable_blur = true;
                         self.wp_config.appearance.transparent_background = true;
                         self.wp_config.appearance.album_art_background = false;
+                        self.wp_config.appearance.album_color_background = false;
                     }
                     BackgroundMode::AlbumArt => {
                         // Album Art typically looks best with some blur fallback or as its own layer
                         self.wp_config.appearance.disable_blur = false;
                         self.wp_config.appearance.transparent_background = false;
                         self.wp_config.appearance.album_art_background = true;
+                        self.wp_config.appearance.album_color_background = false;
+                    }
+                    BackgroundMode::AlbumPalette => {
+                        self.wp_config.appearance.disable_blur = true;
+                        self.wp_config.appearance.transparent_background = false;
+                        self.wp_config.appearance.album_art_background = false;
+                        self.wp_config.appearance.album_color_background = true;
                     }
                 }
                 let _ = self.wp_config.save();
@@ -320,14 +324,14 @@ amplitude = 1.5"#;
     fn view(&self) -> Element<'_, Self::Message> {
         let font = cosmic::iced::Font::DEFAULT;
 
-        let current_bg_mode = if self.wp_config.appearance.album_art_background {
+        let current_bg_mode = if self.wp_config.appearance.album_color_background {
+            BackgroundMode::AlbumPalette
+        } else if self.wp_config.appearance.album_art_background {
             BackgroundMode::AlbumArt
         } else if self.wp_config.appearance.transparent_background {
             BackgroundMode::Transparent
-        } else if !self.wp_config.appearance.disable_blur {
-            BackgroundMode::FrostedGlass
         } else {
-            BackgroundMode::Solid
+            BackgroundMode::FrostedGlass
         };
 
         let bg_mode_selector = pick_list(

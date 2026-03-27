@@ -188,5 +188,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         return vec4<f32>(art_color.rgb, uniforms.bg_alpha);
     }
 
+    // --- Mode 3: Solid Color Background ---
+    if uniforms.mode == 3u {
+        // Darken the primary color for a sleek, deep background
+        let dark_bg = uniforms.color_and_transition.rgb * 0.2; 
+        
+        // Add a subtle vignette drop shadow in the corners for extra depth
+        let dist = distance(uv, vec2<f32>(0.5, 0.5));
+        let vignette = smoothstep(0.8, 0.2, dist);
+        
+        return vec4<f32>(dark_bg * vignette, uniforms.bg_alpha);
+    }
+
     return vec4<f32>(0.0);
 }
