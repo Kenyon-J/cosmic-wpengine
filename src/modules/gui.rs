@@ -145,6 +145,8 @@ enum Message {
     ToggleAutostart(bool),
     NewThemeNameChanged(String),
     CreateTheme,
+    ShowPatchNotes,
+    ReportIssue,
 }
 
 impl Application for SettingsApp {
@@ -317,6 +319,28 @@ amplitude = 1.5"#;
                     }
                 }
             }
+            Message::ShowPatchNotes => {
+                self.selected_file = None;
+                let version = env!("CARGO_PKG_VERSION");
+                let patch_notes = format!(
+                    "COSMIC Wallpaper Engine v{}\n\n\
+                    Recent Updates:\n\
+                    - Added new 'Album Colour' background mode with vignette shadows.\n\
+                    - Added dynamic drop shadows to the audio visualizer.\n\
+                    - Improved weather particle physics for rain and snow.\n\
+                    - Fixed album art stretching and letterboxing issues.\n\
+                    - Resolved MPRIS file path issues for Flatpak sandboxes.\n\n\
+                    Use the dropdown above to select and edit a configuration or theme file.",
+                    version
+                );
+                self.editor_content = text_editor::Content::with_text(&patch_notes);
+                self.status_msg = "Viewing Patch Notes. Select a file to return to editing.".into();
+            }
+            Message::ReportIssue => {
+                let _ = std::process::Command::new("xdg-open")
+                    .arg("https://github.com/Kenyon-J/cosmic-wpengine/issues")
+                    .spawn();
+            }
         }
         Task::none()
     }
@@ -404,12 +428,16 @@ amplitude = 1.5"#;
                 .width(Length::Fixed(200.0)),
             )
             .push(
-                slider(
-                    0.0..=1.0,
-                    self.wp_config.appearance.blur_opacity,
-                    Message::BlurOpacityChanged,
+                cosmic::iced::widget::tooltip(
+                    slider(
+                        0.0..=1.0,
+                        self.wp_config.appearance.blur_opacity,
+                        Message::BlurOpacityChanged,
+                    )
+                    .step(0.05),
+                    "Controls the strength of the background blur (only applies to Frosted Glass mode).",
+                    cosmic::iced::widget::tooltip::Position::Top,
                 )
-                .step(0.05),
             )
             .spacing(20);
 
@@ -447,6 +475,18 @@ amplitude = 1.5"#;
             .on_action(Message::EditorAction)
             .height(Length::Fill);
 
+        let report_btn = cosmic::iced::widget::button(text("Report Issue").font(font).size(14))
+            .on_press(Message::ReportIssue);
+        let notes_btn = cosmic::iced::widget::button(text("Patch Notes").font(font).size(14))
+            .on_press(Message::ShowPatchNotes);
+
+        let footer_row = row()
+            .push(text(&self.status_msg).font(font).size(14).width(Length::Fill))
+            .push(text(format!("v{}", env!("CARGO_PKG_VERSION"))).font(font).size(14))
+            .push(notes_btn)
+            .push(report_btn)
+            .spacing(15);
+
         column()
             .push(text("COSMIC Wallpaper Settings").font(font).size(32))
             .push(toggles_row)
@@ -454,7 +494,7 @@ amplitude = 1.5"#;
             .push(blur_row)
             .push(toolbar)
             .push(editor)
-            .push(text(&self.status_msg).font(font).size(14))
+            .push(footer_row)
             .padding(40)
             .spacing(20)
             .into()

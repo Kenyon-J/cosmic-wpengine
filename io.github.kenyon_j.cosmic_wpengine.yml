@@ -1,0 +1,40 @@
+app-id: io.github.kenyon_j.cosmic_wpengine
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+# The main entry point should be the GUI settings app
+command: cosmic-wallpaper-gui
+
+finish-args:
+  - --socket=wayland             # Render to the screen
+  - --share=ipc                  # Share memory with compositor
+  - --share=network              # Fetch MPRIS fallback art, Weather, Lyrics
+  - --socket=session-bus         # Talk to MPRIS players and the System Tray
+  - --talk-name=org.freedesktop.portal.* # Autostart background portal
+  - --filesystem=xdg-config/cosmic:ro    # Read the COSMIC desktop wallpaper!
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/cosmic-wallpaper/cargo
+    # Tell the Rust compiler where to find Clang for Pipewire bindgen
+    LIBCLANG_PATH: /usr/lib
+
+modules:
+  - name: cosmic-wallpaper
+    buildsystem: simple
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml
+      - cargo --offline build --release
+      - install -Dm755 target/release/cosmic-wallpaper /app/bin/cosmic-wallpaper
+      - install -Dm755 target/release/cosmic-wallpaper-gui /app/bin/cosmic-wallpaper-gui
+    sources:
+      - type: dir
+        path: .
+      
+      # You must generate this file using the flatpak-cargo-generator script!
+      # This allows Flatpak to download Rust crates while it still has network access.
+      - generated-sources.json
