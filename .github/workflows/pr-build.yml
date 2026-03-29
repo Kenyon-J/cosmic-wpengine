@@ -21,7 +21,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config
+          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev
 
       - name: Set up Rust cache
         uses: Swatinem/rust-cache@v2
@@ -35,6 +35,9 @@ jobs:
       - name: Check compilation
         run: cargo check --all-targets --all-features
 
+      - name: Run tests
+        run: cargo test --all-targets --all-features
+
       - name: Build release
         run: cargo build --release
 
@@ -45,7 +48,7 @@ jobs:
 
     steps:
       - name: Install prerequisite tools
-        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust
+        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust libxkbcommon wayland wayland-protocols
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -55,6 +58,9 @@ jobs:
 
       - name: Check compilation
         run: cargo check --all-targets --all-features
+
+      - name: Run tests
+        run: cargo test --all-targets --all-features
 
       - name: Build release
         run: cargo build --release
