@@ -532,6 +532,9 @@ impl MprisWatcher {
         if let Ok(url) = Url::parse(url_str) {
             if url.scheme() == "file" {
                 if let Ok(path) = url.to_file_path() {
+                    if !Self::is_safe_path(&path) {
+                        anyhow::bail!("Security violation: Attempted path traversal via file:// URL: {:?}", path);
+                    }
                     info!("Successfully parsed file path: {:?}", path);
                     let bytes = tokio::fs::read(&path).await.map_err(|e| {
                         warn!("Failed to read art file from disk at {:?}: {}", path, e);
@@ -548,7 +551,12 @@ impl MprisWatcher {
 
         // Fallback for absolute paths that are not valid file URLs (e.g. /tmp/art.png)
         info!("Attempting raw path fallback read for: {}", url_str);
-        let bytes = tokio::fs::read(url_str).await.map_err(|e| {
+        let path = std::path::Path::new(url_str);
+        if !Self::is_safe_path(path) {
+            anyhow::bail!("Security violation: Attempted path traversal or unsafe raw path: {}", url_str);
+        }
+
+        let bytes = tokio::fs::read(path).await.map_err(|e| {
             warn!("Failed to read raw path {}: {}", url_str, e);
             e
         })?;
@@ -590,6 +598,38 @@ impl MprisWatcher {
             }
         }
         anyhow::bail!("No fallback art found on iTunes")
+    }
+
+    fn is_safe_path(path: &std::path::Path) -> bool {
+        // Ensure path is absolute and does not contain any '..' components
+        if !path.is_absolute()
+            || path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return false;
+        }
+
+        // Restrict to common album art locations for desktop media players:
+        // 1. /tmp/ (used by some players for temporary art)
+        // 2. /run/user/ (used by some players for art storage)
+        // 3. User's HOME directory
+        let safe_prefixes = vec![
+            std::path::Path::new("/tmp"),
+            std::path::Path::new("/run/user"),
+        ];
+
+        if safe_prefixes.iter().any(|p| path.starts_with(p)) {
+            return true;
+        }
+
+        if let Ok(home) = std::env::var("HOME") {
+            if path.starts_with(home) {
+                return true;
+            }
+        }
+
+        false
     }
 
     async fn fetch_spotify_canvas(track_id: &str, client: &reqwest::Client) -> Option<String> {
