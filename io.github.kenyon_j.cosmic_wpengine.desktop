@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=COSMIC Wallpaper Settings
+Comment=Configure your live wallpaper for the COSMIC desktop
+Exec=cosmic-wallpaper-gui
+Icon=io.github.kenyon_j.cosmic_wpengine
+Terminal=false
+Type=Application
+Categories=Settings;DesktopSettings;
+Keywords=cosmic;wallpaper;background;live;audio;visualizer;

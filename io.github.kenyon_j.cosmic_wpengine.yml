@@ -28,9 +28,14 @@ modules:
     buildsystem: simple
     build-commands:
       - cargo --offline fetch --manifest-path Cargo.toml
-      - cargo --offline build --release
+      - cargo --offline build --release --all-targets
+      # Install binaries
       - install -Dm755 target/release/cosmic-wallpaper /app/bin/cosmic-wallpaper
       - install -Dm755 target/release/cosmic-wallpaper-gui /app/bin/cosmic-wallpaper-gui
+      # Install desktop file and icon
+      - install -Dm644 io.github.kenyon_j.cosmic_wpengine.desktop /app/share/applications/${FLATPAK_ID}.desktop
+      # TODO: Create an icon and replace the path below
+      - install -Dm644 assets/icon.svg /app/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg
     sources:
       - type: dir
         path: .
