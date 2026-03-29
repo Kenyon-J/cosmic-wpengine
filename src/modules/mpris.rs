@@ -119,7 +119,8 @@ impl MprisWatcher {
                 let player = match f.find_active() {
                     Ok(p) => p,
                     Err(_) => {
-                        let _ = update_tx.blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Stopped));
+                        let _ = update_tx
+                            .blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Stopped));
                         std::thread::sleep(std::time::Duration::from_secs(3));
                         continue;
                     }
@@ -654,8 +655,8 @@ impl MprisWatcher {
         let proxy_url = format!("http://localhost:3000/api/canvas?track_id={}", track_id);
 
         if let Ok(resp) = client.get(&proxy_url).send().await {
-            if let Ok(data) = resp.json::<CanvasResponse>().await {
-                return data.url; // Contains the raw HTTPS .mp4 stream link!
+            if let Ok(canvas) = resp.json::<CanvasResponse>().await {
+                return canvas.url;
             }
         }
         None
