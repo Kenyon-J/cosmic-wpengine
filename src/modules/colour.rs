@@ -68,6 +68,20 @@ mod tests {
         assert!(approx_eq(lerp_colour(a, b, 0.0), a));
         assert!(approx_eq(lerp_colour(a, b, 1.0), b));
         assert!(approx_eq(lerp_colour(a, b, 0.5), [0.5, 0.5, 0.5]));
+
+        let c = [0.2, 0.4, 0.6];
+        let d = [0.8, 0.6, 0.4];
+
+        assert!(approx_eq(lerp_colour(c, d, 0.0), c));
+        assert!(approx_eq(lerp_colour(c, d, 1.0), d));
+        assert!(approx_eq(lerp_colour(c, d, 0.5), [0.5, 0.5, 0.5]));
+
+        let e = [0.0, 1.0, 0.5];
+        let f = [0.0, 0.5, 1.0];
+
+        assert!(approx_eq(lerp_colour(e, f, 0.0), e));
+        assert!(approx_eq(lerp_colour(e, f, 1.0), f));
+        assert!(approx_eq(lerp_colour(e, f, 0.5), [0.0, 0.75, 0.75]));
     }
 
     #[test]
