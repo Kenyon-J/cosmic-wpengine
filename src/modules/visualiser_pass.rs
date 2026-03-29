@@ -168,12 +168,8 @@ impl VisualiserPass {
                 let path = super::config::Config::config_dir()
                     .join("shaders")
                     .join(format!("{}.wgsl", style));
-                if path.exists() {
-                    std::fs::read_to_string(&path)
-                        .unwrap_or_else(|_| include_str!("visualiser.wgsl").to_string())
-                } else {
-                    include_str!("visualiser.wgsl").to_string()
-                }
+                std::fs::read_to_string(&path)
+                    .unwrap_or_else(|_| include_str!("visualiser.wgsl").to_string())
             }
         };
 
