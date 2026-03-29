@@ -76,158 +76,131 @@ impl MprisWatcher {
         // Background position polling to handle media players that fail to send Seeked signals
         let poll_tx = tx.clone();
         let poll_visible = is_visible.clone();
-        tokio::spawn(async move {
+        std::thread::spawn(move || {
             let mut finder = mpris::PlayerFinder::new();
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                std::thread::sleep(std::time::Duration::from_secs(1));
                 // Suspend D-Bus heavy polling when wallpaper is out of view
                 if !poll_visible.load(std::sync::atomic::Ordering::Relaxed) {
                     continue;
                 }
 
-                let poll_tx = poll_tx.clone();
-                let res = tokio::task::spawn_blocking(move || {
-                    let f = match finder.as_ref() {
-                        Ok(f) => f,
-                        Err(_) => {
-                            let new_finder = mpris::PlayerFinder::new();
-                            return (new_finder, None);
-                        }
-                    };
-                    if let Ok(player) = f.find_active() {
-                        if let Ok(mpris::PlaybackStatus::Playing) = player.get_playback_status() {
-                            if let Ok(pos) = player.get_position() {
-                                let _ = poll_tx.try_send(Event::PlaybackPosition(pos));
-                            }
+                let f = match finder.as_ref() {
+                    Ok(f) => f,
+                    Err(_) => {
+                        finder = mpris::PlayerFinder::new();
+                        continue;
+                    }
+                };
+
+                if let Ok(player) = f.find_active() {
+                    if let Ok(mpris::PlaybackStatus::Playing) = player.get_playback_status() {
+                        if let Ok(pos) = player.get_position() {
+                            let _ = poll_tx.blocking_send(Event::PlaybackPosition(pos));
                         }
                     }
-                    (finder, Some(()))
-                })
-                .await;
-
-                finder = match res {
-                    Ok((f, _)) => f,
-                    Err(_) => mpris::PlayerFinder::new(),
-                };
+                }
             }
         });
 
-        tokio::spawn(async move {
+        std::thread::spawn(move || {
             let mut finder = mpris::PlayerFinder::new();
 
             loop {
-                let res = {
-                    let update_tx = update_tx.clone();
-                    tokio::task::spawn_blocking(move || {
-                        let f = match finder.as_ref() {
-                            Ok(f) => f,
-                            Err(_) => {
-                                let new_finder = mpris::PlayerFinder::new();
-                                return (new_finder, Err(std::time::Duration::from_secs(3)));
-                            }
-                        };
-
-                        let player = match f.find_active() {
-                            Ok(p) => p,
-                            Err(_) => {
-                                let _ = update_tx.blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Stopped));
-                                return (finder, Err(std::time::Duration::from_secs(3)));
-                            }
-                        };
-
-                        // Prioritize any player that is currently playing over the "most recently active"
-                        let active_player = f.find_all().ok().and_then(|players| {
-                            players.into_iter().find(|p| {
-                                p.get_playback_status()
-                                    .unwrap_or(mpris::PlaybackStatus::Stopped)
-                                    == mpris::PlaybackStatus::Playing
-                            })
-                        });
-
-                        let player = match active_player {
-                            Some(p) => p,
-                            None => player, // Fallback to the most recently active player if none are playing
-                        };
-
-                        if let Ok(metadata) = player.get_metadata() {
-                            let _ = update_tx.blocking_send(MprisUpdate::Metadata(
-                                MetadataUpdate::from_metadata(&metadata),
-                            ));
-                        }
-                        if let Ok(status) = player.get_playback_status() {
-                            let _ = update_tx.blocking_send(MprisUpdate::Status(status));
-                        }
-                        if let Ok(pos) = player.get_position() {
-                            let _ = update_tx.try_send(MprisUpdate::Position(pos));
-                        }
-
-                        if let Ok(events) = player.events() {
-                            for event in events {
-                                match event {
-                                    Ok(mpris::Event::TrackChanged(metadata)) => {
-                                        let _ = update_tx.blocking_send(MprisUpdate::Metadata(
-                                            MetadataUpdate::from_metadata(&metadata),
-                                        ));
-                                        if let Ok(pos) = player.get_position() {
-                                            let _ = update_tx.try_send(MprisUpdate::Position(pos));
-                                        }
-                                    }
-                                    Ok(mpris::Event::Playing) => {
-                                        let _ = update_tx.blocking_send(MprisUpdate::Status(
-                                            mpris::PlaybackStatus::Playing,
-                                        ));
-                                        if let Ok(pos) = player.get_position() {
-                                            let _ = update_tx.try_send(MprisUpdate::Position(pos));
-                                        }
-                                    }
-                                    Ok(mpris::Event::Paused) => {
-                                        let _ = update_tx.blocking_send(MprisUpdate::Status(
-                                            mpris::PlaybackStatus::Paused,
-                                        ));
-                                        if let Ok(pos) = player.get_position() {
-                                            let _ = update_tx.try_send(MprisUpdate::Position(pos));
-                                        }
-                                    }
-                                    Ok(mpris::Event::Stopped) => {
-                                        let _ = update_tx.blocking_send(MprisUpdate::Status(
-                                            mpris::PlaybackStatus::Stopped,
-                                        ));
-                                    }
-                                    Ok(mpris::Event::Seeked { position_in_us }) => {
-                                        let pos = std::time::Duration::from_micros(position_in_us);
-                                        let _ = update_tx.try_send(MprisUpdate::Position(pos));
-                                    }
-                                    Ok(mpris::Event::PlayerShutDown) => {
-                                        let _ = update_tx.blocking_send(MprisUpdate::ShutDown);
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        warn!("MPRIS Event stream error: {}", e);
-                                        let _ = update_tx.blocking_send(MprisUpdate::ShutDown);
-                                        break; // Break out of the infinite iterator safely!
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            (finder, Ok(()))
-                        } else {
-                            (finder, Err(std::time::Duration::from_secs(1)))
-                        }
-                    })
-                    .await
-                };
-
-                match res {
-                    Ok((f, result)) => {
-                        finder = f;
-                        if let Err(delay) = result {
-                            tokio::time::sleep(delay).await;
-                        }
-                    }
+                let f = match finder.as_ref() {
+                    Ok(f) => f,
                     Err(_) => {
                         finder = mpris::PlayerFinder::new();
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        continue;
                     }
+                };
+
+                let player = match f.find_active() {
+                    Ok(p) => p,
+                    Err(_) => {
+                        let _ = update_tx.blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Stopped));
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        continue;
+                    }
+                };
+
+                // Prioritize any player that is currently playing over the "most recently active"
+                let active_player = f.find_all().ok().and_then(|players| {
+                    players.into_iter().find(|p| {
+                        p.get_playback_status()
+                            .unwrap_or(mpris::PlaybackStatus::Stopped)
+                            == mpris::PlaybackStatus::Playing
+                    })
+                });
+
+                let player = match active_player {
+                    Some(p) => p,
+                    None => player, // Fallback to the most recently active player if none are playing
+                };
+
+                if let Ok(metadata) = player.get_metadata() {
+                    let _ = update_tx.blocking_send(MprisUpdate::Metadata(
+                        MetadataUpdate::from_metadata(&metadata),
+                    ));
+                }
+                if let Ok(status) = player.get_playback_status() {
+                    let _ = update_tx.blocking_send(MprisUpdate::Status(status));
+                }
+                if let Ok(pos) = player.get_position() {
+                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                }
+
+                if let Ok(events) = player.events() {
+                    for event in events {
+                        match event {
+                            Ok(mpris::Event::TrackChanged(metadata)) => {
+                                let _ = update_tx.blocking_send(MprisUpdate::Metadata(
+                                    MetadataUpdate::from_metadata(&metadata),
+                                ));
+                                if let Ok(pos) = player.get_position() {
+                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                                }
+                            }
+                            Ok(mpris::Event::Playing) => {
+                                let _ = update_tx.blocking_send(MprisUpdate::Status(
+                                    mpris::PlaybackStatus::Playing,
+                                ));
+                                if let Ok(pos) = player.get_position() {
+                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                                }
+                            }
+                            Ok(mpris::Event::Paused) => {
+                                let _ = update_tx.blocking_send(MprisUpdate::Status(
+                                    mpris::PlaybackStatus::Paused,
+                                ));
+                                if let Ok(pos) = player.get_position() {
+                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                                }
+                            }
+                            Ok(mpris::Event::Stopped) => {
+                                let _ = update_tx.blocking_send(MprisUpdate::Status(
+                                    mpris::PlaybackStatus::Stopped,
+                                ));
+                            }
+                            Ok(mpris::Event::Seeked { position_in_us }) => {
+                                let pos = std::time::Duration::from_micros(position_in_us);
+                                let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                            }
+                            Ok(mpris::Event::PlayerShutDown) => {
+                                let _ = update_tx.blocking_send(MprisUpdate::ShutDown);
+                                break;
+                            }
+                            Err(e) => {
+                                warn!("MPRIS Event stream error: {}", e);
+                                let _ = update_tx.blocking_send(MprisUpdate::ShutDown);
+                                break; // Break out of the infinite iterator safely!
+                            }
+                            _ => {}
+                        }
+                    }
+                } else {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
                 }
             }
         });
