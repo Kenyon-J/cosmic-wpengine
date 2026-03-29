@@ -166,8 +166,8 @@ impl Renderer {
             .or_else(|_| std::fs::read("/run/host/fonts/noto/NotoSans-Regular.ttf"))
             .or_else(|_| std::fs::read("/run/host/fonts/cantarell/Cantarell-Regular.ttf"))
             .expect("Could not find a valid system font! Please install 'ttf-dejavu', 'ttf-liberation', or 'noto-fonts'.");
-        let primary_font =
-            wgpu_text::glyph_brush::ab_glyph::FontArc::try_from_vec(font_bytes).unwrap();
+        let primary_font = wgpu_text::glyph_brush::ab_glyph::FontArc::try_from_vec(font_bytes)
+            .map_err(|e| anyhow::anyhow!("Failed to parse primary font: {}", e))?;
 
         let mut fonts = vec![primary_font];
 
@@ -1740,8 +1740,7 @@ impl Renderer {
             let text_sections: Vec<&Section> = sections_to_render.iter().collect();
             gpu_out
                 .text_brush
-                .queue(&self.device, &self.queue, text_sections)
-                .unwrap();
+                .queue(&self.device, &self.queue, text_sections)?;
 
             let view = output
                 .texture
