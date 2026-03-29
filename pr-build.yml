@@ -1,0 +1,60 @@
+name: PR Build Check
+
+on:
+  pull_request:
+    branches: [ "main", "master" ]
+  push:
+    branches: [ "main", "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-ubuntu:
+    name: Build on Ubuntu
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Check compilation
+        run: cargo check --all-targets --all-features
+
+      - name: Build release
+        run: cargo build --release
+
+  build-arch:
+    name: Build on Arch Linux
+    runs-on: ubuntu-latest
+    container: archlinux:base
+
+    steps:
+      - name: Install prerequisite tools
+        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check compilation
+        run: cargo check --all-targets --all-features
+
+      - name: Build release
+        run: cargo build --release
