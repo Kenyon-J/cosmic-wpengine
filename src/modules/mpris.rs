@@ -76,7 +76,7 @@ impl MprisWatcher {
         // Background position polling to handle media players that fail to send Seeked signals
         let poll_tx = tx.clone();
         let poll_visible = is_visible.clone();
-        tokio::task::spawn_blocking(move || {
+        std::thread::spawn(move || {
             let mut finder = mpris::PlayerFinder::new();
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(1));
@@ -614,7 +614,7 @@ impl MprisWatcher {
         // 1. /tmp/ (used by some players for temporary art)
         // 2. /run/user/ (used by some players for art storage)
         // 3. User's HOME directory
-        let safe_prefixes = vec![
+        let safe_prefixes = [
             std::path::Path::new("/tmp"),
             std::path::Path::new("/run/user"),
         ];
