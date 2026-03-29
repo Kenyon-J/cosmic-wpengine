@@ -508,8 +508,17 @@ amplitude = 1.5"#;
             .on_press(Message::ShowPatchNotes);
 
         let footer_row = row()
-            .push(text(&self.status_msg).font(font).size(14).width(Length::Fill))
-            .push(text(format!("v{}", env!("CARGO_PKG_VERSION"))).font(font).size(14))
+            .push(
+                text(&self.status_msg)
+                    .font(font)
+                    .size(14)
+                    .width(Length::Fill),
+            )
+            .push(
+                text(format!("v{}", env!("CARGO_PKG_VERSION")))
+                    .font(font)
+                    .size(14),
+            )
             .push(notes_btn)
             .push(report_btn)
             .spacing(15);

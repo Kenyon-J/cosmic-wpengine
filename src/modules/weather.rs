@@ -137,7 +137,7 @@ mod tests {
             (1, WeatherCondition::PartlyCloudy),
             (2, WeatherCondition::PartlyCloudy),
             (3, WeatherCondition::Cloudy),
-            (4, WeatherCondition::PartlyCloudy), // Default case
+            (4, WeatherCondition::PartlyCloudy),  // Default case
             (44, WeatherCondition::PartlyCloudy), // Default case
             (45, WeatherCondition::Fog),
             (46, WeatherCondition::PartlyCloudy), // Default case

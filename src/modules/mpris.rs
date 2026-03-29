@@ -1,7 +1,7 @@
 use anyhow::Result;
 use tokio::sync::mpsc::Sender;
-use url::Url;
 use tracing::{info, warn};
+use url::Url;
 
 use super::{
     colour::extract_palette,
@@ -511,13 +511,22 @@ impl MprisWatcher {
         }
     }
 
-    async fn fetch_album_art(url_str: &str, client: &reqwest::Client) -> Result<image::DynamicImage> {
+    async fn fetch_album_art(
+        url_str: &str,
+        client: &reqwest::Client,
+    ) -> Result<image::DynamicImage> {
         info!("Attempting to fetch album art from: {}", url_str);
         if url_str.starts_with("http") {
-            let bytes = client.get(url_str).send().await.map_err(|e| {
-                warn!("HTTP request failed for art: {}", e);
-                e
-            })?.bytes().await?;
+            let bytes = client
+                .get(url_str)
+                .send()
+                .await
+                .map_err(|e| {
+                    warn!("HTTP request failed for art: {}", e);
+                    e
+                })?
+                .bytes()
+                .await?;
             return image::load_from_memory(&bytes).map_err(|e| {
                 warn!("Failed to decode HTTP image data: {}", e);
                 e.into()
@@ -529,7 +538,10 @@ impl MprisWatcher {
             if url.scheme() == "file" {
                 if let Ok(path) = url.to_file_path() {
                     if !Self::is_safe_path(&path) {
-                        anyhow::bail!("Security violation: Attempted path traversal via file:// URL: {:?}", path);
+                        anyhow::bail!(
+                            "Security violation: Attempted path traversal via file:// URL: {:?}",
+                            path
+                        );
                     }
                     info!("Successfully parsed file path: {:?}", path);
                     let bytes = tokio::fs::read(&path).await.map_err(|e| {
@@ -541,7 +553,10 @@ impl MprisWatcher {
                         e.into()
                     });
                 }
-                warn!("Could not cleanly convert URL to valid file path: {}", url_str);
+                warn!(
+                    "Could not cleanly convert URL to valid file path: {}",
+                    url_str
+                );
             }
         }
 
@@ -549,7 +564,10 @@ impl MprisWatcher {
         info!("Attempting raw path fallback read for: {}", url_str);
         let path = std::path::Path::new(url_str);
         if !Self::is_safe_path(path) {
-            anyhow::bail!("Security violation: Attempted path traversal or unsafe raw path: {}", url_str);
+            anyhow::bail!(
+                "Security violation: Attempted path traversal or unsafe raw path: {}",
+                url_str
+            );
         }
 
         let bytes = tokio::fs::read(path).await.map_err(|e| {

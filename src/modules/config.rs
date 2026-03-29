@@ -310,33 +310,36 @@ impl AppearanceConfig {
 
         let cosmic_bg_dir = base.join("cosmic/com.system76.CosmicBackground/v1");
 
-        let mut latest_path = None;
-        let mut latest_time = std::time::SystemTime::UNIX_EPOCH;
+        let mut entries_with_time = Vec::new();
 
         if let Ok(entries) = std::fs::read_dir(cosmic_bg_dir) {
             for entry in entries.flatten() {
                 if let Ok(meta) = entry.metadata() {
                     if let Ok(modified) = meta.modified() {
-                        if modified > latest_time {
-                            if let Ok(contents) = std::fs::read_to_string(entry.path()) {
-                                // COSMIC uses RON format, storing wallpaper paths like: Path("/path/to/img.jpg")
-                                if let Some(start_idx) = contents.find("Path(\"") {
-                                    let path_start = start_idx + 6;
-                                    if let Some(end_offset) = contents[path_start..].find("\")") {
-                                        let path = &contents[path_start..path_start + end_offset];
-                                        if std::path::Path::new(path).exists() {
-                                            latest_path = Some(path.to_string());
-                                            latest_time = modified;
-                                        }
-                                    }
-                                }
-                            }
+                        entries_with_time.push((entry.path(), modified));
+                    }
+                }
+            }
+        }
+
+        entries_with_time.sort_by(|a, b| b.1.cmp(&a.1));
+
+        for (path, _) in entries_with_time {
+            if let Ok(contents) = std::fs::read_to_string(&path) {
+                // COSMIC uses RON format, storing wallpaper paths like: Path("/path/to/img.jpg")
+                if let Some(start_idx) = contents.find("Path(\"") {
+                    let path_start = start_idx + 6;
+                    if let Some(end_offset) = contents[path_start..].find("\")") {
+                        let extracted_path = &contents[path_start..path_start + end_offset];
+                        if std::path::Path::new(extracted_path).exists() {
+                            return Some(extracted_path.to_string());
                         }
                     }
                 }
             }
         }
-        latest_path
+
+        None
     }
 }
 
