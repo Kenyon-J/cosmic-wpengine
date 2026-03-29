@@ -95,6 +95,7 @@ pub struct Renderer {
     current_lyric_idx: usize,
     lyric_scroll_offset: f32,
     video_frame_buffer: Vec<u8>,
+    album_art_pad_buffer: Vec<u8>,
 }
 
 impl Renderer {
@@ -700,6 +701,7 @@ impl Renderer {
             current_lyric_idx: 0,
             lyric_scroll_offset: 0.0,
             video_frame_buffer: Vec::new(),
+            album_art_pad_buffer: Vec::new(),
         };
 
         let path = renderer.state.config.appearance.resolved_background_path();
@@ -1017,8 +1019,6 @@ impl Renderer {
                 let smoothing = self.state.config.audio.smoothing;
                 let target_len = self.state.audio_bands.len();
 
-                let min_freq = 40.0f32;
-                let max_freq = 16000.0f32;
                 let sample_rate = 48000.0f32;
                 let fft_size = 2048.0f32;
                 let freq_per_bin = sample_rate / fft_size;
@@ -1082,43 +1082,15 @@ impl Renderer {
                     self.last_treble_time = Instant::now();
                 }
 
-                let min_log = min_freq.log2();
-                let max_log = max_freq.log2();
-
                 for (i, current) in self.state.audio_bands.iter_mut().enumerate() {
-                    let t_lo = i as f32 / target_len as f32;
-                    let t_hi = (i + 1) as f32 / target_len as f32;
+                    let (bin_lo, bin_hi) = self.frequency_bin_ranges[i];
 
-                    let freq_lo = (min_log + t_lo * (max_log - min_log)).exp2();
-                    let freq_hi = (min_log + t_hi * (max_log - min_log)).exp2();
-
-                    let mut bin_lo = (freq_lo / freq_per_bin).round() as usize;
-                    let mut bin_hi = (freq_hi / freq_per_bin).round() as usize;
-
-                    bin_lo = bin_lo.clamp(0, bands.len() - 1);
-                    bin_hi = bin_hi.clamp(0, bands.len());
-
-                    if bin_hi <= bin_lo {
-                        bin_hi = (bin_lo + 1).min(bands.len());
+                    let mut max_val = 0.0f32;
+                    for &val in &bands[bin_lo..bin_hi.min(bands.len())] {
+                        if val > max_val { max_val = val; }
                     }
 
-                    let max_val = bands[bin_lo..bin_hi]
-                        .iter()
-                        .fold(0.0f32, |acc, &val| acc.max(val));
-
-                    // Calculate the geometric mean frequency of the current band
-                    let f = (freq_lo * freq_hi).sqrt();
-                    let f2 = f * f;
-                    let f4 = f2 * f2;
-
-                    // A-Weighting filter curve formula
-                    let a_weighting = (12200.0 * 12200.0 * f4)
-                        / ((f2 + 20.6 * 20.6)
-                            * (f2 + 12200.0 * 12200.0)
-                            * ((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)).sqrt());
-
-                    // Normalize to 1.0 at 1 kHz and apply a visual scalar to keep bars punchy
-                    let a_weighting_norm = a_weighting * 1.2589;
+                    let a_weighting_norm = self.a_weighting_curve[i];
                     let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
 
                     if target > *current {
@@ -1132,15 +1104,13 @@ impl Renderer {
                     self.state.audio_waveform = vec![0.0; target_len];
                 }
 
-                let chunk_size = waveform.len() as f32 / target_len as f32;
                 for (i, current) in self.state.audio_waveform.iter_mut().enumerate() {
-                    let start = (i as f32 * chunk_size) as usize;
-                    let end = ((i + 1) as f32 * chunk_size) as usize;
+                    let (start, end) = self.waveform_bin_ranges[i];
 
-                    let peak = waveform[start..end.min(waveform.len())].iter().fold(
-                        0.0f32,
-                        |max, &val| if val.abs() > max.abs() { val } else { max },
-                    );
+                    let mut peak = 0.0f32;
+                    for &val in &waveform[start..end.min(waveform.len())] {
+                        if val.abs() > peak.abs() { peak = val; }
+                    }
 
                     *current = *current * smoothing + peak * (1.0 - smoothing);
                 }
@@ -1941,13 +1911,17 @@ impl Renderer {
                 texture_size,
             );
         } else {
-            let mut padded_data = vec![0; (padded_bytes_per_row * dimensions.1) as usize];
+            let required_size = (padded_bytes_per_row * dimensions.1) as usize;
+            if self.album_art_pad_buffer.len() < required_size {
+                self.album_art_pad_buffer.resize(required_size, 0);
+            }
+
             let raw_rgba = rgba.as_raw();
             for y in 0..dimensions.1 {
                 let src_start = (y * unpadded_bytes_per_row) as usize;
                 let src_end = src_start + unpadded_bytes_per_row as usize;
                 let dst_start = (y * padded_bytes_per_row) as usize;
-                let dst_slice = &mut padded_data[dst_start..dst_start + unpadded_bytes_per_row as usize];
+                let dst_slice = &mut self.album_art_pad_buffer[dst_start..dst_start + unpadded_bytes_per_row as usize];
                 dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
             }
             self.queue.write_texture(
@@ -1957,7 +1931,7 @@ impl Renderer {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                &padded_data,
+                &self.album_art_pad_buffer[..required_size],
                 wgpu::ImageDataLayout {
                     offset: 0,
                     bytes_per_row: Some(padded_bytes_per_row),
@@ -2137,13 +2111,17 @@ impl Renderer {
                 texture_size,
             );
         } else {
-            let mut padded_data = vec![0; (padded_bytes_per_row * dimensions.1) as usize];
+            let required_size = (padded_bytes_per_row * dimensions.1) as usize;
+            if self.album_art_pad_buffer.len() < required_size {
+                self.album_art_pad_buffer.resize(required_size, 0);
+            }
+
             let raw_rgba = img.as_raw();
             for y in 0..dimensions.1 {
                 let src_start = (y * unpadded_bytes_per_row) as usize;
                 let src_end = src_start + unpadded_bytes_per_row as usize;
                 let dst_start = (y * padded_bytes_per_row) as usize;
-                let dst_slice = &mut padded_data[dst_start..dst_start + unpadded_bytes_per_row as usize];
+                let dst_slice = &mut self.album_art_pad_buffer[dst_start..dst_start + unpadded_bytes_per_row as usize];
                 dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
             }
             self.queue.write_texture(
@@ -2153,7 +2131,7 @@ impl Renderer {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                &padded_data,
+                &self.album_art_pad_buffer[..required_size],
                 wgpu::ImageDataLayout {
                     offset: 0,
                     bytes_per_row: Some(padded_bytes_per_row),

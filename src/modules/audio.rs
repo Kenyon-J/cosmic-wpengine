@@ -30,6 +30,8 @@ impl AudioCapture {
 
         let mut last_warn = std::time::Instant::now() - std::time::Duration::from_secs(5);
 
+        let mut buffer: Vec<Complex<f32>> = Vec::with_capacity(FFT_SIZE);
+
         loop {
             match tokio::time::timeout(tokio::time::Duration::from_millis(250), audio_rx.recv())
                 .await
@@ -39,38 +41,33 @@ impl AudioCapture {
                         continue;
                     }
 
-                    let mut buffer: Vec<Complex<f32>> = samples
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &s)| {
-                            let window = 0.5
-                                * (1.0
-                                    - (2.0 * std::f32::consts::PI * i as f32
-                                        / (FFT_SIZE as f32 - 1.0))
-                                        .cos());
-                            Complex {
-                                re: s * window,
-                                im: 0.0,
-                            }
-                        })
-                        .collect();
+                    buffer.clear();
+                    for (i, &s) in samples.iter().enumerate() {
+                        let window = 0.5
+                            * (1.0
+                                - (2.0 * std::f32::consts::PI * i as f32
+                                    / (FFT_SIZE as f32 - 1.0))
+                                    .cos());
+                        buffer.push(Complex {
+                            re: s * window,
+                            im: 0.0,
+                        });
+                    }
 
                     fft.process(&mut buffer);
 
                     let half = FFT_SIZE / 2;
 
-                    let normalised: Vec<f32> = buffer[0..half]
-                        .iter()
-                        .map(|c| {
-                            let magnitude = c.norm();
-                            (magnitude / SCALE_FACTOR).clamp(0.0, 1.0)
-                        })
-                        .collect();
+                    let mut normalised = Vec::with_capacity(half);
+                    for c in &buffer[0..half] {
+                        let magnitude = c.norm();
+                        normalised.push((magnitude / SCALE_FACTOR).clamp(0.0, 1.0));
+                    }
 
                     let _ = tx
                         .send(Event::AudioFrame {
                             bands: normalised,
-                            waveform: samples.clone(),
+                            waveform: samples,
                         })
                         .await;
                 }
