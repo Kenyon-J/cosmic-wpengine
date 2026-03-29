@@ -957,7 +957,10 @@ impl Renderer {
             Event::TrackChanged(track) => {
                 info!("Now playing: {} - {}", track.artist, track.title);
                 if let Some(art) = &track.album_art {
-                    info!("Track contains album art ({} bytes raw). Sending to GPU...", art.len());
+                    info!(
+                        "Track contains album art ({} bytes raw). Sending to GPU...",
+                        art.len()
+                    );
                     self.update_album_art_texture(art);
                 } else {
                     warn!("Track event received, but album_art payload is None!");
@@ -1001,9 +1004,9 @@ impl Renderer {
                     .current_track
                     .as_ref()
                     .and_then(|t| t.palette.clone());
-            self.album_art_bg_bind_group = None;
-            self.album_art_fg_bind_group = None;
-            self.current_album_texture = None;
+                self.album_art_bg_bind_group = None;
+                self.album_art_fg_bind_group = None;
+                self.current_album_texture = None;
                 self.state.current_track = None;
                 self.state.is_playing = false;
                 self.current_lyric_idx = 0;
@@ -1087,7 +1090,9 @@ impl Renderer {
 
                     let mut max_val = 0.0f32;
                     for &val in &bands[bin_lo..bin_hi.min(bands.len())] {
-                        if val > max_val { max_val = val; }
+                        if val > max_val {
+                            max_val = val;
+                        }
                     }
 
                     let a_weighting_norm = self.a_weighting_curve[i];
@@ -1109,7 +1114,9 @@ impl Renderer {
 
                     let mut peak = 0.0f32;
                     for &val in &waveform[start..end.min(waveform.len())] {
-                        if val.abs() > peak.abs() { peak = val; }
+                        if val.abs() > peak.abs() {
+                            peak = val;
+                        }
                     }
 
                     *current = *current * smoothing + peak * (1.0 - smoothing);
@@ -1155,16 +1162,24 @@ impl Renderer {
         // --- IMPORTANT FIX ---
         // The old state check can fail due to subtle race conditions.
         // The most robust way to check for media is to see if the GPU resources for it exist.
-        let has_media_check_state = self.state.current_track.as_ref().and_then(|t| t.album_art.as_ref()).is_some();
+        let has_media_check_state = self
+            .state
+            .current_track
+            .as_ref()
+            .and_then(|t| t.album_art.as_ref())
+            .is_some();
         let has_media_check_gpu = self.album_art_fg_bind_group.is_some();
         if has_media_check_gpu && !has_media_check_state {
-             warn!("Album art visibility check mismatch! State: false, GPU: true. Using GPU state.");
+            warn!("Album art visibility check mismatch! State: false, GPU: true. Using GPU state.");
         }
 
         // Decouple art visibility from force_vis so you can layer the visualizer AND the album art!
-        let show_art_fg = (has_media_check_gpu || force_art) && self.state.config.appearance.show_album_art;
-        let show_art_bg = (has_media_check_gpu || force_art) && self.state.config.appearance.album_art_background;
-        let show_color_bg = (has_media_check_gpu || force_art) && self.state.config.appearance.album_color_background;
+        let show_art_fg =
+            (has_media_check_gpu || force_art) && self.state.config.appearance.show_album_art;
+        let show_art_bg =
+            (has_media_check_gpu || force_art) && self.state.config.appearance.album_art_background;
+        let show_color_bg = (has_media_check_gpu || force_art)
+            && self.state.config.appearance.album_color_background;
 
         let clear_colour = self.get_clear_colour();
         // Use our new smart audio-reactive beat detector instead of the generic timer
@@ -1436,7 +1451,8 @@ impl Renderer {
 
                     // If the circular visualiser is active, dynamically override the album art
                     // layout to fit perfectly inside of it.
-                    if has_audio && self.theme.visualiser.shape == super::config::VisShape::Circular {
+                    if has_audio && self.theme.visualiser.shape == super::config::VisShape::Circular
+                    {
                         art_position = self.theme.visualiser.position;
                         art_size = self.theme.visualiser.size;
                         art_shape = super::config::ArtShape::Circular; // Force circular shape to match
@@ -1455,7 +1471,11 @@ impl Renderer {
                         mode: 1,
                         bg_alpha: 1.0, // The sharp foreground art never fades!
                         art_size,
-                        shape: if art_shape == super::config::ArtShape::Circular { 1 } else { 0 },
+                        shape: if art_shape == super::config::ArtShape::Circular {
+                            1
+                        } else {
+                            0
+                        },
                         blur_opacity: 1.0,
                         image_res: [
                             self.current_album_texture
@@ -1870,7 +1890,10 @@ impl Renderer {
 
     fn update_album_art_texture(&mut self, rgba: &image::RgbaImage) {
         let dimensions = rgba.dimensions();
-        info!("Creating GPU texture for album art. Dimensions: {}x{}", dimensions.0, dimensions.1);
+        info!(
+            "Creating GPU texture for album art. Dimensions: {}x{}",
+            dimensions.0, dimensions.1
+        );
 
         let texture_size = wgpu::Extent3d {
             width: dimensions.0,
@@ -1921,7 +1944,8 @@ impl Renderer {
                 let src_start = (y * unpadded_bytes_per_row) as usize;
                 let src_end = src_start + unpadded_bytes_per_row as usize;
                 let dst_start = (y * padded_bytes_per_row) as usize;
-                let dst_slice = &mut self.album_art_pad_buffer[dst_start..dst_start + unpadded_bytes_per_row as usize];
+                let dst_slice = &mut self.album_art_pad_buffer
+                    [dst_start..dst_start + unpadded_bytes_per_row as usize];
                 dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
             }
             self.queue.write_texture(
@@ -2025,8 +2049,7 @@ impl Renderer {
                         let dst_start = (y * padded_bytes_per_row) as usize;
                         let dst_slice = &mut self.video_frame_buffer
                             [dst_start..dst_start + unpadded_bytes_per_row as usize];
-                        dst_slice
-                            .copy_from_slice(&raw_rgba[src_start..src_end]);
+                        dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
                     }
 
                     self.queue.write_texture(
@@ -2121,7 +2144,8 @@ impl Renderer {
                 let src_start = (y * unpadded_bytes_per_row) as usize;
                 let src_end = src_start + unpadded_bytes_per_row as usize;
                 let dst_start = (y * padded_bytes_per_row) as usize;
-                let dst_slice = &mut self.album_art_pad_buffer[dst_start..dst_start + unpadded_bytes_per_row as usize];
+                let dst_slice = &mut self.album_art_pad_buffer
+                    [dst_start..dst_start + unpadded_bytes_per_row as usize];
                 dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
             }
             self.queue.write_texture(

@@ -79,7 +79,8 @@ impl VisualiserPass {
         }
 
         Ok(Self {
-            pipeline: pipeline.ok_or_else(|| anyhow::anyhow!("Failed to create visualiser pipeline"))?,
+            pipeline: pipeline
+                .ok_or_else(|| anyhow::anyhow!("Failed to create visualiser pipeline"))?,
             bind_group,
             uniform_buffer,
             bands_buffer,

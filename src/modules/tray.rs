@@ -36,7 +36,9 @@ impl WallpaperTray {
                 Err(e) => tracing::error!("Failed to launch GUI: {}", e),
             }
         } else {
-            tracing::error!("Could not find cosmic-wallpaper-gui binary alongside the engine executable.");
+            tracing::error!(
+                "Could not find cosmic-wallpaper-gui binary alongside the engine executable."
+            );
         }
     }
 }
