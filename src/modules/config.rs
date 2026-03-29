@@ -879,22 +879,18 @@ impl Config {
                     );
                     let _ = std::fs::rename(&path, path.with_extension("toml.bak"));
                     let default_config = Config::default();
-                    let _ = std::fs::write(&path, toml::to_string_pretty(&default_config)?);
+                    let _ = default_config.save();
                     Ok(default_config)
                 }
             }
         } else {
             let config = Config::default();
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&path, toml::to_string_pretty(&config)?)?;
+            config.save()?;
             tracing::info!("Created default config at {:?}", path);
             Ok(config)
         }
     }
 
-    #[allow(dead_code)]
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path();
         if let Some(parent) = path.parent() {
