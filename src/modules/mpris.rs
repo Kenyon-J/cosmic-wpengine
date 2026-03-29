@@ -629,7 +629,7 @@ impl MprisWatcher {
         // 1. /tmp/ (used by some players for temporary art)
         // 2. /run/user/ (used by some players for art storage)
         // 3. User's HOME directory
-        let safe_prefixes = vec![
+        let safe_prefixes = [
             std::path::Path::new("/tmp"),
             std::path::Path::new("/run/user"),
         ];
