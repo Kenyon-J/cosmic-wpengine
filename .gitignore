@@ -16,4 +16,3 @@ CMakeCache.txt
 # IDE config
 .vscode/
 .idea/
-Cargo.lock
