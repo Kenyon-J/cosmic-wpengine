@@ -14,6 +14,17 @@ impl VideoDecoder {
         tx: Sender<Event>,
         mut cancel_rx: tokio::sync::watch::Receiver<bool>,
     ) -> Result<()> {
+        // Runtime check to verify FFmpeg is available before trying to decode
+        if Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .await
+            .is_err()
+        {
+            warn!("FFmpeg is not installed or not in PATH! Video backgrounds will not play.");
+            return Ok(());
+        }
+
         info!("Starting FFmpeg video decoder for: {}", url);
 
         let width = 1080;

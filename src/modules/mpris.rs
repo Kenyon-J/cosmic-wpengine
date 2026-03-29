@@ -662,3 +662,33 @@ impl MprisWatcher {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_is_safe_path() {
+        std::env::set_var("HOME", "/home/testuser");
+
+        // Valid absolute paths in safe locations
+        assert!(MprisWatcher::is_safe_path(Path::new("/tmp/art.png")));
+        assert!(MprisWatcher::is_safe_path(Path::new(
+            "/run/user/1000/art.jpg"
+        )));
+        assert!(MprisWatcher::is_safe_path(Path::new(
+            "/home/testuser/Music/cover.png"
+        )));
+
+        // Path traversal attempts
+        assert!(!MprisWatcher::is_safe_path(Path::new("/tmp/../etc/passwd")));
+        assert!(!MprisWatcher::is_safe_path(Path::new(
+            "/run/user/../../var/log"
+        )));
+
+        // Relative paths
+        assert!(!MprisWatcher::is_safe_path(Path::new("art.png")));
+        assert!(!MprisWatcher::is_safe_path(Path::new("./art.png")));
+    }
+}

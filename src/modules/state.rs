@@ -102,6 +102,52 @@ impl AppState {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_state_transitions() {
+        let config = Config::default();
+        let mut state = AppState::new(config);
+
+        state.begin_transition();
+        assert_eq!(state.transition_progress, 0.0);
+
+        state.tick_transition(0.1);
+        // 0.1 * 1.5 speed
+        assert!((state.transition_progress - 0.15).abs() < f32::EPSILON);
+
+        state.tick_transition(1.0);
+        assert_eq!(state.transition_progress, 1.0); // Should be safely capped at 1.0
+    }
+
+    #[test]
+    fn test_scene_description() {
+        let config = Config::default();
+        let mut state = AppState::new(config);
+
+        // Default empty state should be Ambient
+        assert_eq!(state.scene_description(), SceneHint::Ambient);
+
+        // With significant audio energy, it should switch to AudioVisualiser
+        state.audio_bands = vec![1.0; 64];
+        assert_eq!(state.scene_description(), SceneHint::AudioVisualiser);
+
+        // Track with album art should take highest precedence over everything
+        state.current_track = Some(TrackInfo {
+            title: "Test".into(),
+            artist: "Test".into(),
+            album: "Test".into(),
+            album_art: Some(image::RgbaImage::new(1, 1)),
+            palette: None,
+            lyrics: None,
+            video_url: None,
+        });
+        assert_eq!(state.scene_description(), SceneHint::AlbumArt);
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum SceneHint {
     AlbumArt,
