@@ -1,3 +1,4 @@
+use anyhow::Result;
 use wgpu::util::DeviceExt;
 
 pub struct VisualiserPass {
@@ -14,7 +15,7 @@ impl VisualiserPass {
         format: wgpu::TextureFormat,
         band_count: usize,
         style: &str,
-    ) -> Self {
+    ) -> Result<Self> {
         let mut uniform_data = Vec::with_capacity(80);
         // Placeholder init data; the renderer loop immediately overwrites this
         for _ in 0..20 {
@@ -77,13 +78,13 @@ impl VisualiserPass {
             pipeline = Self::create_pipeline(device, format, &layout, "bars", None).await;
         }
 
-        Self {
-            pipeline: pipeline.unwrap(),
+        Ok(Self {
+            pipeline: pipeline.ok_or_else(|| anyhow::anyhow!("Failed to create visualiser pipeline"))?,
             bind_group,
             uniform_buffer,
             bands_buffer,
             layout,
-        }
+        })
     }
 
     fn create_bind_group(

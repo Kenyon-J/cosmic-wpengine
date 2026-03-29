@@ -259,7 +259,7 @@ impl Renderer {
             state.config.audio.bands,
             &state.config.audio.style,
         )
-        .await;
+        .await?;
 
         // --- Album Art Pipeline Setup ---
         let empty_texture = device.create_texture(&wgpu::TextureDescriptor {
