@@ -87,6 +87,19 @@ Name=COSMIC Wallpaper"#,
     }
 }
 
+fn is_safe_path(path_str: &str) -> bool {
+    let path = std::path::Path::new(path_str);
+    if path.is_absolute() {
+        return false;
+    }
+    for component in path.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return false;
+        }
+    }
+    true
+}
+
 fn load_files() -> Vec<String> {
     let mut files = vec!["config.toml".to_string()];
     let shaders_dir = config::Config::config_dir().join("shaders");
@@ -227,17 +240,25 @@ impl Application for SettingsApp {
                 self.refresh_editor();
             }
             Message::FileSelected(file) => {
-                self.selected_file = Some(file.clone());
-                let path = config::Config::config_dir().join(&file);
-                let content_str = std::fs::read_to_string(path).unwrap_or_default();
-                self.editor_content = text_editor::Content::with_text(&content_str);
-                self.status_msg = format!("Loaded {}", file);
+                if is_safe_path(&file) {
+                    self.selected_file = Some(file.clone());
+                    let path = config::Config::config_dir().join(&file);
+                    let content_str = std::fs::read_to_string(path).unwrap_or_default();
+                    self.editor_content = text_editor::Content::with_text(&content_str);
+                    self.status_msg = format!("Loaded {}", file);
+                } else {
+                    self.status_msg = format!("Blocked unsafe file path: {}", file);
+                }
             }
             Message::EditorAction(action) => {
                 self.editor_content.perform(action);
             }
             Message::SaveFile => {
                 if let Some(file) = &self.selected_file {
+                    if !is_safe_path(file) {
+                        self.status_msg = format!("Blocked unsafe save path: {}", file);
+                        return Task::none();
+                    }
                     let path = config::Config::config_dir().join(file);
                     let text = self.editor_content.text();
                     match std::fs::write(&path, text) {
@@ -298,6 +319,12 @@ impl Application for SettingsApp {
                 if !self.new_theme_name.is_empty() {
                     let name = self.new_theme_name.trim().trim_end_matches(".toml");
                     let file_name = format!("shaders/{}.toml", name);
+
+                    if !is_safe_path(&file_name) {
+                        self.status_msg = format!("Blocked unsafe theme name: {}", name);
+                        return Task::none();
+                    }
+
                     let path = config::Config::config_dir().join(&file_name);
 
                     if !path.exists() {
@@ -498,5 +525,28 @@ amplitude = 1.5"#;
             .padding(40)
             .spacing(20)
             .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_safe_path() {
+        // Valid paths
+        assert!(is_safe_path("config.toml"));
+        assert!(is_safe_path("shaders/theme.toml"));
+        assert!(is_safe_path("shaders/nested/theme.toml"));
+
+        // Path traversal
+        assert!(!is_safe_path("../test.txt"));
+        assert!(!is_safe_path("shaders/../../etc/passwd"));
+        assert!(!is_safe_path(".."));
+
+        // Absolute paths
+        assert!(!is_safe_path("/etc/passwd"));
+        #[cfg(windows)]
+        assert!(!is_safe_path("C:\\Windows\\System32\\config\\SAM"));
     }
 }
