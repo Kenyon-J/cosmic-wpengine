@@ -20,19 +20,23 @@ impl WallpaperTray {
         }
 
         // Find the GUI binary in the same folder as this running executable
-        let mut gui_path = std::path::PathBuf::from("cosmic-wallpaper-gui");
+        let mut gui_path = None;
         if let Ok(current_exe) = std::env::current_exe() {
             if let Some(parent) = current_exe.parent() {
                 let sibling = parent.join("cosmic-wallpaper-gui");
                 if sibling.exists() {
-                    gui_path = sibling;
+                    gui_path = Some(sibling);
                 }
             }
         }
 
-        match std::process::Command::new(&gui_path).spawn() {
-            Ok(child) => self.gui_process = Some(child),
-            Err(e) => tracing::error!("Failed to launch GUI: {}", e),
+        if let Some(path) = gui_path {
+            match std::process::Command::new(&path).spawn() {
+                Ok(child) => self.gui_process = Some(child),
+                Err(e) => tracing::error!("Failed to launch GUI: {}", e),
+            }
+        } else {
+            tracing::error!("Could not find cosmic-wallpaper-gui binary alongside the engine executable.");
         }
     }
 }
