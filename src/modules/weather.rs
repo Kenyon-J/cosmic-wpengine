@@ -31,9 +31,11 @@ impl WeatherWatcher {
 
         loop {
             // Read directly to avoid triggering ThemeLayout::write_defaults() and heavy disk checks every 5s
-            let current_config = match std::fs::read_to_string(
+            let current_config = match tokio::fs::read_to_string(
                 super::config::Config::config_dir().join("config.toml"),
-            ) {
+            )
+            .await
+            {
                 Ok(text) => match toml::from_str::<super::config::Config>(&text) {
                     Ok(c) => c.weather,
                     Err(_) => last_config.clone(),
@@ -137,7 +139,7 @@ mod tests {
             (1, WeatherCondition::PartlyCloudy),
             (2, WeatherCondition::PartlyCloudy),
             (3, WeatherCondition::Cloudy),
-            (4, WeatherCondition::PartlyCloudy), // Default case
+            (4, WeatherCondition::PartlyCloudy),  // Default case
             (44, WeatherCondition::PartlyCloudy), // Default case
             (45, WeatherCondition::Fog),
             (46, WeatherCondition::PartlyCloudy), // Default case
