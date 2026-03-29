@@ -10,8 +10,7 @@
 
 <br />
 
-<!-- TODO: Replace with an actual hero image or WebM/GIF showcasing the wallpaper in action! -->
-<img src="https://via.placeholder.com/800x400.png?text=Showcase+GIF+goes+here" alt="cosmic-wallpaper showcase" width="100%" />
+<img src="https://jkenyon.co.uk/images/cosmic-wpengine.png alt="cosmic-wallpaper showcase" width="100%" />
 
 </div>
 
