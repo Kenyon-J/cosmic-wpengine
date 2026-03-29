@@ -50,3 +50,61 @@ pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
         t => lerp_colour(dusk, midnight, (t - 0.75) / 0.25),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn approx_eq(a: [f32; 3], b: [f32; 3]) -> bool {
+        let eps = 1e-6;
+        (a[0] - b[0]).abs() < eps && (a[1] - b[1]).abs() < eps && (a[2] - b[2]).abs() < eps
+    }
+
+    #[test]
+    fn test_lerp_colour() {
+        let a = [0.0, 0.0, 0.0];
+        let b = [1.0, 1.0, 1.0];
+
+        assert!(approx_eq(lerp_colour(a, b, 0.0), a));
+        assert!(approx_eq(lerp_colour(a, b, 1.0), b));
+        assert!(approx_eq(lerp_colour(a, b, 0.5), [0.5, 0.5, 0.5]));
+    }
+
+    #[test]
+    fn test_time_to_sky_colour_boundaries() {
+        let midnight = [0.02, 0.02, 0.08];
+        let dawn = [0.6, 0.3, 0.2];
+        let noon = [0.4, 0.6, 0.9];
+        let dusk = [0.7, 0.3, 0.15];
+
+        // Midnight (0.0)
+        assert!(approx_eq(time_to_sky_colour(0.0), midnight));
+
+        // Dawn (0.25)
+        assert!(approx_eq(time_to_sky_colour(0.25), dawn));
+
+        // Noon (0.5)
+        assert!(approx_eq(time_to_sky_colour(0.5), noon));
+
+        // Dusk (0.75)
+        assert!(approx_eq(time_to_sky_colour(0.75), dusk));
+
+        // End of day (1.0)
+        assert!(approx_eq(time_to_sky_colour(1.0), midnight));
+    }
+
+    #[test]
+    fn test_time_to_sky_colour_intermediate() {
+        let midnight = [0.02, 0.02, 0.08];
+        let dawn = [0.6, 0.3, 0.2];
+
+        // Test a point between midnight and dawn (0.125 is half way to 0.25)
+        let c = time_to_sky_colour(0.125);
+        let expected = [
+            (midnight[0] + dawn[0]) / 2.0,
+            (midnight[1] + dawn[1]) / 2.0,
+            (midnight[2] + dawn[2]) / 2.0,
+        ];
+        assert!(approx_eq(c, expected));
+    }
+}
