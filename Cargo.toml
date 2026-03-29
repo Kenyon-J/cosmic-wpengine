@@ -7,7 +7,7 @@ license = "MIT"
 default-run = "cosmic-wallpaper"
 
 [dependencies]
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync", "fs"] }
 smithay-client-toolkit = { version = "0.19", features = ["calloop"] }
 wayland-client = "0.31"
 raw-window-handle = "0.6"

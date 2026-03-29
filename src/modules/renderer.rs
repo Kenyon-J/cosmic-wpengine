@@ -148,24 +148,35 @@ impl Renderer {
             .await?;
 
         // Lookup a reliable system font used in Linux/COSMIC environments
-        let font_bytes = std::fs::read("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf")
-            .or_else(|_| std::fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"))
-            .or_else(|_| std::fs::read("/usr/share/fonts/liberation/LiberationSans-Regular.ttf"))
-            .or_else(|_| std::fs::read("/usr/share/fonts/TTF/DejaVuSans.ttf")) // Arch Linux
-            .or_else(|_| std::fs::read("/usr/share/fonts/TTF/LiberationSans-Regular.ttf")) // Arch Linux
-            .or_else(|_| std::fs::read("/usr/share/fonts/noto/NotoSans-Regular.ttf")) // Arch/Fedora
-            .or_else(|_| std::fs::read("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf")) // Debian/Ubuntu
-            .or_else(|_| std::fs::read("/usr/share/fonts/cantarell/Cantarell-Regular.ttf")) // Fedora/GNOME
-            .or_else(|_| std::fs::read("/usr/share/fonts/TTF/Cantarell-Regular.ttf")) // Arch GNOME
+        let primary_paths = [
+            "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans.ttf", // Arch Linux
+            "/usr/share/fonts/TTF/LiberationSans-Regular.ttf", // Arch Linux
+            "/usr/share/fonts/noto/NotoSans-Regular.ttf", // Arch/Fedora
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", // Debian/Ubuntu
+            "/usr/share/fonts/cantarell/Cantarell-Regular.ttf", // Fedora/GNOME
+            "/usr/share/fonts/TTF/Cantarell-Regular.ttf", // Arch GNOME
             // Flatpak Sandbox Host Mounts
-            .or_else(|_| std::fs::read("/run/host/fonts/truetype/ubuntu/Ubuntu-R.ttf"))
-            .or_else(|_| std::fs::read("/run/host/fonts/truetype/dejavu/DejaVuSans.ttf"))
-            .or_else(|_| std::fs::read("/run/host/fonts/liberation/LiberationSans-Regular.ttf"))
-            .or_else(|_| std::fs::read("/run/host/fonts/TTF/DejaVuSans.ttf"))
-            .or_else(|_| std::fs::read("/run/host/fonts/TTF/LiberationSans-Regular.ttf"))
-            .or_else(|_| std::fs::read("/run/host/fonts/noto/NotoSans-Regular.ttf"))
-            .or_else(|_| std::fs::read("/run/host/fonts/cantarell/Cantarell-Regular.ttf"))
-            .expect("Could not find a valid system font! Please install 'ttf-dejavu', 'ttf-liberation', or 'noto-fonts'.");
+            "/run/host/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+            "/run/host/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/run/host/fonts/liberation/LiberationSans-Regular.ttf",
+            "/run/host/fonts/TTF/DejaVuSans.ttf",
+            "/run/host/fonts/TTF/LiberationSans-Regular.ttf",
+            "/run/host/fonts/noto/NotoSans-Regular.ttf",
+            "/run/host/fonts/cantarell/Cantarell-Regular.ttf",
+        ];
+
+        let mut font_bytes = None;
+        for path in primary_paths {
+            if let Ok(bytes) = tokio::fs::read(path).await {
+                font_bytes = Some(bytes);
+                break;
+            }
+        }
+        let font_bytes = font_bytes.expect("Could not find a valid system font! Please install 'ttf-dejavu', 'ttf-liberation', or 'noto-fonts'.");
+
         let primary_font =
             wgpu_text::glyph_brush::ab_glyph::FontArc::try_from_vec(font_bytes).unwrap();
 
@@ -184,7 +195,7 @@ impl Renderer {
             "/run/host/fonts/wqy-microhei/wqy-microhei.ttc",     // Generic Fallback
         ];
         for path in fallback_paths {
-            if let Ok(bytes) = std::fs::read(path) {
+            if let Ok(bytes) = tokio::fs::read(path).await {
                 if let Ok(fallback_font) =
                     wgpu_text::glyph_brush::ab_glyph::FontArc::try_from_vec(bytes)
                 {
