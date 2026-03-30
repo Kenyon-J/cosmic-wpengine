@@ -43,16 +43,18 @@ fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
     for line in lrc.lines() {
         let line = line.trim();
         if let (Some(start), Some(end)) = (line.find('['), line.find(']')) {
-            let time_str = &line[start + 1..end];
-            let text = line[end + 1..].trim().to_string();
+            if start < end {
+                let time_str = &line[start + 1..end];
+                let text = line[end + 1..].trim().to_string();
 
-            let mut parts = time_str.split(':');
-            if let (Some(m), Some(s)) = (parts.next(), parts.next()) {
-                if let (Ok(mins), Ok(secs)) = (m.parse::<f32>(), s.parse::<f32>()) {
-                    lines.push(LyricLine {
-                        start_time_secs: mins * 60.0 + secs,
-                        text,
-                    });
+                let mut parts = time_str.split(':');
+                if let (Some(m), Some(s)) = (parts.next(), parts.next()) {
+                    if let (Ok(mins), Ok(secs)) = (m.parse::<f32>(), s.parse::<f32>()) {
+                        lines.push(LyricLine {
+                            start_time_secs: mins * 60.0 + secs,
+                            text,
+                        });
+                    }
                 }
             }
         }
@@ -126,5 +128,29 @@ mod tests {
 
         assert!((lines[1].start_time_secs - 5.0).abs() < f32::EPSILON);
         assert_eq!(lines[1].text, "Valid lyrics");
+    }
+
+    #[test]
+    fn test_parse_lrc_edge_cases() {
+        let lrc_data = "\
+            ]01:22.00[ Reversed brackets should not panic\n\
+            [01.22] No colon should be ignored safely\n\
+            [01:22] No dot should be ignored safely\n\
+            No brackets here at all\n\
+            [[02:00.00] Nested brackets\n\
+            [03:00.00] Valid amid chaos\n\
+        ";
+
+        let lines = parse_lrc(lrc_data);
+
+        // "[01:22] No dot should be ignored safely" is actually parsed correctly as "1:22"
+        // because parsing "22" as f32 succeeds. So we get 2 lines.
+        assert_eq!(lines.len(), 2);
+
+        assert!((lines[0].start_time_secs - 82.0).abs() < f32::EPSILON);
+        assert_eq!(lines[0].text, "No dot should be ignored safely");
+
+        assert!((lines[1].start_time_secs - 180.0).abs() < f32::EPSILON);
+        assert_eq!(lines[1].text, "Valid amid chaos");
     }
 }
