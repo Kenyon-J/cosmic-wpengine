@@ -1297,7 +1297,7 @@ impl Renderer {
                     let bottom = self.theme.visualiser.color_bottom;
 
                     match palette {
-                        _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
+                        _ if top.is_some() && bottom.is_some() => (top.expect("top is guaranteed to be Some"), bottom.expect("bottom is guaranteed to be Some")),
                         Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
                         Some(p) if p.len() == 1 => (
                             top.unwrap_or(p[0]),
