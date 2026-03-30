@@ -704,7 +704,12 @@ impl Renderer {
             album_art_pad_buffer: Vec::new(),
         };
 
-        let path = renderer.state.config.appearance.resolved_background_path();
+        let path = renderer
+            .state
+            .config
+            .appearance
+            .resolved_background_path()
+            .await;
         renderer.current_bg_path = path.clone();
         renderer.load_custom_background(path.as_deref());
 
@@ -920,7 +925,7 @@ impl Renderer {
                 );
                 self.frame_duration = Duration::from_secs_f64(1.0 / config.fps as f64);
 
-                let new_bg = config.appearance.resolved_background_path();
+                let new_bg = config.appearance.resolved_background_path().await;
                 if new_bg != self.current_bg_path {
                     self.load_custom_background(new_bg.as_deref());
                     self.current_bg_path = new_bg;
