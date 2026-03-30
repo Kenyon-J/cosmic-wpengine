@@ -704,7 +704,12 @@ impl Renderer {
             album_art_pad_buffer: Vec::new(),
         };
 
-        let path = renderer.state.config.appearance.resolved_background_path().await;
+        let path = renderer
+            .state
+            .config
+            .appearance
+            .resolved_background_path()
+            .await;
         renderer.current_bg_path = path.clone();
         renderer.load_custom_background(path.as_deref());
 
