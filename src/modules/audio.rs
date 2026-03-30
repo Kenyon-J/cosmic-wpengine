@@ -30,15 +30,6 @@ impl AudioCapture {
 
         let mut last_warn = std::time::Instant::now() - std::time::Duration::from_secs(5);
 
-        // Pre-calculate the Hann window coefficients to avoid redundant trig calculations in the hot loop.
-        // This optimization saves ~2048 cos() calls per FFT processing window.
-        let hann_window: Vec<f32> = (0..FFT_SIZE)
-            .map(|i| {
-                0.5 * (1.0
-                    - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE as f32 - 1.0)).cos())
-            })
-            .collect();
-
         let mut buffer: Vec<Complex<f32>> = Vec::with_capacity(FFT_SIZE);
 
         loop {
@@ -52,7 +43,11 @@ impl AudioCapture {
 
                     buffer.clear();
                     for (i, &s) in samples.iter().enumerate() {
-                        let window = hann_window[i];
+                        let window = 0.5
+                            * (1.0
+                                - (2.0 * std::f32::consts::PI * i as f32
+                                    / (FFT_SIZE as f32 - 1.0))
+                                    .cos());
                         buffer.push(Complex {
                             re: s * window,
                             im: 0.0,

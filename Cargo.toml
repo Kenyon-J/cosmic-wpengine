@@ -45,6 +45,3 @@ path = "src/main.rs"
 [[bin]]
 name = "cosmic-wallpaper-gui"
 path = "src/modules/gui.rs"
-
-[dev-dependencies]
-tempfile = "3.27.0"

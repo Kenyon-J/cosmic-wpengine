@@ -67,16 +67,10 @@ impl MprisWatcher {
     ) -> Result<()> {
         info!("MPRIS watcher started");
 
-        // The reqwest Client builder can perform blocking I/O (e.g. loading system certificates).
-        // Since `run` is an async function, we wrap this in `spawn_blocking` to avoid stalling the executor.
-        let http_client = tokio::task::spawn_blocking(|| {
-            reqwest::Client::builder()
-                .user_agent("cosmic-wallpaper/1.0")
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
-        })
-        .await
-        .unwrap()?;
+        let http_client = reqwest::Client::builder()
+            .user_agent("cosmic-wallpaper/1.0")
+            .timeout(std::time::Duration::from_secs(10))
+            .build()?;
         let (update_tx, mut update_rx) = tokio::sync::mpsc::channel(16);
 
         // Background position polling to handle media players that fail to send Seeked signals
