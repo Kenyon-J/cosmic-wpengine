@@ -68,7 +68,9 @@ mod tests {
     where
         F: FnOnce() + std::panic::UnwindSafe,
     {
-        let _guard = ENV_MUTEX.lock().expect("ENV_MUTEX is poisoned, lock failed");
+        let _guard = ENV_MUTEX
+            .lock()
+            .expect("ENV_MUTEX is poisoned, lock failed");
 
         let orig_xdg = std::env::var("XDG_CONFIG_HOME").ok();
         let orig_home = std::env::var("HOME").ok();
@@ -143,7 +145,11 @@ mod tests {
         let config = AppearanceConfig::default();
 
         with_env_lock(
-            Some(config_home.to_str().expect("Failed to convert config_home to string")),
+            Some(
+                config_home
+                    .to_str()
+                    .expect("Failed to convert config_home to string"),
+            ),
             Some("/fake/home"),
             || {
                 let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
@@ -171,13 +177,21 @@ mod tests {
         let config = AppearanceConfig::default();
 
         // XDG_CONFIG_HOME is unset, so it should fall back to HOME/.config
-        with_env_lock(None, Some(home_dir.to_str().expect("Failed to convert home_dir to string")), || {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            assert_eq!(
-                rt.block_on(config.resolved_background_path()),
-                Some(img_path.to_string_lossy().to_string())
-            );
-        });
+        with_env_lock(
+            None,
+            Some(
+                home_dir
+                    .to_str()
+                    .expect("Failed to convert home_dir to string"),
+            ),
+            || {
+                let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+                assert_eq!(
+                    rt.block_on(config.resolved_background_path()),
+                    Some(img_path.to_string_lossy().to_string())
+                );
+            },
+        );
     }
 
     #[test]
@@ -208,13 +222,21 @@ mod tests {
 
         let config = AppearanceConfig::default();
 
-        with_env_lock(Some(config_home.to_str().expect("Failed to convert config_home to string")), None, || {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            assert_eq!(
-                rt.block_on(config.resolved_background_path()),
-                Some(existing_img.to_string_lossy().to_string())
-            );
-        });
+        with_env_lock(
+            Some(
+                config_home
+                    .to_str()
+                    .expect("Failed to convert config_home to string"),
+            ),
+            None,
+            || {
+                let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+                assert_eq!(
+                    rt.block_on(config.resolved_background_path()),
+                    Some(existing_img.to_string_lossy().to_string())
+                );
+            },
+        );
     }
 
     #[test]
@@ -242,14 +264,22 @@ mod tests {
 
         let config = AppearanceConfig::default();
 
-        with_env_lock(Some(config_home.to_str().expect("Failed to convert config_home to string")), None, || {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            // It should pick the path from the newer RON file.
-            assert_eq!(
-                rt.block_on(config.resolved_background_path()),
-                Some(newer_img.to_string_lossy().to_string())
-            );
-        });
+        with_env_lock(
+            Some(
+                config_home
+                    .to_str()
+                    .expect("Failed to convert config_home to string"),
+            ),
+            None,
+            || {
+                let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+                // It should pick the path from the newer RON file.
+                assert_eq!(
+                    rt.block_on(config.resolved_background_path()),
+                    Some(newer_img.to_string_lossy().to_string())
+                );
+            },
+        );
     }
 }
 
