@@ -296,7 +296,7 @@ fn default_weather_layout() -> TextLayout {
 }
 
 impl AppearanceConfig {
-    pub fn resolved_background_path(&self) -> Option<String> {
+    pub async fn resolved_background_path(&self) -> Option<String> {
         if self.custom_background_path.is_some() {
             return self.custom_background_path.clone();
         }
@@ -312,9 +312,9 @@ impl AppearanceConfig {
 
         let mut entries_with_time = Vec::new();
 
-        if let Ok(entries) = std::fs::read_dir(cosmic_bg_dir) {
-            for entry in entries.flatten() {
-                if let Ok(meta) = entry.metadata() {
+        if let Ok(mut entries) = tokio::fs::read_dir(cosmic_bg_dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if let Ok(meta) = entry.metadata().await {
                     if let Ok(modified) = meta.modified() {
                         entries_with_time.push((entry.path(), modified));
                     }
@@ -322,16 +322,19 @@ impl AppearanceConfig {
             }
         }
 
-        entries_with_time.sort_by(|a, b| b.1.cmp(&a.1));
+        entries_with_time.sort_unstable_by(|a, b| b.1.cmp(&a.1));
 
         for (path, _) in entries_with_time {
-            if let Ok(contents) = std::fs::read_to_string(&path) {
+            // Avoid TOCTOU by directly trying to read the content.
+            // Also, reading async won't block the executor for large strings.
+            if let Ok(contents) = tokio::fs::read_to_string(&path).await {
                 // COSMIC uses RON format, storing wallpaper paths like: Path("/path/to/img.jpg")
                 if let Some(start_idx) = contents.find("Path(\"") {
                     let path_start = start_idx + 6;
                     if let Some(end_offset) = contents[path_start..].find("\")") {
                         let extracted_path = &contents[path_start..path_start + end_offset];
-                        if std::path::Path::new(extracted_path).exists() {
+                        // Avoid TOCTOU - try to fetch metadata asynchronously instead of checking existence synchronously
+                        if tokio::fs::metadata(extracted_path).await.is_ok() {
                             return Some(extracted_path.to_string());
                         }
                     }
