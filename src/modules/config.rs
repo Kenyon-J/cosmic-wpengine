@@ -120,8 +120,9 @@ mod tests {
 
         // Even with no env variables or mock directories set, it should return the custom path.
         with_env_lock(None, None, || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
             assert_eq!(
-                config.resolved_background_path(),
+                rt.block_on(config.resolved_background_path()),
                 Some("/my/custom/path.jpg".to_string())
             );
         });
@@ -145,8 +146,9 @@ mod tests {
             Some(config_home.to_str().unwrap()),
             Some("/fake/home"),
             || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
                 assert_eq!(
-                    config.resolved_background_path(),
+                    rt.block_on(config.resolved_background_path()),
                     Some(img_path.to_string_lossy().to_string())
                 );
             },
@@ -170,8 +172,9 @@ mod tests {
 
         // XDG_CONFIG_HOME is unset, so it should fall back to HOME/.config
         with_env_lock(None, Some(home_dir.to_str().unwrap()), || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
             assert_eq!(
-                config.resolved_background_path(),
+                rt.block_on(config.resolved_background_path()),
                 Some(img_path.to_string_lossy().to_string())
             );
         });
@@ -206,8 +209,9 @@ mod tests {
         let config = AppearanceConfig::default();
 
         with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
             assert_eq!(
-                config.resolved_background_path(),
+                rt.block_on(config.resolved_background_path()),
                 Some(existing_img.to_string_lossy().to_string())
             );
         });
@@ -239,9 +243,10 @@ mod tests {
         let config = AppearanceConfig::default();
 
         with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
             // It should pick the path from the newer RON file.
             assert_eq!(
-                config.resolved_background_path(),
+                rt.block_on(config.resolved_background_path()),
                 Some(newer_img.to_string_lossy().to_string())
             );
         });
