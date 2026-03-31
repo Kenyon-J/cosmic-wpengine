@@ -595,7 +595,10 @@ impl MprisWatcher {
         let url_str_owned = url_str.to_string();
         tokio::task::spawn_blocking(move || {
             image::load_from_memory(&bytes).map_err(|e| {
-                warn!("Failed to decode image from raw path {}: {}", url_str_owned, e);
+                warn!(
+                    "Failed to decode image from raw path {}: {}",
+                    url_str_owned, e
+                );
                 e.into()
             })
         })
