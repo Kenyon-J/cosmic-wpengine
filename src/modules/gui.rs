@@ -438,11 +438,7 @@ amplitude = 1.5"#;
                     .font(font)
                     .width(Length::Fixed(200.0)),
             )
-            .push(slider(
-                15.0..=144.0,
-                self.wp_config.fps as f32,
-                Message::FpsChanged,
-            ))
+            .push(slider(15.0..=144.0, self.wp_config.fps as f32, Message::FpsChanged).step(1.0))
             .spacing(20);
 
         let blur_row = row()
@@ -477,24 +473,59 @@ amplitude = 1.5"#;
         let save_btn =
             cosmic::iced::widget::button(text("Save File").font(font)).on_press(Message::SaveFile);
 
-        let apply_btn = cosmic::iced::widget::button(text("Apply Theme").font(font))
-            .on_press(Message::ApplyTheme);
+        let is_theme = self
+            .selected_file
+            .as_ref()
+            .map(|f| f.starts_with("shaders/") && f.ends_with(".toml"))
+            .unwrap_or(false);
+
+        let apply_btn_base = cosmic::iced::widget::button(text("Apply Theme").font(font));
+        let apply_btn = if is_theme {
+            apply_btn_base.on_press(Message::ApplyTheme)
+        } else {
+            apply_btn_base
+        };
+        let apply_tooltip = if is_theme {
+            "Apply the selected theme to the audio visualizer"
+        } else {
+            "Select a theme (.toml in shaders/) to apply"
+        };
+        let apply_btn_with_tooltip = cosmic::iced::widget::tooltip(
+            apply_btn,
+            apply_tooltip,
+            cosmic::iced::widget::tooltip::Position::Top,
+        );
 
         let new_theme_input = text_input("New Theme Name...", &self.new_theme_name)
             .on_input(Message::NewThemeNameChanged)
             .on_submit(|_| Message::CreateTheme);
 
-        let create_btn = cosmic::iced::widget::button(text("Create Theme").font(font))
-            .on_press(Message::CreateTheme);
+        let can_create = !self.new_theme_name.trim().is_empty();
+        let create_btn_base = cosmic::iced::widget::button(text("Create Theme").font(font));
+        let create_btn = if can_create {
+            create_btn_base.on_press(Message::CreateTheme)
+        } else {
+            create_btn_base
+        };
+        let create_tooltip = if can_create {
+            "Create a new visualizer theme"
+        } else {
+            "Enter a theme name first"
+        };
+        let create_btn_with_tooltip = cosmic::iced::widget::tooltip(
+            create_btn,
+            create_tooltip,
+            cosmic::iced::widget::tooltip::Position::Top,
+        );
 
         let toolbar = row()
             .push(text("Edit File:").font(font).width(Length::Shrink))
             .push(file_selector)
             .push(save_btn)
-            .push(apply_btn)
+            .push(apply_btn_with_tooltip)
             .push(text(" | ").font(font))
             .push(new_theme_input)
-            .push(create_btn)
+            .push(create_btn_with_tooltip)
             .spacing(10);
 
         let editor = text_editor(&self.editor_content)
