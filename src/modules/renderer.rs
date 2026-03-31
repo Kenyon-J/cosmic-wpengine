@@ -147,41 +147,67 @@ impl Renderer {
             )
             .await?;
 
-        // Lookup a reliable system font used in Linux/COSMIC environments
-        let font_bytes = std::fs::read("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf")
-            .or_else(|_| std::fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"))
-            .or_else(|_| std::fs::read("/usr/share/fonts/liberation/LiberationSans-Regular.ttf"))
-            .or_else(|_| std::fs::read("/usr/share/fonts/TTF/DejaVuSans.ttf")) // Arch Linux
-            .or_else(|_| std::fs::read("/usr/share/fonts/TTF/LiberationSans-Regular.ttf")) // Arch Linux
-            .or_else(|_| std::fs::read("/usr/share/fonts/noto/NotoSans-Regular.ttf")) // Arch/Fedora
-            .or_else(|_| std::fs::read("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf")) // Debian/Ubuntu
-            .or_else(|_| std::fs::read("/usr/share/fonts/cantarell/Cantarell-Regular.ttf")) // Fedora/GNOME
-            .or_else(|_| std::fs::read("/usr/share/fonts/TTF/Cantarell-Regular.ttf")) // Arch GNOME
+        // Lookup a reliable system font. The order is a best-effort attempt to find a modern,
+        // high-quality font that is common across major Linux distributions.
+        let font_bytes = std::fs::read("/usr/share/fonts/noto/NotoSans-Regular.ttf") // Noto (Arch, Fedora)
+            .or_else(|_| std::fs::read("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf")) // Noto (Debian, Ubuntu)
+            .or_else(|_| std::fs::read("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf")) // Ubuntu Font
+            .or_else(|_| std::fs::read("/usr/share/fonts/cantarell/Cantarell-Regular.otf")) // Cantarell (Modern GNOME, Arch)
+            .or_else(|_| std::fs::read("/usr/share/fonts/truetype/cantarell/Cantarell-Regular.ttf")) // Cantarell (Older GNOME, Debian)
+            .or_else(|_| std::fs::read("/usr/share/fonts/cantarell/Cantarell-Regular.ttf")) // Cantarell (Fedora)
+            .or_else(|_| std::fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")) // DejaVu (Very common fallback)
+            .or_else(|_| std::fs::read("/usr/share/fonts/TTF/DejaVuSans.ttf")) // DejaVu (Arch variant)
+            .or_else(|_| std::fs::read("/usr/share/fonts/liberation/LiberationSans-Regular.ttf")) // Liberation (Fedora)
+            .or_else(|_| std::fs::read("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf")) // Liberation (Debian, Ubuntu)
+            .or_else(|_| std::fs::read("/usr/share/fonts/TTF/LiberationSans-Regular.ttf")) // Liberation (Arch variant)
             // Flatpak Sandbox Host Mounts
-            .or_else(|_| std::fs::read("/run/host/fonts/truetype/ubuntu/Ubuntu-R.ttf"))
-            .or_else(|_| std::fs::read("/run/host/fonts/truetype/dejavu/DejaVuSans.ttf"))
-            .or_else(|_| std::fs::read("/run/host/fonts/liberation/LiberationSans-Regular.ttf"))
-            .or_else(|_| std::fs::read("/run/host/fonts/TTF/DejaVuSans.ttf"))
-            .or_else(|_| std::fs::read("/run/host/fonts/TTF/LiberationSans-Regular.ttf"))
             .or_else(|_| std::fs::read("/run/host/fonts/noto/NotoSans-Regular.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/truetype/noto/NotoSans-Regular.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/truetype/ubuntu/Ubuntu-R.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/cantarell/Cantarell-Regular.otf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/truetype/cantarell/Cantarell-Regular.ttf"))
             .or_else(|_| std::fs::read("/run/host/fonts/cantarell/Cantarell-Regular.ttf"))
-            .expect("Could not find a valid system font! Please install 'ttf-dejavu', 'ttf-liberation', or 'noto-fonts'.");
+            .or_else(|_| std::fs::read("/run/host/fonts/truetype/dejavu/DejaVuSans.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/TTF/DejaVuSans.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/liberation/LiberationSans-Regular.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/truetype/liberation/LiberationSans-Regular.ttf"))
+            .or_else(|_| std::fs::read("/run/host/fonts/TTF/LiberationSans-Regular.ttf"))
+            .expect("Could not find a valid system font! Please install 'noto-fonts', 'ttf-ubuntu-font-family', or 'cantarell-fonts'.");
         let primary_font = wgpu_text::glyph_brush::ab_glyph::FontArc::try_from_vec(font_bytes)
             .map_err(|e| anyhow::anyhow!("Failed to parse primary font: {}", e))?;
 
         let mut fonts = vec![primary_font];
 
         let fallback_paths = [
-            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", // Arch
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", // Ubuntu/Debian
-            "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", // Fedora
-            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf", // Generic Fallback
-            "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",    // Generic Fallback
-            "/run/host/fonts/noto-cjk/NotoSansCJK-Regular.ttc",  // Arch
-            "/run/host/fonts/opentype/noto/NotoSansCJK-Regular.ttc", // Ubuntu/Debian
-            "/run/host/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", // Fedora
-            "/run/host/fonts/truetype/droid/DroidSansFallbackFull.ttf", // Generic Fallback
-            "/run/host/fonts/wqy-microhei/wqy-microhei.ttc",     // Generic Fallback
+            // Arch Linux
+            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.otf",
+            "/usr/share/fonts/noto-cjk/NotoSansJP-Regular.otf",
+            "/usr/share/fonts/noto-cjk/NotoSansKR-Regular.otf",
+            "/usr/share/fonts/noto-cjk/NotoSansSC-Regular.otf",
+            "/usr/share/fonts/noto-cjk/NotoSansTC-Regular.otf",
+            // Ubuntu / Debian / Pop!_OS
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            // Fedora
+            "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.otf",
+            // Generic Fallbacks
+            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+            "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
+            // --- Flatpak Sandbox Host Mounts ---
+            "/run/host/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+            "/run/host/fonts/noto-cjk/NotoSansCJK-Regular.otf",
+            "/run/host/fonts/noto-cjk/NotoSansJP-Regular.otf",
+            "/run/host/fonts/noto-cjk/NotoSansKR-Regular.otf",
+            "/run/host/fonts/noto-cjk/NotoSansSC-Regular.otf",
+            "/run/host/fonts/noto-cjk/NotoSansTC-Regular.otf",
+            "/run/host/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/run/host/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/run/host/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+            "/run/host/fonts/google-noto-cjk/NotoSansCJK-Regular.otf",
+            "/run/host/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+            "/run/host/fonts/wqy-microhei/wqy-microhei.ttc",
         ];
         for path in fallback_paths {
             if let Ok(bytes) = std::fs::read(path) {
@@ -1153,6 +1179,8 @@ impl Renderer {
         let force_vis = self.state.config.mode == super::config::WallpaperMode::AudioVisualiser;
         let force_art = self.state.config.mode == super::config::WallpaperMode::AlbumArt;
 
+        let is_waveform_style = self.state.config.audio.style == "waveform";
+
         let max_energy = audio_data.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
         let has_audio = (max_energy > 0.001 || force_vis) && !force_weather && !force_art;
 
@@ -1297,10 +1325,7 @@ impl Renderer {
                     let bottom = self.theme.visualiser.color_bottom;
 
                     match palette {
-                        _ if top.is_some() && bottom.is_some() => (
-                            top.expect("top is guaranteed to be Some"),
-                            bottom.expect("bottom is guaranteed to be Some"),
-                        ),
+                        _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
                         Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
                         Some(p) if p.len() == 1 => (
                             top.unwrap_or(p[0]),
@@ -1345,9 +1370,11 @@ impl Renderer {
                     bottom: [f32; 4],
                     pos_size_rot: [f32; 4],
                     amplitude: f32,
-                    style: u32,
+                    shape: u32,
                     time: f32,
                     align: u32,
+                    is_waveform: u32,
+                    _padding: [u32; 3],
                 }
                 let shape_u32 = match self.theme.visualiser.shape {
                     super::config::VisShape::Circular => 0,
@@ -1372,9 +1399,11 @@ impl Renderer {
                         self.theme.visualiser.rotation.to_radians(),
                     ],
                     amplitude: self.theme.visualiser.amplitude,
-                    style: shape_u32,
+                    shape: shape_u32,
                     time: self.start_time.elapsed().as_secs_f32(),
                     align: align_u32,
+                    is_waveform: if is_waveform_style { 1 } else { 0 },
+                    _padding: [0; 3],
                 };
                 let vis_bytes = unsafe {
                     std::slice::from_raw_parts(

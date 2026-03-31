@@ -14,6 +14,7 @@ finish-args:
   - --share=network              # Fetch MPRIS fallback art, Weather, Lyrics
   - --socket=session-bus         # Talk to MPRIS players and the System Tray
   - --talk-name=org.freedesktop.portal.* # Autostart background portal
+  - --talk-name=org.freedesktop.portal.Background
   - --filesystem=xdg-config/cosmic:ro    # Read the COSMIC desktop wallpaper!
 
 build-options:
@@ -34,8 +35,9 @@ modules:
       - install -Dm755 target/release/cosmic-wallpaper-gui /app/bin/cosmic-wallpaper-gui
       # Install desktop file and icon
       - install -Dm644 io.github.kenyon_j.cosmic_wpengine.desktop /app/share/applications/${FLATPAK_ID}.desktop
-      # TODO: Create an icon and replace the path below
-      - install -Dm644 assets/icon.svg /app/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg
+      # Install autostart file for the wallpaper engine
+      - install -Dm644 io.github.kenyon_j.cosmic_wpengine.autostart.desktop /app/etc/xdg/autostart/${FLATPAK_ID}.desktop
+      # The icon is set to a standard Freedesktop name in the .desktop file, so no custom icon installation is needed.
     sources:
       - type: dir
         path: .

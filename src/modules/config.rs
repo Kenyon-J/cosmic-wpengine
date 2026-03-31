@@ -68,9 +68,7 @@ mod tests {
     where
         F: FnOnce() + std::panic::UnwindSafe,
     {
-        let _guard = ENV_MUTEX
-            .lock()
-            .expect("ENV_MUTEX is poisoned, lock failed");
+        let _guard = ENV_MUTEX.lock().unwrap();
 
         let orig_xdg = std::env::var("XDG_CONFIG_HOME").ok();
         let orig_home = std::env::var("HOME").ok();
@@ -109,7 +107,7 @@ mod tests {
     /// Sets up a temporary directory mocking the COSMIC wallpaper config directory.
     fn setup_mock_cosmic_dir(base_dir: &std::path::Path) -> PathBuf {
         let cosmic_dir = base_dir.join("cosmic/com.system76.CosmicBackground/v1");
-        std::fs::create_dir_all(&cosmic_dir).expect("Failed to create mock config directory");
+        std::fs::create_dir_all(&cosmic_dir).unwrap();
         cosmic_dir
     }
 
@@ -122,7 +120,7 @@ mod tests {
 
         // Even with no env variables or mock directories set, it should return the custom path.
         with_env_lock(None, None, || {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+            let rt = tokio::runtime::Runtime::new().unwrap();
             assert_eq!(
                 rt.block_on(config.resolved_background_path()),
                 Some("/my/custom/path.jpg".to_string())
@@ -132,27 +130,23 @@ mod tests {
 
     #[test]
     fn test_fallback_to_xdg_config_home() {
-        let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+        let temp_dir = tempfile::tempdir().unwrap();
         let config_home = temp_dir.path().join("config_home");
         let cosmic_dir = setup_mock_cosmic_dir(&config_home);
 
         let img_path = temp_dir.path().join("image.jpg");
-        std::fs::write(&img_path, "fake image data").expect("Failed to write mock file");
+        std::fs::write(&img_path, "fake image data").unwrap();
 
         let ron_content = format!(r#"Path("{}")"#, img_path.display());
-        std::fs::write(cosmic_dir.join("bg.ron"), ron_content).expect("Failed to write mock file");
+        std::fs::write(cosmic_dir.join("bg.ron"), ron_content).unwrap();
 
         let config = AppearanceConfig::default();
 
         with_env_lock(
-            Some(
-                config_home
-                    .to_str()
-                    .expect("Failed to convert config_home to string"),
-            ),
+            Some(config_home.to_str().unwrap()),
             Some("/fake/home"),
             || {
-                let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+                let rt = tokio::runtime::Runtime::new().unwrap();
                 assert_eq!(
                     rt.block_on(config.resolved_background_path()),
                     Some(img_path.to_string_lossy().to_string())
@@ -163,46 +157,38 @@ mod tests {
 
     #[test]
     fn test_fallback_to_home_dir() {
-        let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+        let temp_dir = tempfile::tempdir().unwrap();
         let home_dir = temp_dir.path().join("home_dir");
         let expected_config_dir = home_dir.join(".config");
         let cosmic_dir = setup_mock_cosmic_dir(&expected_config_dir);
 
         let img_path = temp_dir.path().join("image.jpg");
-        std::fs::write(&img_path, "fake image data").expect("Failed to write mock file");
+        std::fs::write(&img_path, "fake image data").unwrap();
 
         let ron_content = format!(r#"Path("{}")"#, img_path.display());
-        std::fs::write(cosmic_dir.join("bg.ron"), ron_content).expect("Failed to write mock file");
+        std::fs::write(cosmic_dir.join("bg.ron"), ron_content).unwrap();
 
         let config = AppearanceConfig::default();
 
         // XDG_CONFIG_HOME is unset, so it should fall back to HOME/.config
-        with_env_lock(
-            None,
-            Some(
-                home_dir
-                    .to_str()
-                    .expect("Failed to convert home_dir to string"),
-            ),
-            || {
-                let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-                assert_eq!(
-                    rt.block_on(config.resolved_background_path()),
-                    Some(img_path.to_string_lossy().to_string())
-                );
-            },
-        );
+        with_env_lock(None, Some(home_dir.to_str().unwrap()), || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            assert_eq!(
+                rt.block_on(config.resolved_background_path()),
+                Some(img_path.to_string_lossy().to_string())
+            );
+        });
     }
 
     #[test]
     fn test_parses_cosmic_ron_format_and_verifies_existence() {
-        let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+        let temp_dir = tempfile::tempdir().unwrap();
         let config_home = temp_dir.path().join("config_home");
         let cosmic_dir = setup_mock_cosmic_dir(&config_home);
 
         // Path that exists
         let existing_img = temp_dir.path().join("exists.jpg");
-        std::fs::write(&existing_img, "fake image").expect("Failed to write mock file");
+        std::fs::write(&existing_img, "fake image").unwrap();
 
         // Path that does not exist
         let missing_img = temp_dir.path().join("missing.jpg");
@@ -210,7 +196,7 @@ mod tests {
         // First write the RON referencing a missing image. We make it older.
         let ron_missing = format!(r#"Path("{}")"#, missing_img.display());
         let missing_ron_path = cosmic_dir.join("missing_bg.ron");
-        std::fs::write(&missing_ron_path, ron_missing).expect("Failed to write mock file");
+        std::fs::write(&missing_ron_path, ron_missing).unwrap();
 
         // Wait a small amount to ensure modification times are distinct
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -218,68 +204,52 @@ mod tests {
         // Write the RON referencing an existing image. We make it newer so it is checked first.
         let ron_exists = format!(r#"Path("{}")"#, existing_img.display());
         let exists_ron_path = cosmic_dir.join("exists_bg.ron");
-        std::fs::write(&exists_ron_path, ron_exists).expect("Failed to write mock file");
+        std::fs::write(&exists_ron_path, ron_exists).unwrap();
 
         let config = AppearanceConfig::default();
 
-        with_env_lock(
-            Some(
-                config_home
-                    .to_str()
-                    .expect("Failed to convert config_home to string"),
-            ),
-            None,
-            || {
-                let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-                assert_eq!(
-                    rt.block_on(config.resolved_background_path()),
-                    Some(existing_img.to_string_lossy().to_string())
-                );
-            },
-        );
+        with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            assert_eq!(
+                rt.block_on(config.resolved_background_path()),
+                Some(existing_img.to_string_lossy().to_string())
+            );
+        });
     }
 
     #[test]
     fn test_selects_most_recently_modified_config() {
-        let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+        let temp_dir = tempfile::tempdir().unwrap();
         let config_home = temp_dir.path().join("config_home");
         let cosmic_dir = setup_mock_cosmic_dir(&config_home);
 
         let older_img = temp_dir.path().join("older.jpg");
-        std::fs::write(&older_img, "old").expect("Failed to write mock file");
+        std::fs::write(&older_img, "old").unwrap();
 
         let newer_img = temp_dir.path().join("newer.jpg");
-        std::fs::write(&newer_img, "new").expect("Failed to write mock file");
+        std::fs::write(&newer_img, "new").unwrap();
 
         let ron_older = format!(r#"Path("{}")"#, older_img.display());
         let older_ron_path = cosmic_dir.join("older_bg.ron");
-        std::fs::write(&older_ron_path, ron_older).expect("Failed to write mock file");
+        std::fs::write(&older_ron_path, ron_older).unwrap();
 
         // Ensure the newer file has a strictly later modification time.
         std::thread::sleep(std::time::Duration::from_millis(50));
 
         let ron_newer = format!(r#"Path("{}")"#, newer_img.display());
         let newer_ron_path = cosmic_dir.join("newer_bg.ron");
-        std::fs::write(&newer_ron_path, ron_newer).expect("Failed to write mock file");
+        std::fs::write(&newer_ron_path, ron_newer).unwrap();
 
         let config = AppearanceConfig::default();
 
-        with_env_lock(
-            Some(
-                config_home
-                    .to_str()
-                    .expect("Failed to convert config_home to string"),
-            ),
-            None,
-            || {
-                let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-                // It should pick the path from the newer RON file.
-                assert_eq!(
-                    rt.block_on(config.resolved_background_path()),
-                    Some(newer_img.to_string_lossy().to_string())
-                );
-            },
-        );
+        with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            // It should pick the path from the newer RON file.
+            assert_eq!(
+                rt.block_on(config.resolved_background_path()),
+                Some(newer_img.to_string_lossy().to_string())
+            );
+        });
     }
 }
 
@@ -671,7 +641,7 @@ position = [0.5, 0.5]
 size = 0.25
 rotation = 0.0 # Visualiser angle in degrees (0.0 to 360.0)
 amplitude = 1.0
-# shader = "bars.wgsl" # Optional: Path to a custom .wgsl shader in this folder
+# shader = "my_custom_shader.wgsl" # Optional: Path to a custom .wgsl shader in this folder
 
 [effects]
 lyric_bounce = 0.5 # Dialed down for cleaner UI
@@ -716,8 +686,6 @@ position = [0.5, 0.5]
 size = 0.6
 rotation = 0
 amplitude = 1.5
-# color_top = [1.0, 0.2, 0.5]      # Optional fixed colours (RGB 0.0 - 1.0)
-# color_bottom = [0.2, 0.5, 1.0]
 "#,
             )?;
         }
@@ -754,7 +722,7 @@ position = [0.5, 0.5]
 size = 0.25
 rotation = 0.0 # Visualiser angle in degrees
 amplitude = 1.0
-# shader = "waveform.wgsl" # Optional: Path to a custom .wgsl shader in this folder
+# shader = "my_custom_shader.wgsl" # Optional: Path to a custom .wgsl shader in this folder
 
 [effects]
 lyric_bounce = 0.5
@@ -767,13 +735,24 @@ beat_pulse = 0.5
             )?;
         }
 
-        let waveform_wgsl_path = shaders_dir.join("waveform.wgsl");
-        let write_waveform = !waveform_wgsl_path.exists()
-            || !std::fs::read_to_string(&waveform_wgsl_path).is_ok_and(|c| c.contains("// v6"));
-        if write_waveform {
+        // This single, unified shader file is now included directly in the binary
+        // and no longer needs to be written to disk. Users can still create their
+        // own .wgsl files and point to them from a theme's .toml file.
+        let _ = std::fs::remove_file(shaders_dir.join("bars.wgsl"));
+        let _ = std::fs::remove_file(shaders_dir.join("monstercat.wgsl"));
+        let _ = std::fs::remove_file(shaders_dir.join("waveform.wgsl"));
+
+        let default_shader_path = shaders_dir.join("visualiser.wgsl");
+        let write_default_shader = !default_shader_path.exists()
+            || !std::fs::read_to_string(&default_shader_path)
+                .is_ok_and(|c| c.contains("// v9"));
+        if write_default_shader {
             std::fs::write(
-                &waveform_wgsl_path,
-                r#"// v6
+                &default_shader_path,
+                r#"// v9 - Unified Visualiser Shader
+// This shader combines the logic for all default styles.
+// It uses uniforms to switch between rendering modes.
+
 struct VisualiserUniforms {
     resolution: vec2<f32>,
     band_count: u32,
@@ -782,9 +761,11 @@ struct VisualiserUniforms {
     color_bottom: vec4<f32>,
     pos_size_rot: vec4<f32>,
     amplitude: f32,
-    style: u32,
+    shape: u32, // 0=circular, 1=linear
     time: f32,
-    align: u32,
+    align: u32, // 0=left, 1=center, 2=right
+    is_waveform: u32, // bool
+    _padding: [u32; 3],
 }
 
 @group(0) @binding(0) var<uniform> uniforms: VisualiserUniforms;
@@ -805,52 +786,73 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
     return out;
 }
 
-fn get_vis(uv: vec2<f32>) -> vec4<f32> {
-    let aspect = uniforms.resolution.x / uniforms.resolution.y;
-
+// --- BAR STYLE (CIRCULAR) ---
+fn get_vis_bars(uv: vec2<f32>, s: f32, c: f32, aspect: f32) -> vec4<f32> {
     let p = vec2<f32>((uv.x - uniforms.pos_size_rot.x) * aspect, uv.y - uniforms.pos_size_rot.y);
-    let s = sin(uniforms.pos_size_rot.w);
-    let c = cos(uniforms.pos_size_rot.w);
-    let p_rot = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
-    let angle = atan2(p_rot.y, p_rot.x) + 3.14159; 
     
-    let normalized_angle = angle / 6.28318;
-    // Double the waveform around the circle for perfect symmetry
-    var f_band = normalized_angle * 2.0;
-    if f_band > 1.0 { f_band = 2.0 - f_band; }
+    let d = length(p);
+    let base_radius = uniforms.pos_size_rot.z + (uniforms.lyric_pulse * 0.02);
+    if d < base_radius {
+        return vec4<f32>(0.0);
+    }
+
+    let p_rot = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
+    
+    // Branchless symmetric angle mapping [0.0 to 1.0]
+    let f_band = 1.0 - (abs(atan2(p_rot.y, p_rot.x)) / 3.14159265);
+
+    let band_idx = min(u32(f_band * f32(uniforms.band_count)), uniforms.band_count - 1u);
+    let val = bands[band_idx];
+
+    let bar_height = val * uniforms.amplitude * 0.2;
+    let outer_radius = base_radius + bar_height;
+
+    if d < base_radius || d > outer_radius { return vec4<f32>(0.0); }
+
+    let fract_band = fract(f_band * f32(uniforms.band_count));
+    if fract_band < 0.1 || fract_band > 0.9 { return vec4<f32>(0.0); }
+
+    let gradient = (d - base_radius) / bar_height;
+    let color = mix(uniforms.color_bottom.rgb, uniforms.color_top.rgb, gradient);
+    
+    return vec4<f32>(color, 1.0);
+}
+
+// --- WAVEFORM STYLE (CIRCULAR) ---
+fn get_vis_waveform(uv: vec2<f32>, s: f32, c: f32, aspect: f32) -> vec4<f32> {
+    let p = vec2<f32>((uv.x - uniforms.pos_size_rot.x) * aspect, uv.y - uniforms.pos_size_rot.y);
+    
+    let d = length(p);
+    let base_radius = uniforms.pos_size_rot.z + (uniforms.lyric_pulse * 0.02);
+    if d < base_radius - 0.2 {
+        return vec4<f32>(0.0);
+    }
+
+    let p_rot = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
+    
+    // Branchless symmetric angle mapping [0.0 to 1.0]
+    let f_band = 1.0 - (abs(atan2(p_rot.y, p_rot.x)) / 3.14159265);
 
     let band_idx = min(u32(f_band * f32(uniforms.band_count)), uniforms.band_count - 1u);
     let next_idx = min(band_idx + 1u, uniforms.band_count - 1u);
     let fract_band = fract(f_band * f32(uniforms.band_count));
 
-    // Smooth cubic interpolation for organic curves
     let val1 = bands[band_idx];
     let val2 = bands[next_idx];
-    let smooth_fract = fract_band * fract_band * (3.0 - 2.0 * fract_band);
+    
+    // Hardware-optimized cubic interpolation
+    let smooth_fract = smoothstep(0.0, 1.0, fract_band);
     let val = mix(val1, val2, smooth_fract);
 
-    // Modern symmetrical ribbon with displacement
-    let base_radius = uniforms.pos_size_rot.z + (uniforms.lyric_pulse * 0.02);
     let wave_offset = val * uniforms.amplitude * 0.1;
-    
     let displaced_radius = base_radius + (wave_offset * 0.5);
-    let d = length(p_rot);
     let dist_to_line = abs(d - displaced_radius);
-    
-    // Thickness expands dynamically with the wave energy
     let thickness = abs(wave_offset * 0.75) + 0.003 + (uniforms.lyric_pulse * 0.005);
-    
-    // Anti-aliased soft edge
     let edge = smoothstep(thickness + 0.005, thickness - 0.005, dist_to_line);
     
-    // Smooth gradient coloring matching the theme bounds
     let gradient_factor = (p_rot.y + uniforms.pos_size_rot.z) / (uniforms.pos_size_rot.z * 2.0);
     let base_color = mix(uniforms.color_bottom.rgb, uniforms.color_top.rgb, clamp(gradient_factor, 0.0, 1.0));
-    
-    // Bright neon core highlight
     let core = smoothstep(0.005, 0.0, dist_to_line) * 0.6;
-    
-    // Ethereal outer bloom
     let glow = exp(-dist_to_line * 20.0) * 0.5;
     
     let final_color = base_color * edge + vec3<f32>(core) + (base_color * glow);
@@ -859,19 +861,85 @@ fn get_vis(uv: vec2<f32>) -> vec4<f32> {
     return vec4<f32>(final_color, final_alpha);
 }
 
+// --- MONSTERCAT STYLE (LINEAR) ---
+fn get_vis_linear(uv: vec2<f32>, s: f32, c: f32, aspect: f32) -> vec4<f32> {
+    let shifted = uv - vec2<f32>(uniforms.pos_size_rot.x, uniforms.pos_size_rot.y);
+    let p_rot = vec2<f32>(
+        (shifted.x * aspect * c - shifted.y * s) / aspect,
+        shifted.x * aspect * s + shifted.y * c
+    );
+    
+    let max_height = uniforms.amplitude * 0.25 + 0.05;
+    if p_rot.y > 0.0 || p_rot.y < -max_height { return vec4<f32>(0.0); }
+    let half_width = uniforms.pos_size_rot.z * 0.5;
+    if p_rot.x < -half_width || p_rot.x > half_width { return vec4<f32>(0.0); }
+    
+    let norm_x = (p_rot.x + half_width) / uniforms.pos_size_rot.z;
+    
+    var mapped_x = norm_x;
+    if uniforms.align == 1u { // Center (mirrored out from the middle)
+        mapped_x = abs(norm_x - 0.5) * 2.0;
+    } else if uniforms.align == 2u { // Right
+        mapped_x = 1.0 - norm_x;
+    }
+    
+    let band_idx = min(u32(mapped_x * f32(uniforms.band_count)), uniforms.band_count - 1u);
+    let val = bands[band_idx] * uniforms.amplitude;
+    
+    // Bars grow UPWARDS from the baseline (y = 0)
+    let height = (val * 0.25) + 0.005;
+    
+    // UV Y-axis increases downwards, so 'above' the baseline means negative p_rot.y
+    if p_rot.y > 0.0 || p_rot.y < -height { return vec4<f32>(0.0); }
+    
+    let gradient = abs(p_rot.y) / height;
+    let color = mix(uniforms.color_bottom.rgb, uniforms.color_top.rgb, gradient);
+    
+    return vec4<f32>(color, 1.0);
+}
+
+fn get_vis(uv: vec2<f32>, s: f32, c: f32, aspect: f32) -> vec4<f32> {
+    // uniforms.shape: 0=circular, 1=linear
+    if (uniforms.shape == 1u) {
+        return get_vis_linear(uv, s, c, aspect);
+    } else {
+        // uniforms.is_waveform: 0=false, 1=true
+        if (uniforms.is_waveform == 1u) {
+            return get_vis_waveform(uv, s, c, aspect);
+        } else {
+            return get_vis_bars(uv, s, c, aspect);
+        }
+    }
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let fg = get_vis(in.uv);
-    let shadow_offset = vec2<f32>(0.005, 0.005) * uniforms.pos_size_rot.z;
-    let bg = get_vis(in.uv - shadow_offset);
+    let aspect = uniforms.resolution.x / uniforms.resolution.y;
+    let shifted = vec2<f32>((in.uv.x - uniforms.pos_size_rot.x) * aspect, in.uv.y - uniforms.pos_size_rot.y);
     
-    let shadow_alpha = bg.a * 0.5;
+    // Global Bounding Box Rejection: discard fragments definitively outside the visualizer's maximum reach!
+    let max_dist = uniforms.pos_size_rot.z + uniforms.amplitude * 0.3 + 0.1;
+    if abs(shifted.x) > max_dist || abs(shifted.y) > max_dist {
+        discard;
+    }
+
+    let s = sin(uniforms.pos_size_rot.w);
+    let c = cos(uniforms.pos_size_rot.w);
+
+    let fg = get_vis(in.uv, s, c, aspect);
+    if fg.a >= 0.99 { return vec4<f32>(fg.rgb, 1.0); }
+
+    let shadow_offset = vec2<f32>(0.005, 0.005) * uniforms.pos_size_rot.z;
+    let bg = get_vis(in.uv - shadow_offset, s, c, aspect);
+    
+    let shadow_alpha = bg.a * 0.6;
     if fg.a < 0.01 && shadow_alpha < 0.01 { discard; }
     
     let shadow_color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
     return mix(shadow_color, vec4<f32>(fg.rgb, 1.0), fg.a);
 }
-"#,
+
+"#
             )?;
         }
 
@@ -901,188 +969,6 @@ shape = "linear"
 position = [0.5, 0.85]
 size = 0.8
 align = "center"
-"#,
-            )?;
-        }
-
-        let monstercat_wgsl_path = shaders_dir.join("monstercat.wgsl");
-        let write_monstercat = !monstercat_wgsl_path.exists()
-            || !std::fs::read_to_string(&monstercat_wgsl_path).is_ok_and(|c| c.contains("// v6"));
-        if write_monstercat {
-            std::fs::write(
-                &monstercat_wgsl_path,
-                r#"// v6
-struct VisualiserUniforms {
-    resolution: vec2<f32>,
-    band_count: u32,
-    lyric_pulse: f32,
-    color_top: vec4<f32>,
-    color_bottom: vec4<f32>,
-    pos_size_rot: vec4<f32>,
-    amplitude: f32,
-    style: u32,
-    time: f32,
-    align: u32,
-}
-
-@group(0) @binding(0) var<uniform> uniforms: VisualiserUniforms;
-@group(0) @binding(1) var<storage, read> bands: array<f32>;
-
-struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-}
-
-@vertex
-fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
-    var out: VertexOutput;
-    let x = f32((idx << 1u) & 2u);
-    let y = f32(idx & 2u);
-    out.clip_position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
-    out.uv = vec2<f32>(x, y);
-    return out;
-}
-
-fn get_vis(uv: vec2<f32>) -> vec4<f32> {
-    let aspect = uniforms.resolution.x / uniforms.resolution.y;
-    
-    // Shift origin to configured position
-    let shifted = uv - vec2<f32>(uniforms.pos_size_rot.x, uniforms.pos_size_rot.y);
-    
-    let s = sin(uniforms.pos_size_rot.w);
-    let c = cos(uniforms.pos_size_rot.w);
-    
-    // Apply rotation, compensating for aspect ratio so it doesn't skew!
-    let p_rot = vec2<f32>(
-        (shifted.x * aspect * c - shifted.y * s) / aspect,
-        shifted.x * aspect * s + shifted.y * c
-    );
-    
-    let half_width = uniforms.pos_size_rot.z * 0.5;
-    if p_rot.x < -half_width || p_rot.x > half_width { return vec4<f32>(0.0); }
-    
-    let norm_x = (p_rot.x + half_width) / uniforms.pos_size_rot.z;
-    
-    var mapped_x = norm_x;
-    if uniforms.align == 1u { // Center (mirrored out from the middle)
-        mapped_x = abs(norm_x - 0.5) * 2.0;
-    } else if uniforms.align == 2u { // Right
-        mapped_x = 1.0 - norm_x;
-    }
-    
-    let band_idx = min(u32(mapped_x * f32(uniforms.band_count)), uniforms.band_count - 1u);
-    let val = bands[band_idx] * uniforms.amplitude;
-    
-    // Bars grow UPWARDS from the baseline (y = 0)
-    let height = (val * 0.25) + 0.005;
-    
-    // UV Y-axis increases downwards, so 'above' the baseline means negative p_rot.y
-    if p_rot.y > 0.0 || p_rot.y < -height { return vec4<f32>(0.0); }
-    
-    let gradient = abs(p_rot.y) / height;
-    let color = mix(uniforms.color_bottom.rgb, uniforms.color_top.rgb, gradient);
-    
-    return vec4<f32>(color, 1.0);
-}
-
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let fg = get_vis(in.uv);
-    let shadow_offset = vec2<f32>(0.005, 0.005) * uniforms.pos_size_rot.z;
-    let bg = get_vis(in.uv - shadow_offset);
-    
-    let shadow_alpha = bg.a * 0.6;
-    if fg.a < 0.01 && shadow_alpha < 0.01 { discard; }
-    
-    let shadow_color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
-    return mix(shadow_color, vec4<f32>(fg.rgb, 1.0), fg.a);
-}
-"#,
-            )?;
-        }
-
-        let bars_wgsl_path = shaders_dir.join("bars.wgsl");
-        let write_bars = !bars_wgsl_path.exists()
-            || !std::fs::read_to_string(&bars_wgsl_path).is_ok_and(|c| c.contains("// v6"));
-        if write_bars {
-            std::fs::write(
-                &bars_wgsl_path,
-                r#"// v6
-struct VisualiserUniforms {
-    resolution: vec2<f32>,
-    band_count: u32,
-    lyric_pulse: f32,
-    color_top: vec4<f32>,
-    color_bottom: vec4<f32>,
-    pos_size_rot: vec4<f32>,
-    amplitude: f32,
-    style: u32,
-    time: f32,
-    align: u32,
-}
-
-@group(0) @binding(0) var<uniform> uniforms: VisualiserUniforms;
-@group(0) @binding(1) var<storage, read> bands: array<f32>;
-
-struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-}
-
-@vertex
-fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
-    var out: VertexOutput;
-    let x = f32((idx << 1u) & 2u);
-    let y = f32(idx & 2u);
-    out.clip_position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
-    out.uv = vec2<f32>(x, y);
-    return out;
-}
-
-fn get_vis(uv: vec2<f32>) -> vec4<f32> {
-    let aspect = uniforms.resolution.x / uniforms.resolution.y;
-    
-    let p = vec2<f32>((uv.x - uniforms.pos_size_rot.x) * aspect, uv.y - uniforms.pos_size_rot.y);
-    let s = sin(uniforms.pos_size_rot.w);
-    let c = cos(uniforms.pos_size_rot.w);
-    let p_rot = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
-    
-    let angle = atan2(p_rot.y, p_rot.x) + 3.14159; 
-    let normalized_angle = angle / 6.28318;
-    var f_band = normalized_angle * 2.0;
-    if f_band > 1.0 { f_band = 2.0 - f_band; }
-
-    let band_idx = min(u32(f_band * f32(uniforms.band_count)), uniforms.band_count - 1u);
-    let val = bands[band_idx];
-
-    let d = length(p_rot);
-    let inner_radius = uniforms.pos_size_rot.z + (uniforms.lyric_pulse * 0.02);
-    let bar_height = val * uniforms.amplitude * 0.2;
-    let outer_radius = inner_radius + bar_height;
-
-    if d < inner_radius || d > outer_radius { return vec4<f32>(0.0); }
-
-    let fract_band = fract(f_band * f32(uniforms.band_count));
-    if fract_band < 0.1 || fract_band > 0.9 { return vec4<f32>(0.0); }
-
-    let gradient = (d - inner_radius) / bar_height;
-    let color = mix(uniforms.color_bottom.rgb, uniforms.color_top.rgb, gradient);
-    
-    return vec4<f32>(color, 1.0);
-}
-
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let fg = get_vis(in.uv);
-    let shadow_offset = vec2<f32>(0.005, 0.005) * uniforms.pos_size_rot.z;
-    let bg = get_vis(in.uv - shadow_offset);
-    
-    let shadow_alpha = bg.a * 0.6;
-    if fg.a < 0.01 && shadow_alpha < 0.01 { discard; }
-    
-    let shadow_color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
-    return mix(shadow_color, vec4<f32>(fg.rgb, 1.0), fg.a);
-}
 "#,
             )?;
         }

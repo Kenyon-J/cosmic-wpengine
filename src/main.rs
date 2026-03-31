@@ -51,7 +51,9 @@ async fn main() -> Result<()> {
                 }
             });
 
-            let tray = WallpaperTray::new();
+            let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
+
+            let tray = WallpaperTray::new(shutdown_tx);
             ksni::TrayService::new(tray).spawn();
 
             let wayland_manager = WaylandManager::new()?;
@@ -61,7 +63,16 @@ async fn main() -> Result<()> {
 
             info!("All subsystems started. Entering render loop.");
 
-            renderer.run(event_rx, wayland_manager, is_visible).await?;
+            tokio::select! {
+                res = renderer.run(event_rx, wayland_manager, is_visible) => {
+                    res?;
+                }
+                _ = shutdown_rx.recv() => {
+                    info!("Shutdown signal received. Initiating graceful exit...");
+                }
+            }
+
+            info!("Exited cleanly.");
 
             Ok(())
         })

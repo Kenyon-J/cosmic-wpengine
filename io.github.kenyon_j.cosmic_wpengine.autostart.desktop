@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=COSMIC Wallpaper Engine
+Comment=Live wallpaper engine for the COSMIC desktop
+Exec=cosmic-wallpaper
+X-GNOME-Autostart-enabled=true

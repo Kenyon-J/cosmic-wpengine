@@ -16,10 +16,10 @@ impl VisualiserPass {
         band_count: usize,
         style: &str,
     ) -> Result<Self> {
-        let mut uniform_data = Vec::with_capacity(80);
+        let mut uniform_data = Vec::with_capacity(96);
         // Placeholder init data; the renderer loop immediately overwrites this
-        for _ in 0..20 {
-            uniform_data.extend_from_slice(&0.0f32.to_ne_bytes());
+        for _ in 0..24 {
+            uniform_data.extend_from_slice(&[0u8; 4]);
         }
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -45,7 +45,7 @@ impl VisualiserPass {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(80),
+                        min_binding_size: wgpu::BufferSize::new(96),
                     },
                     count: None,
                 },
@@ -65,17 +65,10 @@ impl VisualiserPass {
         let bind_group = Self::create_bind_group(device, &layout, &uniform_buffer, &bands_buffer);
 
         let theme = super::config::ThemeLayout::load(style);
-        let mut pipeline = Self::create_pipeline(
-            device,
-            format,
-            &layout,
-            style,
-            theme.visualiser.shader.as_deref(),
-        )
-        .await;
+        let mut pipeline = Self::create_pipeline(device, format, &layout, theme.visualiser.shader.as_deref()).await;
         if pipeline.is_none() {
             tracing::warn!("Falling back to 'bars' due to invalid initial shader.");
-            pipeline = Self::create_pipeline(device, format, &layout, "bars", None).await;
+            pipeline = Self::create_pipeline(device, format, &layout, None).await;
         }
 
         Ok(Self {
@@ -134,15 +127,7 @@ impl VisualiserPass {
         }
 
         let theme = super::config::ThemeLayout::load(style);
-        if let Some(new_pipeline) = Self::create_pipeline(
-            device,
-            format,
-            &self.layout,
-            style,
-            theme.visualiser.shader.as_deref(),
-        )
-        .await
-        {
+        if let Some(new_pipeline) = Self::create_pipeline(device, format, &self.layout, theme.visualiser.shader.as_deref()).await {
             self.pipeline = new_pipeline;
         } else {
             tracing::warn!("Keeping previous visualiser shader due to compilation failure.");
@@ -153,7 +138,6 @@ impl VisualiserPass {
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         layout: &wgpu::BindGroupLayout,
-        style: &str,
         custom_shader: Option<&str>,
     ) -> Option<wgpu::RenderPipeline> {
         let shader_src = {
@@ -166,11 +150,8 @@ impl VisualiserPass {
                     include_str!("visualiser.wgsl").to_string()
                 })
             } else {
-                let path = super::config::Config::config_dir()
-                    .join("shaders")
-                    .join(format!("{}.wgsl", style));
-                std::fs::read_to_string(&path)
-                    .unwrap_or_else(|_| include_str!("visualiser.wgsl").to_string())
+                // Always load the single, unified visualiser shader by default
+                include_str!("visualiser.wgsl").to_string()
             }
         };
 
@@ -216,7 +197,7 @@ impl VisualiserPass {
         });
 
         if let Some(err) = device.pop_error_scope().await {
-            tracing::error!("Shader validation error for style '{}':\n{}", style, err);
+            tracing::error!("Shader validation error:\n{}", err);
             None
         } else {
             Some(pipeline)

@@ -16,21 +16,21 @@
 
 ---
 
-## Features
+## ✨ Features
 
-* **Media Integration**: Displays album art from MPRIS-compatible players (Spotify, VLC, Firefox, etc.).
-* **Artwork Fallback**: Queries the iTunes API for cover art if local artwork is unavailable (e.g., due to sandboxing).
-* **Spotify Canvas**: Fetches and plays looping video backgrounds for supported tracks via FFmpeg *(Note: Requires a local Canvas API proxy)*.
-* **Synced Lyrics**: Uses the LRCLIB API to display time-synced lyrics with audio-reactive, physics-based animations.
-* **Audio Visualizer**: Captures system audio via PipeWire and renders an FFT-based visualizer with customizable styles.
-* **Desktop Integration**: Reads the active COSMIC desktop wallpaper to render native transparent and frosted-glass effects.
-* **Settings GUI & Tray**: Includes a `libcosmic`-based configuration app and a D-Bus system tray applet for managing settings.
-* **Weather Effects**: Uses GPU compute shaders to render weather particles (rain, snow) based on local Open-Meteo data.
-* **Wayland Support**: Built with `smithay-client-toolkit` (`wlr-layer-shell`) and `wgpu`, fully supporting multi-monitor setups and fractional scaling.
+* 🎵 **Media Integration**: Displays album art from MPRIS-compatible players (Spotify, VLC, Firefox, etc.).
+* 🖼️ **Artwork Fallback**: Queries the iTunes API for cover art if local artwork is unavailable (e.g., due to sandboxing).
+* 🎞️ **Spotify Canvas**: Fetches and plays looping video backgrounds for supported tracks via FFmpeg *(Note: Requires a local Canvas API proxy)*.
+* 🎤 **Synced Lyrics**: Uses the LRCLIB API to display time-synced lyrics with audio-reactive, physics-based animations.
+* 🎧 **Audio Visualizer**: Captures system audio via PipeWire and renders an FFT-based visualizer with high-performance pre-calculated DSP windowing and customizable styles.
+* 🌌 **Desktop Integration**: Reads the active COSMIC desktop wallpaper to render native transparent and frosted-glass effects.
+* ⚙️ **Settings GUI & Tray**: Includes a `libcosmic`-based configuration app and a D-Bus system tray applet for managing settings.
+* 🌦️ **Weather Effects**: Uses GPU compute shaders to render weather particles (rain, snow) based on local Open-Meteo data.
+* 🐧 **Wayland Support**: Built with `smithay-client-toolkit` (`wlr-layer-shell`) and `wgpu`, fully supporting multi-monitor setups and fractional scaling.
 
-## Architecture
+## 🏗️ Architecture
 
-The engine is highly parallelized. Subsystems run as independent `tokio` asynchronous tasks, channeling events to the main `wgpu` render loop:
+The engine is highly parallelized. Subsystems run concurrently using a hybrid approach: most components use `tokio` asynchronous tasks, while reactive event-based monitors (like the MPRIS watcher) utilize dedicated OS threads to ensure real-time responsiveness without overloading the async scheduler. Events are channeled to the main `wgpu` render loop:
 
 ```
 cosmic-wallpaper/

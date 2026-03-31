@@ -1,34 +1,36 @@
 use ksni::menu::StandardItem;
+use tokio::sync::mpsc;
 
 pub struct WallpaperTray {
     gui_process: Option<std::process::Child>,
+    shutdown_tx: mpsc::Sender<()>,
 }
 
 impl WallpaperTray {
-    pub fn new() -> Self {
-        Self { gui_process: None }
+    pub fn new(shutdown_tx: mpsc::Sender<()>) -> Self {
+        Self {
+            gui_process: None,
+            shutdown_tx,
+        }
     }
 
     fn launch_gui(&mut self) {
         if let Some(child) = &mut self.gui_process {
-            // Check if it is still running
-            if let Ok(None) = child.try_wait() {
-                // Kill and respawn to gracefully force Wayland to bring it to the foreground!
+            // If try_wait() is Ok(None), the process is still running.
+            if child.try_wait().ok() == Some(None) {
+                // This is a workaround to force the window to the foreground on Wayland.
+                // A more advanced solution would involve D-Bus activation.
                 let _ = child.kill();
                 let _ = child.wait();
             }
         }
 
         // Find the GUI binary in the same folder as this running executable
-        let mut gui_path = None;
-        if let Ok(current_exe) = std::env::current_exe() {
-            if let Some(parent) = current_exe.parent() {
-                let sibling = parent.join("cosmic-wallpaper-gui");
-                if sibling.exists() {
-                    gui_path = Some(sibling);
-                }
-            }
-        }
+        let gui_path = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .map(|p| p.join("cosmic-wallpaper-gui"))
+            .filter(|p| p.exists());
 
         if let Some(path) = gui_path {
             match std::process::Command::new(&path).spawn() {
@@ -70,8 +72,13 @@ impl ksni::Tray for WallpaperTray {
             ksni::MenuItem::Separator,
             StandardItem {
                 label: "Quit Engine".into(),
-                activate: Box::new(|_| {
-                    std::process::exit(0);
+                activate: Box::new(|this: &mut Self| {
+                    // Send a shutdown signal instead of exiting directly.
+                    if let Err(e) = this.shutdown_tx.blocking_send(()) {
+                        tracing::error!("Failed to send shutdown signal: {}", e);
+                        // Fallback to a hard exit if the channel is broken.
+                        std::process::exit(1);
+                    }
                 }),
                 ..Default::default()
             }
