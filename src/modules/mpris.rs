@@ -534,10 +534,13 @@ impl MprisWatcher {
                 })?
                 .bytes()
                 .await?;
-            return image::load_from_memory(&bytes).map_err(|e| {
-                warn!("Failed to decode HTTP image data: {}", e);
-                e.into()
-            });
+            return tokio::task::spawn_blocking(move || {
+                image::load_from_memory(&bytes).map_err(|e| {
+                    warn!("Failed to decode HTTP image data: {}", e);
+                    e.into()
+                })
+            })
+            .await?;
         }
 
         // Use the `url` crate for robust parsing of file:// paths
@@ -555,10 +558,13 @@ impl MprisWatcher {
                         warn!("Failed to read art file from disk at {:?}: {}", path, e);
                         e
                     })?;
-                    return image::load_from_memory(&bytes).map_err(|e| {
-                        warn!("Failed to decode image from disk {:?}: {}", path, e);
-                        e.into()
-                    });
+                    return tokio::task::spawn_blocking(move || {
+                        image::load_from_memory(&bytes).map_err(|e| {
+                            warn!("Failed to decode image from disk {:?}: {}", path, e);
+                            e.into()
+                        })
+                    })
+                    .await?;
                 }
                 warn!(
                     "Could not cleanly convert URL to valid file path: {}",
@@ -581,10 +587,17 @@ impl MprisWatcher {
             warn!("Failed to read raw path {}: {}", url_str, e);
             e
         })?;
-        image::load_from_memory(&bytes).map_err(|e| {
-            warn!("Failed to decode image from raw path {}: {}", url_str, e);
-            e.into()
+        let url_str_owned = url_str.to_string();
+        tokio::task::spawn_blocking(move || {
+            image::load_from_memory(&bytes).map_err(|e| {
+                warn!(
+                    "Failed to decode image from raw path {}: {}",
+                    url_str_owned, e
+                );
+                e.into()
+            })
         })
+        .await?
     }
 
     async fn fetch_fallback_album_art(
@@ -615,7 +628,9 @@ impl MprisWatcher {
             if let Some(art_url) = &first.artwork_url {
                 let high_res_url = art_url.replace("100x100bb", "600x600bb");
                 let bytes = client.get(&high_res_url).send().await?.bytes().await?;
-                return Ok(image::load_from_memory(&bytes)?);
+                return Ok(
+                    tokio::task::spawn_blocking(move || image::load_from_memory(&bytes)).await??,
+                );
             }
         }
         anyhow::bail!("No fallback art found on iTunes")
