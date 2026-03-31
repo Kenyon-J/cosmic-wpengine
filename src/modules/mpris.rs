@@ -658,9 +658,14 @@ impl MprisWatcher {
         // To get them, the community routes requests through API proxies that
         // handle the internal gRPC/Protobuf token auth (e.g. 'spotify-canvas-api').
         // Replace this URL with your local instance or a trusted public proxy API!
-        let proxy_url = format!("http://localhost:3000/api/canvas?track_id={}", track_id);
+        let proxy_url = "http://localhost:3000/api/canvas";
 
-        if let Ok(resp) = client.get(&proxy_url).send().await {
+        if let Ok(resp) = client
+            .get(proxy_url)
+            .query(&[("track_id", track_id)])
+            .send()
+            .await
+        {
             if let Ok(canvas) = resp.json::<CanvasResponse>().await {
                 return canvas.url;
             }
