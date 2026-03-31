@@ -76,7 +76,7 @@ impl MprisWatcher {
                 .build()
         })
         .await
-        .unwrap()?;
+        .expect("Tokio spawn_blocking failed to execute reqwest client builder")?;
         let (update_tx, mut update_rx) = tokio::sync::mpsc::channel(16);
 
         // Background position polling to handle media players that fail to send Seeked signals
