@@ -744,8 +744,7 @@ beat_pulse = 0.5
 
         let default_shader_path = shaders_dir.join("visualiser.wgsl");
         let write_default_shader = !default_shader_path.exists()
-            || !std::fs::read_to_string(&default_shader_path)
-                .is_ok_and(|c| c.contains("// v9"));
+            || !std::fs::read_to_string(&default_shader_path).is_ok_and(|c| c.contains("// v9"));
         if write_default_shader {
             std::fs::write(
                 &default_shader_path,
@@ -939,7 +938,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return mix(shadow_color, vec4<f32>(fg.rgb, 1.0), fg.a);
 }
 
-"#
+"#,
             )?;
         }
 
@@ -984,9 +983,8 @@ impl Config {
         // Extract default themes so users can find and edit them!
         let _ = ThemeLayout::write_defaults();
 
-        if path.exists() {
-            let text = std::fs::read_to_string(&path)?;
-            match toml::from_str(&text) {
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match toml::from_str(&text) {
                 Ok(config) => Ok(config),
                 Err(e) => {
                     tracing::error!(
@@ -998,15 +996,17 @@ impl Config {
                     let _ = std::fs::write(&path, toml::to_string_pretty(&default_config)?);
                     Ok(default_config)
                 }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let config = Config::default();
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&path, toml::to_string_pretty(&config)?)?;
+                tracing::info!("Created default config at {:?}", path);
+                Ok(config)
             }
-        } else {
-            let config = Config::default();
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&path, toml::to_string_pretty(&config)?)?;
-            tracing::info!("Created default config at {:?}", path);
-            Ok(config)
+            Err(e) => Err(e.into()),
         }
     }
 
