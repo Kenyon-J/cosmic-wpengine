@@ -1,6 +1,7 @@
 use cosmic::app::Core;
 use cosmic::iced::widget::{checkbox, pick_list, slider};
 use cosmic::iced::Length;
+use cosmic_text::fontdb;
 use cosmic::iced::Task;
 use cosmic::widget::{column, row, text, text_editor, text_input};
 use cosmic::{Application, Element};
@@ -21,6 +22,7 @@ fn main() -> cosmic::iced::Result {
 struct SettingsApp {
     core: Core,
     wp_config: config::Config,
+    available_fonts: Vec<String>,
     available_files: Vec<String>,
     selected_file: Option<String>,
     editor_content: text_editor::Content,
@@ -116,6 +118,19 @@ fn load_files() -> Vec<String> {
     files
 }
 
+fn load_fonts() -> Vec<String> {
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
+    let mut font_names: Vec<String> = db.faces().flat_map(|face| {
+        face.families.iter().map(|(name, _lang)| name.clone())
+    }).collect();
+    font_names.sort_unstable();
+    font_names.dedup();
+    // Add a "System Default" option
+    font_names.insert(0, "System Default".to_string());
+    font_names
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BackgroundMode {
     FrostedGlass,
@@ -147,6 +162,7 @@ impl std::fmt::Display for BackgroundMode {
 #[derive(Debug, Clone)]
 enum Message {
     BackgroundModeSelected(BackgroundMode),
+    FontFamilySelected(String),
     ToggleShowAlbumArt(bool),
     FileSelected(String),
     EditorAction(text_editor::Action),
@@ -179,6 +195,7 @@ impl Application for SettingsApp {
     fn init(core: Core, _flags: Self::Flags) -> (Self, Task<cosmic::Action<Self::Message>>) {
         // Load your existing engine configuration
         let wp_config = config::Config::load_or_default().unwrap_or_default();
+        let available_fonts = load_fonts();
         let available_files = load_files();
         let selected_file = Some("config.toml".to_string());
 
@@ -190,6 +207,7 @@ impl Application for SettingsApp {
             SettingsApp {
                 core,
                 wp_config,
+                available_fonts,
                 available_files,
                 selected_file,
                 editor_content,
@@ -230,6 +248,15 @@ impl Application for SettingsApp {
                         self.wp_config.appearance.album_art_background = false;
                         self.wp_config.appearance.album_color_background = true;
                     }
+                }
+                let _ = self.wp_config.save();
+                self.refresh_editor();
+            }
+            Message::FontFamilySelected(family) => {
+                if family == "System Default" {
+                    self.wp_config.appearance.font_family = None;
+                } else {
+                    self.wp_config.appearance.font_family = Some(family);
                 }
                 let _ = self.wp_config.save();
                 self.refresh_editor();
@@ -432,13 +459,26 @@ amplitude = 1.5"#;
             )
             .spacing(15);
 
-        let fps_row = row()
+        let font_row = row()
+            .push(
+                text("Font Family:")
+                    .font(font)
+                    .width(Length::Fixed(200.0)),
+            )
+            .push(pick_list(
+                self.available_fonts.clone(),
+                self.wp_config.appearance.font_family.clone().or_else(|| Some("System Default".to_string())),
+                Message::FontFamilySelected,
+            ))
+            .spacing(20);
+
+        let framerate_row = row()
             .push(
                 text(format!("Target Framerate: {} FPS", self.wp_config.fps))
                     .font(font)
                     .width(Length::Fixed(200.0)),
             )
-            .push(slider(15.0..=144.0, self.wp_config.fps as f32, Message::FpsChanged).step(1.0))
+            .push(slider(15.0..=144.0, self.wp_config.fps as f32, Message::FpsChanged))
             .spacing(20);
 
         let blur_row = row()
@@ -473,59 +513,24 @@ amplitude = 1.5"#;
         let save_btn =
             cosmic::iced::widget::button(text("Save File").font(font)).on_press(Message::SaveFile);
 
-        let is_theme = self
-            .selected_file
-            .as_ref()
-            .map(|f| f.starts_with("shaders/") && f.ends_with(".toml"))
-            .unwrap_or(false);
-
-        let apply_btn_base = cosmic::iced::widget::button(text("Apply Theme").font(font));
-        let apply_btn = if is_theme {
-            apply_btn_base.on_press(Message::ApplyTheme)
-        } else {
-            apply_btn_base
-        };
-        let apply_tooltip = if is_theme {
-            "Apply the selected theme to the audio visualizer"
-        } else {
-            "Select a theme (.toml in shaders/) to apply"
-        };
-        let apply_btn_with_tooltip = cosmic::iced::widget::tooltip(
-            apply_btn,
-            apply_tooltip,
-            cosmic::iced::widget::tooltip::Position::Top,
-        );
+        let apply_btn = cosmic::iced::widget::button(text("Apply Theme").font(font))
+            .on_press(Message::ApplyTheme);
 
         let new_theme_input = text_input("New Theme Name...", &self.new_theme_name)
             .on_input(Message::NewThemeNameChanged)
             .on_submit(|_| Message::CreateTheme);
 
-        let can_create = !self.new_theme_name.trim().is_empty();
-        let create_btn_base = cosmic::iced::widget::button(text("Create Theme").font(font));
-        let create_btn = if can_create {
-            create_btn_base.on_press(Message::CreateTheme)
-        } else {
-            create_btn_base
-        };
-        let create_tooltip = if can_create {
-            "Create a new visualizer theme"
-        } else {
-            "Enter a theme name first"
-        };
-        let create_btn_with_tooltip = cosmic::iced::widget::tooltip(
-            create_btn,
-            create_tooltip,
-            cosmic::iced::widget::tooltip::Position::Top,
-        );
+        let create_btn = cosmic::iced::widget::button(text("Create Theme").font(font))
+            .on_press(Message::CreateTheme);
 
         let toolbar = row()
             .push(text("Edit File:").font(font).width(Length::Shrink))
             .push(file_selector)
             .push(save_btn)
-            .push(apply_btn_with_tooltip)
+            .push(apply_btn)
             .push(text(" | ").font(font))
             .push(new_theme_input)
-            .push(create_btn_with_tooltip)
+            .push(create_btn)
             .spacing(10);
 
         let editor = text_editor(&self.editor_content)
@@ -557,7 +562,8 @@ amplitude = 1.5"#;
         column()
             .push(text("COSMIC Wallpaper Settings").font(font).size(32))
             .push(toggles_row)
-            .push(fps_row)
+            .push(font_row)
+            .push(framerate_row)
             .push(blur_row)
             .push(toolbar)
             .push(editor)

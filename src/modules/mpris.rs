@@ -252,6 +252,9 @@ impl MprisWatcher {
             }
 
             if let Some(update) = update_opt {
+                // If we receive any event at all, it means a player is active, so we are no longer timed out.
+                is_timed_out = false;
+
                 match update {
                     MprisUpdate::Metadata(meta) => {
                         let is_empty = (meta.title == "Unknown" || meta.title.trim().is_empty())
