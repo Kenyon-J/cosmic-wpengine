@@ -23,7 +23,7 @@ impl AudioCapture {
 
         let (audio_tx, mut audio_rx) = tokio::sync::mpsc::channel::<Vec<f32>>(16);
 
-        tokio::task::spawn_blocking(move || Self::run_pipewire_capture(audio_tx));
+        std::thread::spawn(move || Self::run_pipewire_capture(audio_tx));
 
         let mut planner = FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(FFT_SIZE);
