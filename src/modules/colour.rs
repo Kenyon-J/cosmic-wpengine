@@ -3,19 +3,33 @@ use image::{DynamicImage, GenericImageView, Rgba};
 pub fn extract_palette(image: &DynamicImage) -> Vec<[f32; 3]> {
     let thumb = image.thumbnail(64, 64);
 
-    let mut buckets: std::collections::HashMap<(u8, u8, u8), u32> =
-        std::collections::HashMap::new();
+    // Optimization: Replace HashMap with a fixed-size array (512 elements for 3-bit color bins)
+    // to avoid hashing overhead and dynamic allocations during pixel iteration.
+    let mut buckets = [0u32; 512];
 
     for (_, _, Rgba([r, g, b, a])) in thumb.pixels() {
         if a < 128 {
             continue;
         }
 
-        let key = ((r / 32) * 32, (g / 32) * 32, (b / 32) * 32);
-        *buckets.entry(key).or_insert(0) += 1;
+        // Direct index calculation: 3 bits per channel (r/32, g/32, b/32)
+        let idx = ((r as usize / 32) << 6) | ((g as usize / 32) << 3) | (b as usize / 32);
+        buckets[idx] += 1;
     }
 
-    let mut sorted: Vec<_> = buckets.into_iter().collect();
+    // Reconstruct RGB values and filter zero-count buckets
+    let mut sorted: Vec<_> = buckets
+        .iter()
+        .enumerate()
+        .filter(|&(_, &count)| count > 0)
+        .map(|(idx, &count)| {
+            let r = ((idx >> 6) & 0x7) as u8 * 32;
+            let g = ((idx >> 3) & 0x7) as u8 * 32;
+            let b = (idx & 0x7) as u8 * 32;
+            ((r, g, b), count)
+        })
+        .collect();
+
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
     sorted

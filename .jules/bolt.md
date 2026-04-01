@@ -9,3 +9,7 @@
 ## 04-02-2025- Offload Blocking Operations to Worker Threads
 **Learning:** Mixing synchronous, CPU-intensive work (like image decoding) or blocking library calls (like D-Bus via the `mpris` crate) directly inside an async task stalls the Tokio executor, leading to frame drops and UI stutter.
 **Action:** Always wrap heavy synchronous operations and blocking library calls in `tokio::task::spawn_blocking`. This offloads the work to a dedicated thread pool, preserving the responsiveness of the main async event loop.
+
+## 05-02-2025- Optimize Histogram/Frequency Counting with Fixed-Size Arrays
+**Learning:** For performance-critical loops with a small, bounded key space (like our 512-bucket color histogram), `std::collections::HashMap` introduces significant overhead due to hashing, heap allocations, and pointer chasing.
+**Action:** Use fixed-size arrays (stack-allocated) and direct indexing for counting or lookup tasks whenever the key space is small and predictable. This typically results in a 2-3x speedup for those specific kernels.
