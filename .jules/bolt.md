@@ -1,11 +1,3 @@
-## 03-02-2025- Optimize MPRIS module with Async (REJECTED)
-**Learning:** For long-running, reactive tasks like MPRIS monitoring, a dedicated `std::thread` is often the better architectural choice. Moving to a polling model with `tokio::task::spawn_blocking` every few seconds introduces lag, increases overhead, and risks blocking the async executor if D-Bus calls are executed directly.
-**Action:** Preserve dedicated threads for reactive event-based monitoring to ensure real-time responsiveness and avoid overloading the async task scheduler.
-
-## 03-02-2025- Optimize audio visualiser with pre-calculated Hann window
-**Learning:** Redundant trigonometric calculations in high-frequency hot loops (like audio DSP) can significantly increase CPU usage.
-**Action:** Always pre-calculate static coefficients (like window functions) into lookup tables (arrays or vectors) outside the main processing loop to save thousands of redundant math operations per second.
-
-## 04-02-2025- Offload Blocking Operations to Worker Threads
-**Learning:** Mixing synchronous, CPU-intensive work (like image decoding) or blocking library calls (like D-Bus via the `mpris` crate) directly inside an async task stalls the Tokio executor, leading to frame drops and UI stutter.
-**Action:** Always wrap heavy synchronous operations and blocking library calls in `tokio::task::spawn_blocking`. This offloads the work to a dedicated thread pool, preserving the responsiveness of the main async event loop.
+## 2024-05-16 - Prevent D-Bus connection spam and Tokio executor starvation
+**Learning:** Infinite loops executing blocking code (e.g. D-Bus heavy polling) wrapped inside `tokio::task::spawn_blocking` will permanently consume a thread from Tokio's limited blocking pool, potentially starving the executor and causing performance degradation. Furthermore, instantiating `mpris::PlayerFinder::new()` inside an infinite loop creates severe D-Bus connection spam because a new connection is established on every initialization.
+**Action:** Use `std::thread::spawn` for long-running blocking infinite loops. Move resource initializations like `mpris::PlayerFinder::new()` outside polling loops to cache connections and prevent spam.

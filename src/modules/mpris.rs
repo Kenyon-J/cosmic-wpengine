@@ -82,33 +82,33 @@ impl MprisWatcher {
         // Background position polling to handle media players that fail to send Seeked signals
         let poll_tx = tx.clone();
         let poll_visible = is_visible.clone();
-        tokio::spawn(async move {
+        std::thread::spawn(move || {
+            let finder = mpris::PlayerFinder::new();
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                std::thread::sleep(std::time::Duration::from_secs(1));
                 // Suspend D-Bus heavy polling when wallpaper is out of view
                 if !poll_visible.load(std::sync::atomic::Ordering::Relaxed) {
                     continue;
                 }
 
-                // Optimization: Offload blocking D-Bus calls to a worker thread to keep the async executor responsive.
-                // This prevents UI stuttering during heavy D-Bus polling.
-                let pos_res = tokio::task::spawn_blocking(move || {
-                    let finder = mpris::PlayerFinder::new().ok()?;
-                    let player = finder.find_active().ok()?;
+                // Optimization: Use a dedicated synchronous thread for infinite D-Bus polling.
+                // This avoids starving Tokio's limited `spawn_blocking` thread pool.
+                let pos_res = (|| -> Option<std::time::Duration> {
+                    let f = finder.as_ref().ok()?;
+                    let player = f.find_active().ok()?;
                     if player.get_playback_status().ok()? == mpris::PlaybackStatus::Playing {
                         return player.get_position().ok();
                     }
                     None
-                })
-                .await;
+                })();
 
-                if let Ok(Some(pos)) = pos_res {
-                    let _ = poll_tx.send(Event::PlaybackPosition(pos)).await;
+                if let Some(pos) = pos_res {
+                    let _ = poll_tx.blocking_send(Event::PlaybackPosition(pos));
                 }
             }
         });
 
-        tokio::task::spawn_blocking(move || {
+        std::thread::spawn(move || {
             let mut finder = mpris::PlayerFinder::new();
 
             loop {
