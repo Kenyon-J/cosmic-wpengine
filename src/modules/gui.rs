@@ -1,10 +1,10 @@
 use cosmic::app::Core;
 use cosmic::iced::widget::{checkbox, pick_list, slider};
 use cosmic::iced::Length;
-use cosmic_text::fontdb;
 use cosmic::iced::Task;
 use cosmic::widget::{column, row, text, text_editor, text_input};
 use cosmic::{Application, Element};
+use cosmic_text::fontdb;
 
 // You can import your existing config logic directly!
 #[allow(dead_code)]
@@ -121,9 +121,10 @@ fn load_files() -> Vec<String> {
 fn load_fonts() -> Vec<String> {
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
-    let mut font_names: Vec<String> = db.faces().flat_map(|face| {
-        face.families.iter().map(|(name, _lang)| name.clone())
-    }).collect();
+    let mut font_names: Vec<String> = db
+        .faces()
+        .flat_map(|face| face.families.iter().map(|(name, _lang)| name.clone()))
+        .collect();
     font_names.sort_unstable();
     font_names.dedup();
     // Add a "System Default" option
@@ -460,14 +461,14 @@ amplitude = 1.5"#;
             .spacing(15);
 
         let font_row = row()
-            .push(
-                text("Font Family:")
-                    .font(font)
-                    .width(Length::Fixed(200.0)),
-            )
+            .push(text("Font Family:").font(font).width(Length::Fixed(200.0)))
             .push(pick_list(
                 self.available_fonts.clone(),
-                self.wp_config.appearance.font_family.clone().or_else(|| Some("System Default".to_string())),
+                self.wp_config
+                    .appearance
+                    .font_family
+                    .clone()
+                    .or_else(|| Some("System Default".to_string())),
                 Message::FontFamilySelected,
             ))
             .spacing(20);
@@ -478,7 +479,11 @@ amplitude = 1.5"#;
                     .font(font)
                     .width(Length::Fixed(200.0)),
             )
-            .push(slider(15.0..=144.0, self.wp_config.fps as f32, Message::FpsChanged))
+            .push(slider(
+                15.0..=144.0,
+                self.wp_config.fps as f32,
+                Message::FpsChanged,
+            ))
             .spacing(20);
 
         let blur_row = row()

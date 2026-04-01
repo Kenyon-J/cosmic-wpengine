@@ -65,7 +65,9 @@ impl VisualiserPass {
         let bind_group = Self::create_bind_group(device, &layout, &uniform_buffer, &bands_buffer);
 
         let theme = super::config::ThemeLayout::load(style);
-        let mut pipeline = Self::create_pipeline(device, format, &layout, theme.visualiser.shader.as_deref()).await;
+        let mut pipeline =
+            Self::create_pipeline(device, format, &layout, theme.visualiser.shader.as_deref())
+                .await;
         if pipeline.is_none() {
             tracing::warn!("Falling back to 'bars' due to invalid initial shader.");
             pipeline = Self::create_pipeline(device, format, &layout, None).await;
@@ -127,7 +129,14 @@ impl VisualiserPass {
         }
 
         let theme = super::config::ThemeLayout::load(style);
-        if let Some(new_pipeline) = Self::create_pipeline(device, format, &self.layout, theme.visualiser.shader.as_deref()).await {
+        if let Some(new_pipeline) = Self::create_pipeline(
+            device,
+            format,
+            &self.layout,
+            theme.visualiser.shader.as_deref(),
+        )
+        .await
+        {
             self.pipeline = new_pipeline;
         } else {
             tracing::warn!("Keeping previous visualiser shader due to compilation failure.");

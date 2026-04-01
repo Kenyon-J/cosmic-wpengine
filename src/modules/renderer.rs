@@ -1,10 +1,8 @@
 use anyhow::Result;
+use cosmic_text::{self, Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::Receiver;
 use tracing::{info, warn};
-use cosmic_text::{
-    self, Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache,
-};
 
 use super::{
     colour::{lerp_colour, time_to_sky_colour},
@@ -134,7 +132,9 @@ impl TextRenderer {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture.create_view(&Default::default())),
+                    resource: wgpu::BindingResource::TextureView(
+                        &texture.create_view(&Default::default()),
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -375,10 +375,7 @@ impl Renderer {
             };
             surface.configure(&device, &config);
 
-            outputs.push(GpuOutput {
-                surface,
-                config,
-            });
+            outputs.push(GpuOutput { surface, config });
         }
 
         let config_format = outputs[0].config.format;
@@ -875,7 +872,9 @@ impl Renderer {
                 use super::event::WeatherCondition;
                 matches!(
                     w.condition,
-                    WeatherCondition::Rain | WeatherCondition::Snow | WeatherCondition::Thunderstorm
+                    WeatherCondition::Rain
+                        | WeatherCondition::Snow
+                        | WeatherCondition::Thunderstorm
                 )
             });
             let should_throttle = !self.state.is_playing && !is_weather_active;
@@ -961,10 +960,7 @@ impl Renderer {
                     };
                     surface.configure(&self.device, &config);
 
-                    self.outputs.push(GpuOutput {
-                        surface,
-                        config,
-                    });
+                    self.outputs.push(GpuOutput { surface, config });
                 }
             }
 
@@ -1742,7 +1738,12 @@ impl Renderer {
             // --- Prepare Text for Rendering ---
             let width_f = gpu_out.config.width as f32;
             let height_f = gpu_out.config.height as f32;
-            let scale_factor = wayland_manager.app_data.windows.get(i).map(|w| w.scale_factor as f32).unwrap_or(1.0);
+            let scale_factor = wayland_manager
+                .app_data
+                .windows
+                .get(i)
+                .map(|w| w.scale_factor as f32)
+                .unwrap_or(1.0);
             let logical_height = height_f / scale_factor;
 
             // Calculate perceived brightness of the background to ensure lyrics are always readable!
@@ -1797,8 +1798,13 @@ impl Renderer {
                 }
             };
 
-            let family = self.state.config.appearance.font_family.as_deref()
-                .map_or(Family::SansSerif, |name| Family::Name(name));
+            let family = self
+                .state
+                .config
+                .appearance
+                .font_family
+                .as_deref()
+                .map_or(Family::SansSerif, Family::Name);
             let attrs = Attrs::new().family(family);
 
             let mut text_buffers = Vec::new();
@@ -1806,7 +1812,8 @@ impl Renderer {
             if self.state.config.audio.show_lyrics {
                 if let Some(track) = &self.state.current_track {
                     if let Some(lyrics) = &track.lyrics {
-                        let base_font_size = (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
+                        let base_font_size =
+                            (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
                         let active_font_size = base_font_size * 1.5;
                         let line_spacing = active_font_size * 1.2;
 
@@ -1833,10 +1840,12 @@ impl Renderer {
 
                             let scale = base_font_size
                                 + (active_font_size - base_font_size) * center_weight;
-                            let final_scale = scale + (self.lyric_bounce_value * 8.0 * scale_factor) * center_weight;
+                            let final_scale = scale
+                                + (self.lyric_bounce_value * 8.0 * scale_factor) * center_weight;
 
                             let render_scale = final_scale / active_font_size;
-                            let bounce_y = (self.lyric_bounce_value * 12.0 * scale_factor) * center_weight;
+                            let bounce_y =
+                                (self.lyric_bounce_value * 12.0 * scale_factor) * center_weight;
                             let y_pos = (dist * line_spacing) - bounce_y;
 
                             let color = [
@@ -1855,21 +1864,38 @@ impl Renderer {
                             let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
 
                             if final_color[3] > 0.01 {
-                                let metrics = Metrics::new(active_font_size, active_font_size * 1.2);
-                                let mut buffer = self.text_buffer_pool.pop().unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
+                                let metrics =
+                                    Metrics::new(active_font_size, active_font_size * 1.2);
+                                let mut buffer = self
+                                    .text_buffer_pool
+                                    .pop()
+                                    .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
                                 buffer.set_metrics(&mut self.font_system, metrics);
                                 buffer.set_size(&mut self.font_system, width_f, height_f);
-                                
-                                buffer.set_text(&mut self.font_system, &lyric_line.text, attrs, Shaping::Advanced);
+
+                                buffer.set_text(
+                                    &mut self.font_system,
+                                    &lyric_line.text,
+                                    attrs,
+                                    Shaping::Advanced,
+                                );
                                 let align = map_align(&self.theme.lyrics.align);
-                                buffer.lines.iter_mut().for_each(|line| { line.set_align(Some(align)); });
+                                buffer.lines.iter_mut().for_each(|line| {
+                                    line.set_align(Some(align));
+                                });
 
                                 let pos = [
                                     self.theme.lyrics.position[0] * width_f,
                                     self.theme.lyrics.position[1] * height_f + y_pos,
                                 ];
 
-                                text_buffers.push(PositionedBuffer { buffer, pos, color: final_color, scale: render_scale, align });
+                                text_buffers.push(PositionedBuffer {
+                                    buffer,
+                                    pos,
+                                    color: final_color,
+                                    scale: render_scale,
+                                    align,
+                                });
                             }
                         }
                     }
@@ -1879,39 +1905,77 @@ impl Renderer {
             if self.state.current_track.is_some() && !self.cached_track_str.is_empty() {
                 let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
-                let mut buffer = self.text_buffer_pool.pop().unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
+                let mut buffer = self
+                    .text_buffer_pool
+                    .pop()
+                    .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
                 buffer.set_metrics(&mut self.font_system, metrics);
                 buffer.set_size(&mut self.font_system, width_f, height_f);
                 let final_color = [
-                    secondary_text[0], secondary_text[1], secondary_text[2], secondary_text[3],
+                    secondary_text[0],
+                    secondary_text[1],
+                    secondary_text[2],
+                    secondary_text[3],
                 ];
-                buffer.set_text(&mut self.font_system, &self.cached_track_str, attrs, Shaping::Advanced);
+                buffer.set_text(
+                    &mut self.font_system,
+                    &self.cached_track_str,
+                    attrs,
+                    Shaping::Advanced,
+                );
                 let align = map_align(&self.theme.track_info.align);
-                buffer.lines.iter_mut().for_each(|line| { line.set_align(Some(align)); });
+                buffer.lines.iter_mut().for_each(|line| {
+                    line.set_align(Some(align));
+                });
                 let pos = [
                     self.theme.track_info.position[0] * width_f,
                     self.theme.track_info.position[1] * height_f,
                 ];
-                text_buffers.push(PositionedBuffer { buffer, pos, color: final_color, scale: 1.0, align });
+                text_buffers.push(PositionedBuffer {
+                    buffer,
+                    pos,
+                    color: final_color,
+                    scale: 1.0,
+                    align,
+                });
             }
 
             if self.state.weather.is_some() && !self.cached_weather_str.is_empty() {
                 let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
-                let mut buffer = self.text_buffer_pool.pop().unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
+                let mut buffer = self
+                    .text_buffer_pool
+                    .pop()
+                    .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
                 buffer.set_metrics(&mut self.font_system, metrics);
                 buffer.set_size(&mut self.font_system, width_f, height_f);
                 let final_color = [
-                    secondary_text[0], secondary_text[1], secondary_text[2], secondary_text[3],
+                    secondary_text[0],
+                    secondary_text[1],
+                    secondary_text[2],
+                    secondary_text[3],
                 ];
-                buffer.set_text(&mut self.font_system, &self.cached_weather_str, attrs, Shaping::Advanced);
+                buffer.set_text(
+                    &mut self.font_system,
+                    &self.cached_weather_str,
+                    attrs,
+                    Shaping::Advanced,
+                );
                 let align = map_align(&self.theme.weather.align);
-                buffer.lines.iter_mut().for_each(|line| { line.set_align(Some(align)); });
+                buffer.lines.iter_mut().for_each(|line| {
+                    line.set_align(Some(align));
+                });
                 let pos = [
                     self.theme.weather.position[0] * width_f,
                     self.theme.weather.position[1] * height_f,
                 ];
-                text_buffers.push(PositionedBuffer { buffer, pos, color: final_color, scale: 1.0, align });
+                text_buffers.push(PositionedBuffer {
+                    buffer,
+                    pos,
+                    color: final_color,
+                    scale: 1.0,
+                    align,
+                });
             }
 
             // Prepare text vertices
@@ -1930,17 +1994,19 @@ impl Renderer {
             }
 
             if self.text_renderer.vertex_capacity < self.text_renderer.cpu_vertices.len() {
-                self.text_renderer.vertex_capacity = self.text_renderer.cpu_vertices.len().next_power_of_two();
-                self.text_renderer.vertices =
-                    self.device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("Text Vertex Buffer"),
-                        size: (self.text_renderer.vertex_capacity * std::mem::size_of::<TextVertex>()) as u64,
-                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    });
+                self.text_renderer.vertex_capacity =
+                    self.text_renderer.cpu_vertices.len().next_power_of_two();
+                self.text_renderer.vertices = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Text Vertex Buffer"),
+                    size: (self.text_renderer.vertex_capacity * std::mem::size_of::<TextVertex>())
+                        as u64,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
             }
             if self.text_renderer.index_capacity < self.text_renderer.cpu_indices.len() {
-                self.text_renderer.index_capacity = self.text_renderer.cpu_indices.len().next_power_of_two();
+                self.text_renderer.index_capacity =
+                    self.text_renderer.cpu_indices.len().next_power_of_two();
                 self.text_renderer.indices = self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Text Index Buffer"),
                     size: (self.text_renderer.index_capacity * std::mem::size_of::<u32>()) as u64,
@@ -1955,7 +2021,8 @@ impl Renderer {
                     self.text_renderer.cpu_vertices.len() * std::mem::size_of::<TextVertex>(),
                 )
             };
-            self.queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
+            self.queue
+                .write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
 
             let indices_bytes = unsafe {
                 std::slice::from_raw_parts(
@@ -1963,7 +2030,8 @@ impl Renderer {
                     self.text_renderer.cpu_indices.len() * std::mem::size_of::<u32>(),
                 )
             };
-            self.queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
+            self.queue
+                .write_buffer(&self.text_renderer.indices, 0, indices_bytes);
             self.text_renderer.num_indices = self.text_renderer.cpu_indices.len() as u32;
 
             let view = output
@@ -2043,7 +2111,10 @@ impl Renderer {
                 render_pass.set_pipeline(&self.text_renderer.pipeline);
                 render_pass.set_bind_group(0, &self.text_renderer.bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.text_renderer.vertices.slice(..));
-                render_pass.set_index_buffer(self.text_renderer.indices.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.set_index_buffer(
+                    self.text_renderer.indices.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
                 render_pass.draw_indexed(0..self.text_renderer.num_indices, 0, 0..1);
             }
 
@@ -2542,11 +2613,14 @@ impl Renderer {
                             let img_h = image.placement.height;
 
                             if img_w == 0 || img_h == 0 {
-                                text_renderer.glyph_cache.insert(cache_key, CachedGlyph {
-                                    uv: [0.0, 0.0, 0.0, 0.0],
-                                    offset: [0, 0],
-                                    size: [0, 0],
-                                });
+                                text_renderer.glyph_cache.insert(
+                                    cache_key,
+                                    CachedGlyph {
+                                        uv: [0.0, 0.0, 0.0, 0.0],
+                                        offset: [0, 0],
+                                        size: [0, 0],
+                                    },
+                                );
                                 continue;
                             }
 
@@ -2577,7 +2651,11 @@ impl Renderer {
                                     wgpu::ImageCopyTexture {
                                         texture: &text_renderer.texture,
                                         mip_level: 0,
-                                        origin: wgpu::Origin3d { x: cur_x, y: cur_y, z: 0 },
+                                        origin: wgpu::Origin3d {
+                                            x: cur_x,
+                                            y: cur_y,
+                                            z: 0,
+                                        },
                                         aspect: wgpu::TextureAspect::All,
                                     },
                                     &image.data,
@@ -2586,7 +2664,11 @@ impl Renderer {
                                         bytes_per_row: Some(img_w),
                                         rows_per_image: Some(img_h),
                                     },
-                                    wgpu::Extent3d { width: img_w, height: img_h, depth_or_array_layers: 1 },
+                                    wgpu::Extent3d {
+                                        width: img_w,
+                                        height: img_h,
+                                        depth_or_array_layers: 1,
+                                    },
                                 );
                             }
 
@@ -2595,20 +2677,26 @@ impl Renderer {
                             let u_max = (cur_x + img_w) as f32 / GLYPH_CACHE_WIDTH as f32;
                             let v_max = (cur_y + img_h) as f32 / GLYPH_CACHE_HEIGHT as f32;
 
-                            text_renderer.glyph_cache.insert(cache_key, CachedGlyph {
-                                uv: [u_min, v_min, u_max, v_max],
-                                offset: [image.placement.left, image.placement.top],
-                                size: [img_w, img_h],
-                            });
+                            text_renderer.glyph_cache.insert(
+                                cache_key,
+                                CachedGlyph {
+                                    uv: [u_min, v_min, u_max, v_max],
+                                    offset: [image.placement.left, image.placement.top],
+                                    size: [img_w, img_h],
+                                },
+                            );
 
                             text_renderer.cache_x += img_w + 1; // 1px padding
-                            text_renderer.cache_row_height = text_renderer.cache_row_height.max(img_h + 1);
+                            text_renderer.cache_row_height =
+                                text_renderer.cache_row_height.max(img_h + 1);
                         }
                     }
 
                     // Retrieve from cache and build vertex layout
                     if let Some(cached) = text_renderer.glyph_cache.get(&cache_key) {
-                        if cached.size[0] == 0 || cached.size[1] == 0 { continue; }
+                        if cached.size[0] == 0 || cached.size[1] == 0 {
+                            continue;
+                        }
 
                         let dx = glyph.x - origin_x;
                         let dy = run.line_y + glyph.y - origin_y;
@@ -2616,8 +2704,11 @@ impl Renderer {
                         let scaled_glyph_x = origin_x + dx * p_buf.scale;
                         let scaled_glyph_y = origin_y + dy * p_buf.scale;
 
-                        let final_x = buffer_offset_x + scaled_glyph_x + cached.offset[0] as f32 * p_buf.scale;
-                        let final_y = buffer_offset_y + scaled_glyph_y - cached.offset[1] as f32 * p_buf.scale;
+                        let final_x = buffer_offset_x
+                            + scaled_glyph_x
+                            + cached.offset[0] as f32 * p_buf.scale;
+                        let final_y = buffer_offset_y + scaled_glyph_y
+                            - cached.offset[1] as f32 * p_buf.scale;
 
                         let x = final_x / width * 2.0 - 1.0;
                         let y = -(final_y / height * 2.0 - 1.0);
@@ -2629,11 +2720,27 @@ impl Renderer {
 
                         let base_index = text_renderer.cpu_vertices.len() as u32;
                         let [u_min, v_min, u_max, v_max] = cached.uv;
-                        
-                        text_renderer.cpu_vertices.push(TextVertex { pos: [x, y], tex_pos: [u_min, v_min], color });
-                        text_renderer.cpu_vertices.push(TextVertex { pos: [x + w, y], tex_pos: [u_max, v_min], color });
-                        text_renderer.cpu_vertices.push(TextVertex { pos: [x, y - h], tex_pos: [u_min, v_max], color });
-                        text_renderer.cpu_vertices.push(TextVertex { pos: [x + w, y - h], tex_pos: [u_max, v_max], color });
+
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [x, y],
+                            tex_pos: [u_min, v_min],
+                            color,
+                        });
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [x + w, y],
+                            tex_pos: [u_max, v_min],
+                            color,
+                        });
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [x, y - h],
+                            tex_pos: [u_min, v_max],
+                            color,
+                        });
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [x + w, y - h],
+                            tex_pos: [u_max, v_max],
+                            color,
+                        });
 
                         text_renderer.cpu_indices.push(base_index);
                         text_renderer.cpu_indices.push(base_index + 1);
