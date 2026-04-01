@@ -470,8 +470,23 @@ amplitude = 1.5"#;
             Message::FileSelected,
         );
 
-        let save_btn =
-            cosmic::iced::widget::button(text("Save File").font(font)).on_press(Message::SaveFile);
+        let can_save = self.selected_file.is_some();
+        let save_btn_base = cosmic::iced::widget::button(text("Save File").font(font));
+        let save_btn = if can_save {
+            save_btn_base.on_press(Message::SaveFile)
+        } else {
+            save_btn_base
+        };
+        let save_tooltip = if can_save {
+            "Save changes to the current file"
+        } else {
+            "Select a file to edit and save"
+        };
+        let save_btn_with_tooltip = cosmic::iced::widget::tooltip(
+            save_btn,
+            save_tooltip,
+            cosmic::iced::widget::tooltip::Position::Top,
+        );
 
         let is_theme = self
             .selected_file
@@ -521,7 +536,7 @@ amplitude = 1.5"#;
         let toolbar = row()
             .push(text("Edit File:").font(font).width(Length::Shrink))
             .push(file_selector)
-            .push(save_btn)
+            .push(save_btn_with_tooltip)
             .push(apply_btn_with_tooltip)
             .push(text(" | ").font(font))
             .push(new_theme_input)
