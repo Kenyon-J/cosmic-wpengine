@@ -744,8 +744,7 @@ beat_pulse = 0.5
 
         let default_shader_path = shaders_dir.join("visualiser.wgsl");
         let write_default_shader = !default_shader_path.exists()
-            || !std::fs::read_to_string(&default_shader_path)
-                .is_ok_and(|c| c.contains("// v9"));
+            || !std::fs::read_to_string(&default_shader_path).is_ok_and(|c| c.contains("// v9"));
         if write_default_shader {
             std::fs::write(
                 &default_shader_path,
@@ -939,7 +938,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return mix(shadow_color, vec4<f32>(fg.rgb, 1.0), fg.a);
 }
 
-"#
+"#,
             )?;
         }
 
