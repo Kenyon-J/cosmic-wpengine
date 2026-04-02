@@ -23,7 +23,11 @@ impl AudioCapture {
 
         let (audio_tx, mut audio_rx) = tokio::sync::mpsc::channel::<Vec<f32>>(16);
 
-        std::thread::spawn(move || Self::run_pipewire_capture(audio_tx));
+        std::thread::spawn(move || {
+            if let Err(e) = Self::run_pipewire_capture(audio_tx) {
+                warn!("PipeWire capture failed: {}", e);
+            }
+        });
 
         let mut planner = FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(FFT_SIZE);
@@ -95,15 +99,16 @@ impl AudioCapture {
         Ok(())
     }
 
-    fn run_pipewire_capture(tx: tokio::sync::mpsc::Sender<Vec<f32>>) {
+    fn run_pipewire_capture(tx: tokio::sync::mpsc::Sender<Vec<f32>>) -> Result<()> {
         pipewire::init();
 
-        let mainloop = MainLoopBox::new(None).expect("Failed to create PipeWire mainloop");
-        let context =
-            ContextBox::new(mainloop.loop_(), None).expect("Failed to create PipeWire context");
+        let mainloop = MainLoopBox::new(None)
+            .map_err(|e| anyhow::anyhow!("Failed to create PipeWire mainloop: {}", e))?;
+        let context = ContextBox::new(mainloop.loop_(), None)
+            .map_err(|e| anyhow::anyhow!("Failed to create PipeWire context: {}", e))?;
         let core = context
             .connect(None)
-            .expect("Failed to connect to PipeWire");
+            .map_err(|e| anyhow::anyhow!("Failed to connect to PipeWire: {}", e))?;
 
         let props = properties! {
             *pipewire::keys::APP_NAME => "cosmic-wallpaper",
@@ -121,7 +126,7 @@ impl AudioCapture {
         };
 
         let stream = pipewire::stream::StreamBox::new(&core, "cosmic-wallpaper", props)
-            .expect("Failed to create stream");
+            .map_err(|e| anyhow::anyhow!("Failed to create stream: {}", e))?;
 
         let mut sample_buffer = Vec::with_capacity(FFT_SIZE * 2);
         let mut frame_counter = 0u32;
@@ -229,7 +234,7 @@ impl AudioCapture {
                 }
             })
             .register()
-            .expect("Failed to register stream listener");
+            .map_err(|e| anyhow::anyhow!("Failed to register stream listener: {}", e))?;
 
         // 1. Build the Rust Object AST (Keep your exact param macro from before)
         let param = pipewire::spa::pod::object!(
@@ -272,12 +277,13 @@ impl AudioCapture {
             std::io::Cursor::new(Vec::new()),
             &param_value,
         )
-        .expect("Failed to serialize POD")
+        .map_err(|e| anyhow::anyhow!("Failed to serialize POD: {:?}", e))?
         .0
         .into_inner();
 
         // 4. Cast the raw bytes into the binary C-level Pod
-        let pod = pipewire::spa::pod::Pod::from_bytes(&values).expect("Failed to parse POD bytes");
+        let pod = pipewire::spa::pod::Pod::from_bytes(&values)
+            .ok_or_else(|| anyhow::anyhow!("Failed to parse POD bytes"))?;
 
         // 5. Connect perfectly
         stream
@@ -289,9 +295,10 @@ impl AudioCapture {
                     | pipewire::stream::StreamFlags::RT_PROCESS,
                 &mut [pod], // Pass the perfectly formatted binary Pod
             )
-            .expect("Failed to connect stream");
+            .map_err(|e| anyhow::anyhow!("Failed to connect stream: {}", e))?;
 
         info!("PipeWire capture stream created");
         mainloop.run();
+        Ok(())
     }
 }
