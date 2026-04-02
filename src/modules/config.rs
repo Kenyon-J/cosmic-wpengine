@@ -251,6 +251,64 @@ mod tests {
             );
         });
     }
+
+    #[test]
+    fn test_both_env_vars_missing() {
+        let config = AppearanceConfig::default();
+        // With both XDG_CONFIG_HOME and HOME unset, it should not panic
+        // and should return None.
+        with_env_lock(None, None, || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            assert_eq!(rt.block_on(config.resolved_background_path()), None);
+        });
+    }
+
+    #[test]
+    fn test_cosmic_bg_dir_missing() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_home = temp_dir.path().join("config_home");
+        // Do NOT create the cosmic_dir so it will fail the read_dir.
+
+        let config = AppearanceConfig::default();
+
+        with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            assert_eq!(rt.block_on(config.resolved_background_path()), None);
+        });
+    }
+
+    #[test]
+    fn test_cosmic_bg_dir_empty() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_home = temp_dir.path().join("config_home");
+        // Create an empty dir
+        let _cosmic_dir = setup_mock_cosmic_dir(&config_home);
+
+        let config = AppearanceConfig::default();
+
+        with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            assert_eq!(rt.block_on(config.resolved_background_path()), None);
+        });
+    }
+
+    #[test]
+    fn test_invalid_ron_format() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_home = temp_dir.path().join("config_home");
+        let cosmic_dir = setup_mock_cosmic_dir(&config_home);
+
+        // Write a file with an invalid format (no Path("..."))
+        let ron_content = r#"NotTheRightFormat("/path/that/does/not/exist.jpg")"#;
+        std::fs::write(cosmic_dir.join("bg.ron"), ron_content).unwrap();
+
+        let config = AppearanceConfig::default();
+
+        with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            assert_eq!(rt.block_on(config.resolved_background_path()), None);
+        });
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
