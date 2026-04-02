@@ -247,4 +247,33 @@ mod tests {
         assert!(approx_eq(palette[3], expected_d));
         assert!(approx_eq(palette[4], expected_e));
     }
+
+    #[test]
+    fn test_extract_palette_no_valid_colors() {
+        let mut img = image::RgbaImage::new(64, 64);
+
+        // Add pure black (too dark: 0, 0, 0 -> brightness 0 <= 30)
+        let dark_color = image::Rgba([0, 0, 0, 255]);
+        for y in 0..32 {
+            for x in 0..64 {
+                img.put_pixel(x, y, dark_color);
+            }
+        }
+
+        // Add pure white (too bright: 255, 255, 255 -> brightness 255 >= 220)
+        let bright_color = image::Rgba([255, 255, 255, 255]);
+        for y in 32..64 {
+            for x in 0..64 {
+                img.put_pixel(x, y, bright_color);
+            }
+        }
+
+        // Remaining implicit pixels are transparent [0,0,0,0], alpha < 128
+
+        let dyn_img = image::DynamicImage::ImageRgba8(img);
+        let palette = extract_palette(&dyn_img);
+
+        // We expect 0 colors since bright, dark and transparent are filtered out
+        assert_eq!(palette.len(), 0);
+    }
 }
