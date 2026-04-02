@@ -83,14 +83,17 @@ impl WeatherWatcher {
         config: &WeatherConfig,
         client: &reqwest::Client,
     ) -> Result<WeatherData> {
-        let url = format!(
-            "https://api.open-meteo.com/v1/forecast?\
-             latitude={}&longitude={}&\
-             current=temperature_2m,weather_code",
-            config.latitude, config.longitude
-        );
-
-        let response: OpenMeteoResponse = client.get(&url).send().await?.json().await?;
+        let response: OpenMeteoResponse = client
+            .get("https://api.open-meteo.com/v1/forecast")
+            .query(&[
+                ("latitude", config.latitude.to_string().as_str()),
+                ("longitude", config.longitude.to_string().as_str()),
+                ("current", "temperature_2m,weather_code"),
+            ])
+            .send()
+            .await?
+            .json()
+            .await?;
 
         let code = response.current.weather_code;
         let temp = response.current.temperature_2m;
