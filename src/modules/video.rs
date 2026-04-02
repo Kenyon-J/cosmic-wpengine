@@ -14,6 +14,23 @@ impl VideoDecoder {
         tx: Sender<Event>,
         mut cancel_rx: tokio::sync::watch::Receiver<bool>,
     ) -> Result<()> {
+        // Validate URL before passing to FFmpeg to prevent command injection/arbitrary file reads
+        let parsed_url = match url::Url::parse(&url) {
+            Ok(u) => u,
+            Err(e) => {
+                warn!("Invalid video URL provided: {}. Error: {}", url, e);
+                return Ok(());
+            }
+        };
+
+        let scheme = parsed_url.scheme();
+        if scheme != "http" && scheme != "https" {
+            warn!("Security violation: Unsupported video URL scheme '{}'. Only http/https are allowed.", scheme);
+            return Ok(());
+        }
+
+        let safe_url = parsed_url.to_string();
+
         // Runtime check to verify FFmpeg is available before trying to decode
         if Command::new("ffmpeg")
             .arg("-version")
@@ -25,7 +42,7 @@ impl VideoDecoder {
             return Ok(());
         }
 
-        info!("Starting FFmpeg video decoder for: {}", url);
+        info!("Starting FFmpeg video decoder for: {}", safe_url);
 
         let width = 1080;
         let height = 1920;
@@ -36,11 +53,13 @@ impl VideoDecoder {
                 "-hide_banner",
                 "-loglevel",
                 "error",
+                "-protocol_whitelist",
+                "http,https,tcp,tls,crypto",
                 "-re", // Read input at native frame rate so we don't peg the CPU!
                 "-stream_loop",
                 "-1", // Loop the video stream infinitely
                 "-i",
-                &url,
+                &safe_url,
                 // Scale and crop seamlessly to ensure it fits the 9:16 Canvas perfectly
                 "-vf",
                 "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
