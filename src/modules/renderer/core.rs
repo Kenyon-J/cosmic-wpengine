@@ -4,221 +4,21 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc::Receiver;
 use tracing::{info, warn};
 
-use super::{
-    colour::{lerp_colour, time_to_sky_colour},
-    event::Event,
-    state::{AppState, SceneHint},
-    visualiser_pass::VisualiserPass,
-    wayland::WaylandManager,
+use crate::modules::colour::{lerp_colour, time_to_sky_colour};
+use crate::modules::event::Event;
+use crate::modules::state::{AppState, SceneHint};
+use crate::modules::visualiser_pass::VisualiserPass;
+use crate::modules::wayland::WaylandManager;
+
+pub const GLYPH_CACHE_WIDTH: u32 = 2048;
+pub const GLYPH_CACHE_HEIGHT: u32 = 2048;
+use super::text::*;
+use super::types::*;
+
+use crate::modules::config::{
+    ArtShape, TemperatureUnit, TextAlign, ThemeLayout, VisAlign, VisShape, WallpaperMode,
 };
-
-const TEXT_SHADER_SRC: &str = include_str!("text.wgsl");
-const GLYPH_CACHE_WIDTH: u32 = 2048;
-const GLYPH_CACHE_HEIGHT: u32 = 2048;
-
-#[repr(C, align(16))]
-#[derive(Copy, Clone, Debug)]
-struct ArtUniforms {
-    color_and_transition: [f32; 4],
-    res: [f32; 2],
-    art_position: [f32; 2],
-    audio_energy: f32,
-    mode: u32,
-    bg_alpha: f32,
-    art_size: f32,
-    shape: u32,
-    blur_opacity: f32,
-    image_res: [f32; 2],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug)]
-struct Particle {
-    pos: [f32; 2],
-    vel: [f32; 2],
-    lifetime: f32,
-    scale: f32,
-    padding: [f32; 2], // Pad to 32 bytes to satisfy WGSL alignment rules
-}
-
-struct PositionedBuffer {
-    buffer: Buffer,
-    pos: [f32; 2],
-    color: [f32; 4],
-    scale: f32,
-    align: cosmic_text::Align,
-}
-
-struct CachedGlyph {
-    uv: [f32; 4],
-    offset: [i32; 2],
-    size: [u32; 2],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-struct TextVertex {
-    pos: [f32; 2],
-    tex_pos: [f32; 2],
-    color: [f32; 4],
-}
-
-struct TextRenderer {
-    pipeline: wgpu::RenderPipeline,
-    vertices: wgpu::Buffer,
-    indices: wgpu::Buffer,
-    num_indices: u32,
-    bind_group: wgpu::BindGroup,
-    texture: wgpu::Texture,
-    vertex_capacity: usize,
-    index_capacity: usize,
-    glyph_cache: std::collections::HashMap<cosmic_text::CacheKey, CachedGlyph>,
-    cache_x: u32,
-    cache_y: u32,
-    cache_row_height: u32,
-    cpu_vertices: Vec<TextVertex>,
-    cpu_indices: Vec<u32>,
-}
-
-impl TextRenderer {
-    fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Result<Self> {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Glyph Cache Texture"),
-            size: wgpu::Extent3d {
-                width: GLYPH_CACHE_WIDTH,
-                height: GLYPH_CACHE_HEIGHT,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Glyph Sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            ..Default::default()
-        });
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Text Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Text Bind Group"),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(
-                        &texture.create_view(&Default::default()),
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
-
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Text Shader"),
-            source: wgpu::ShaderSource::Wgsl(TEXT_SHADER_SRC.into()),
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Text Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Text Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<TextVertex>() as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4],
-                }],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
-
-        let vertex_capacity = 2048;
-        let index_capacity = 2048;
-
-        let vertices = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Text Vertex Buffer"),
-            size: (vertex_capacity * std::mem::size_of::<TextVertex>()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let indices = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Text Index Buffer"),
-            size: (index_capacity * std::mem::size_of::<u32>()) as u64,
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        Ok(Self {
-            pipeline,
-            vertices,
-            indices,
-            num_indices: 0,
-            bind_group,
-            texture,
-            vertex_capacity,
-            index_capacity,
-            glyph_cache: std::collections::HashMap::new(),
-            cache_x: 0,
-            cache_y: 0,
-            cache_row_height: 0,
-            cpu_vertices: Vec::with_capacity(vertex_capacity),
-            cpu_indices: Vec::with_capacity(index_capacity),
-        })
-    }
-}
-
+use crate::modules::event::WeatherCondition;
 pub struct GpuOutput {
     pub surface: wgpu::Surface<'static>,
     pub config: wgpu::SurfaceConfiguration,
@@ -267,7 +67,7 @@ pub struct Renderer {
     treble_moving_average: f32,
     treble_pulse: f32,
     last_treble_time: Instant,
-    theme: super::config::ThemeLayout,
+    theme: ThemeLayout,
     a_weighting_curve: Vec<f32>,
     frequency_bin_ranges: Vec<(usize, usize)>,
     waveform_bin_ranges: Vec<(usize, usize)>,
@@ -377,7 +177,7 @@ impl Renderer {
 
         let album_art_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Album Art Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("album_art.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../album_art.wgsl").into()),
         });
 
         let album_art_pipeline_layout =
@@ -478,7 +278,7 @@ impl Renderer {
 
         let ambient_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Ambient Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("ambient.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../ambient.wgsl").into()),
         });
 
         let ambient_pipeline_layout =
@@ -630,7 +430,7 @@ impl Renderer {
 
         let weather_compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Weather Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("weather_compute.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../weather_compute.wgsl").into()),
         });
 
         let weather_compute_pipeline_layout =
@@ -676,7 +476,7 @@ impl Renderer {
 
         let weather_render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Weather Render Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("weather_render.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../weather_render.wgsl").into()),
         });
 
         let weather_render_pipeline_layout =
@@ -776,12 +576,12 @@ impl Renderer {
 
         let mut outputs = Vec::new();
         for (info, surface) in outputs_info.into_iter().zip(surfaces) {
-            let caps = surface.get_capabilities(&adapter);
+            let caps: wgpu::SurfaceCapabilities = surface.get_capabilities(&adapter);
             let format = caps
                 .formats
                 .iter()
                 .copied()
-                .find(|f| f.is_srgb())
+                .find(|f: &wgpu::TextureFormat| f.is_srgb())
                 .unwrap_or(caps.formats[0]);
 
             let alpha_mode = if caps
@@ -859,7 +659,7 @@ impl Renderer {
             weather_render_bind_group,
             weather_render_pipeline,
         ) = Self::create_weather_pipelines(&device, &queue, config_format);
-        let theme = super::config::ThemeLayout::load(&state.config.audio.style);
+        let theme = ThemeLayout::load(&state.config.audio.style);
         let a_weighting_curve = Self::build_a_weighting_curve(state.config.audio.bands);
         let frequency_bin_ranges = Self::build_frequency_bin_ranges(state.config.audio.bands);
         let waveform_bin_ranges = Self::build_waveform_bin_ranges(state.config.audio.bands);
@@ -952,7 +752,6 @@ impl Renderer {
             // --- Dynamic FPS Throttling ---
             // Check if we should drop the FPS to save power.
             let is_weather_active = self.state.weather.as_ref().is_some_and(|w| {
-                use super::event::WeatherCondition;
                 matches!(
                     w.condition,
                     WeatherCondition::Rain
@@ -1006,7 +805,7 @@ impl Renderer {
                         .formats
                         .iter()
                         .copied()
-                        .find(|f| f.is_srgb())
+                        .find(|f: &wgpu::TextureFormat| f.is_srgb())
                         .unwrap_or(caps.formats[0]);
 
                     let alpha_mode = if caps
@@ -1151,7 +950,7 @@ impl Renderer {
                 let new_bg = config.appearance.resolved_background_path().await;
                 if new_bg != self.current_bg_path {
                     self.load_custom_background(new_bg.as_deref());
-                    self.current_bg_path = new_bg;
+                    self.current_bg_path = new_bg.clone();
                 }
 
                 if config.audio.bands != self.state.config.audio.bands {
@@ -1175,7 +974,7 @@ impl Renderer {
                     .await;
 
                 // Always reload the theme layout so live edits to the .toml apply instantly!
-                self.theme = super::config::ThemeLayout::load(&config.audio.style);
+                self.theme = ThemeLayout::load(&config.audio.style);
                 self.state.config = config;
                 self.update_weather_string();
                 info!("Live settings applied!");
@@ -1185,7 +984,7 @@ impl Renderer {
                 if let Some(art) = &track.album_art {
                     info!(
                         "Track contains album art ({} bytes raw). Sending to GPU...",
-                        art.len()
+                        (art.len() as wgpu::BufferAddress)
                     );
                     self.update_album_art_texture(art);
                 } else {
@@ -1311,15 +1110,16 @@ impl Renderer {
 
                 let bands_len = bands.len();
                 for (i, current) in self.state.audio_bands.iter_mut().enumerate() {
-                    let (bin_lo, bin_hi) = self.frequency_bin_ranges[i];
+                    let (bin_lo, bin_hi): (usize, usize) = self.frequency_bin_ranges[i];
 
-                    let max_val = bands
-                        .get(bin_lo..bin_hi.min(bands_len))
-                        .map_or(0.0, |slice| {
-                            slice
-                                .iter()
-                                .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
-                        });
+                    let max_val =
+                        bands
+                            .get(bin_lo..bin_hi.min(bands_len))
+                            .map_or(0.0, |slice: &[f32]| {
+                                slice
+                                    .iter()
+                                    .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
+                            });
 
                     let a_weighting_norm = self.a_weighting_curve[i];
                     let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
@@ -1337,20 +1137,23 @@ impl Renderer {
 
                 let wave_len = waveform.len();
                 for (i, current) in self.state.audio_waveform.iter_mut().enumerate() {
-                    let (start, end) = self.waveform_bin_ranges[i];
+                    let (start, end): (usize, usize) = self.waveform_bin_ranges[i];
 
-                    let peak = waveform.get(start..end.min(wave_len)).map_or(0.0, |slice| {
-                        let mut peak = 0.0f32;
-                        let mut peak_abs = 0.0f32;
-                        for &val in slice {
-                            let val_abs = val.abs();
-                            if val_abs > peak_abs {
-                                peak_abs = val_abs;
-                                peak = val;
-                            }
-                        }
-                        peak
-                    });
+                    let peak =
+                        waveform
+                            .get(start..end.min(wave_len))
+                            .map_or(0.0, |slice: &[f32]| {
+                                let mut peak = 0.0f32;
+                                let mut peak_abs = 0.0f32;
+                                for &val in slice {
+                                    let val_abs: f32 = val.abs();
+                                    if val_abs > peak_abs {
+                                        peak_abs = val_abs;
+                                        peak = val;
+                                    }
+                                }
+                                peak
+                            });
 
                     *current = *current * smoothing + peak * (1.0 - smoothing);
                 }
@@ -1376,13 +1179,15 @@ impl Renderer {
             _ => &self.state.audio_bands,
         };
 
-        let force_weather = self.state.config.mode == super::config::WallpaperMode::Weather;
-        let force_vis = self.state.config.mode == super::config::WallpaperMode::AudioVisualiser;
-        let force_art = self.state.config.mode == super::config::WallpaperMode::AlbumArt;
+        let force_weather = self.state.config.mode == WallpaperMode::Weather;
+        let force_vis = self.state.config.mode == WallpaperMode::AudioVisualiser;
+        let force_art = self.state.config.mode == WallpaperMode::AlbumArt;
 
         let is_waveform_style = self.state.config.audio.style == "waveform";
 
-        let max_energy = audio_data.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
+        let max_energy = audio_data
+            .iter()
+            .fold(0.0f32, |a: f32, &b: &f32| a.max(b.abs()));
         let has_audio = (max_energy > 0.001 || force_vis) && !force_weather && !force_art;
 
         let base_energy = if self.state.audio_bands.is_empty() {
@@ -1420,7 +1225,6 @@ impl Renderer {
         let pulse = self.beat_pulse;
 
         let is_weather_active = self.state.weather.as_ref().is_some_and(|w| {
-            use super::event::WeatherCondition;
             matches!(
                 w.condition,
                 WeatherCondition::Rain | WeatherCondition::Snow | WeatherCondition::Thunderstorm
@@ -1428,7 +1232,6 @@ impl Renderer {
         });
 
         let active_particles = if let Some(weather) = &self.state.weather {
-            use super::event::WeatherCondition;
             match weather.condition {
                 WeatherCondition::Rain => 800,
                 WeatherCondition::Thunderstorm => 1500,
@@ -1446,7 +1249,6 @@ impl Renderer {
             let mut gravity = 0.5f32;
 
             if let Some(weather) = &self.state.weather {
-                use super::event::WeatherCondition;
                 match weather.condition {
                     WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
                         gravity = 0.85; // Slower, more elegant rain
@@ -1578,14 +1380,14 @@ impl Renderer {
                     _padding: [u32; 3],
                 }
                 let shape_u32 = match self.theme.visualiser.shape {
-                    super::config::VisShape::Circular => 0,
-                    super::config::VisShape::Linear => 1,
-                    super::config::VisShape::Square => 2,
+                    VisShape::Circular => 0,
+                    VisShape::Linear => 1,
+                    VisShape::Square => 2,
                 };
                 let align_u32 = match self.theme.visualiser.align {
-                    super::config::VisAlign::Left => 0,
-                    super::config::VisAlign::Center => 1,
-                    super::config::VisAlign::Right => 2,
+                    VisAlign::Left => 0,
+                    VisAlign::Center => 1,
+                    VisAlign::Right => 2,
                 };
                 let vis_uniforms = VisUniforms {
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
@@ -1689,11 +1491,10 @@ impl Renderer {
 
                     // If the circular visualiser is active, dynamically override the album art
                     // layout to fit perfectly inside of it.
-                    if has_audio && self.theme.visualiser.shape == super::config::VisShape::Circular
-                    {
+                    if has_audio && self.theme.visualiser.shape == VisShape::Circular {
                         art_position = self.theme.visualiser.position;
                         art_size = self.theme.visualiser.size;
-                        art_shape = super::config::ArtShape::Circular; // Force circular shape to match
+                        art_shape = ArtShape::Circular; // Force circular shape to match
                     }
 
                     let fg_uniforms = ArtUniforms {
@@ -1709,7 +1510,7 @@ impl Renderer {
                         mode: 1,
                         bg_alpha: 1.0, // The sharp foreground art never fades!
                         art_size,
-                        shape: if art_shape == super::config::ArtShape::Circular {
+                        shape: if art_shape == ArtShape::Circular {
                             1
                         } else {
                             0
@@ -1779,7 +1580,6 @@ impl Renderer {
                 let mut weather_type = 0u32;
                 let sky = time_to_sky_colour(self.state.time_of_day);
                 let final_sky = if let Some(weather) = &self.state.weather {
-                    use super::event::WeatherCondition;
                     weather_type = match weather.condition {
                         WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
                         WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
@@ -1882,11 +1682,11 @@ impl Renderer {
                 )
             };
 
-            let map_align = |a: &super::config::TextAlign| -> cosmic_text::Align {
+            let map_align = |a: &TextAlign| -> cosmic_text::Align {
                 match a {
-                    super::config::TextAlign::Left => cosmic_text::Align::Left,
-                    super::config::TextAlign::Center => cosmic_text::Align::Center,
-                    super::config::TextAlign::Right => cosmic_text::Align::Right,
+                    TextAlign::Left => cosmic_text::Align::Left,
+                    TextAlign::Center => cosmic_text::Align::Center,
+                    TextAlign::Right => cosmic_text::Align::Right,
                 }
             };
 
@@ -2183,7 +1983,7 @@ impl Renderer {
                     render_pass.set_bind_group(0, &self.visualiser_pass.bind_group, &[]);
                     let instance_count = if is_waveform_style {
                         1
-                    } else if self.theme.visualiser.shape == super::config::VisShape::Linear {
+                    } else if self.theme.visualiser.shape == VisShape::Linear {
                         self.state.config.audio.bands as u32
                     } else {
                         self.state.config.audio.bands as u32 * 2
@@ -2223,17 +2023,16 @@ impl Renderer {
         }
 
         let scene = match self.state.config.mode {
-            super::config::WallpaperMode::Weather => SceneHint::Ambient,
-            super::config::WallpaperMode::AlbumArt => SceneHint::AlbumArt,
-            super::config::WallpaperMode::AudioVisualiser => SceneHint::AudioVisualiser,
-            super::config::WallpaperMode::Auto => self.state.scene_description(),
+            WallpaperMode::Weather => SceneHint::Ambient,
+            WallpaperMode::AlbumArt => SceneHint::AlbumArt,
+            WallpaperMode::AudioVisualiser => SceneHint::AudioVisualiser,
+            WallpaperMode::Auto => self.state.scene_description(),
         };
 
         match scene {
             SceneHint::Ambient => {
                 let sky = time_to_sky_colour(self.state.time_of_day);
                 let final_sky = if let Some(weather) = &self.state.weather {
-                    use super::event::WeatherCondition;
                     match weather.condition {
                         WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
                             lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
@@ -2640,20 +2439,18 @@ impl Renderer {
         if let Some(weather) = &self.state.weather {
             let mut val = weather.temperature_celsius;
             let mut unit = "C";
-            if self.state.config.weather.temperature_unit
-                == super::config::TemperatureUnit::Fahrenheit
-            {
+            if self.state.config.weather.temperature_unit == TemperatureUnit::Fahrenheit {
                 val = (val * 9.0 / 5.0) + 32.0;
                 unit = "F";
             }
             let condition_str = match weather.condition {
-                super::event::WeatherCondition::Clear => "Clear",
-                super::event::WeatherCondition::PartlyCloudy => "Partly Cloudy",
-                super::event::WeatherCondition::Cloudy => "Cloudy",
-                super::event::WeatherCondition::Rain => "Rain",
-                super::event::WeatherCondition::Snow => "Snow",
-                super::event::WeatherCondition::Thunderstorm => "Thunderstorm",
-                super::event::WeatherCondition::Fog => "Fog",
+                WeatherCondition::Clear => "Clear",
+                WeatherCondition::PartlyCloudy => "Partly Cloudy",
+                WeatherCondition::Cloudy => "Cloudy",
+                WeatherCondition::Rain => "Rain",
+                WeatherCondition::Snow => "Snow",
+                WeatherCondition::Thunderstorm => "Thunderstorm",
+                WeatherCondition::Fog => "Fog",
             };
             self.cached_weather_str = format!("{} {:.1}°{}", condition_str, val, unit);
         } else {
@@ -2695,7 +2492,8 @@ impl Renderer {
             for run in p_buf.buffer.layout_runs() {
                 for glyph in run.glyphs.iter() {
                     // Force subpixel rendering layout to absolute 0.0 offsets. We do the real positioning in the shader!
-                    let physical_glyph = glyph.physical((0.0, 0.0), 1.0);
+                    let physical_glyph: cosmic_text::PhysicalGlyph =
+                        glyph.physical((0.0, 0.0), 1.0);
                     let cache_key = physical_glyph.cache_key;
 
                     // Rasterize and pack into texture atlas if not already cached
