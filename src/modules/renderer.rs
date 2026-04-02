@@ -282,118 +282,18 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub async fn new(
-        wayland_manager: &WaylandManager,
-        state: AppState,
-        show_lyrics_atomic: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    ) -> Result<Self> {
-        let fps = state.config.fps;
-        let current_fps = fps;
-
-        info!("Initialising wgpu renderer...");
-
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
-            ..Default::default()
-        });
-
-        let outputs_info = wayland_manager.outputs();
-        if outputs_info.is_empty() {
-            anyhow::bail!("No Wayland outputs found to render to");
-        }
-
-        let mut surfaces = Vec::new();
-        for info in &outputs_info {
-            let target = wgpu::SurfaceTargetUnsafe::RawHandle {
-                raw_display_handle: info.raw_display_handle(),
-                raw_window_handle: info.raw_window_handle(),
-            };
-            surfaces.push(unsafe { instance.create_surface_unsafe(target) }?);
-        }
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
-                compatible_surface: Some(&surfaces[0]),
-                force_fallback_adapter: false,
-            })
-            .await
-            .expect("No suitable GPU adapter found");
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("COSMIC Wallpaper Device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                },
-                None,
-            )
-            .await?;
-
-        let mut outputs = Vec::new();
-        for (info, surface) in outputs_info.into_iter().zip(surfaces) {
-            let caps = surface.get_capabilities(&adapter);
-            let format = caps
-                .formats
-                .iter()
-                .copied()
-                .find(|f| f.is_srgb())
-                .unwrap_or(caps.formats[0]);
-
-            let alpha_mode = if caps
-                .alpha_modes
-                .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
-            {
-                wgpu::CompositeAlphaMode::PreMultiplied
-            } else if caps
-                .alpha_modes
-                .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
-            {
-                wgpu::CompositeAlphaMode::PostMultiplied
-            } else {
-                caps.alpha_modes[0]
-            };
-
-            let present_mode = if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
-                wgpu::PresentMode::Mailbox
-            } else if caps.present_modes.contains(&wgpu::PresentMode::FifoRelaxed) {
-                wgpu::PresentMode::FifoRelaxed
-            } else {
-                caps.present_modes[0]
-            };
-
-            let config = wgpu::SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format,
-                width: info.width,
-                height: info.height,
-                present_mode,
-                alpha_mode,
-                view_formats: vec![],
-                desired_maximum_frame_latency: 2,
-            };
-            surface.configure(&device, &config);
-
-            outputs.push(GpuOutput { surface, config });
-        }
-
-        let config_format = outputs[0].config.format;
-
-        // --- Visualiser Pipeline Setup ---
-        let visualiser_pass = VisualiserPass::new(
-            &device,
-            config_format,
-            state.config.audio.bands,
-            &state.config.audio.style,
-        )
-        .await?;
-
-        // --- Text Rendering Setup ---
-        let font_system = FontSystem::new();
-        let swash_cache = SwashCache::new();
-        let text_renderer = TextRenderer::new(&device, config_format)?;
-
+    fn create_album_art_pipeline(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        config_format: wgpu::TextureFormat,
+    ) -> (
+        wgpu::RenderPipeline,
+        wgpu::BindGroupLayout,
+        wgpu::Buffer,
+        wgpu::Buffer,
+        wgpu::Texture,
+        wgpu::Sampler,
+    ) {
         // --- Album Art Pipeline Setup ---
         let empty_texture = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
@@ -515,6 +415,35 @@ impl Renderer {
             multiview: None,
         });
 
+        let album_art_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        (
+            album_art_pipeline,
+            album_art_layout,
+            album_art_bg_uniform_buffer,
+            album_art_fg_uniform_buffer,
+            empty_texture,
+            album_art_sampler,
+        )
+    }
+
+    fn create_ambient_pipeline(
+        device: &wgpu::Device,
+        config_format: wgpu::TextureFormat,
+    ) -> (
+        wgpu::RenderPipeline,
+        wgpu::BindGroup,
+        wgpu::Buffer,
+        wgpu::Buffer,
+    ) {
         // --- Ambient Pipeline Setup ---
         let ambient_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Ambient Uniform Buffer"),
@@ -594,6 +523,26 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
+        (
+            ambient_pipeline,
+            ambient_bind_group,
+            ambient_uniform_buffer,
+            custom_bg_uniform_buffer,
+        )
+    }
+
+    fn create_weather_pipelines(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        config_format: wgpu::TextureFormat,
+    ) -> (
+        wgpu::Buffer,
+        wgpu::Buffer,
+        wgpu::BindGroup,
+        wgpu::ComputePipeline,
+        wgpu::BindGroup,
+        wgpu::RenderPipeline,
+    ) {
         // --- Weather Compute Pipeline Setup ---
         let mut initial_particles = Vec::with_capacity(10000);
         for i in 0..10000 {
@@ -766,20 +715,154 @@ impl Renderer {
                 multiview: None,
             });
 
+        (
+            particle_buffer,
+            weather_compute_uniform_buffer,
+            weather_compute_bind_group,
+            weather_compute_pipeline,
+            weather_render_bind_group,
+            weather_render_pipeline,
+        )
+    }
+
+    pub async fn new(
+        wayland_manager: &WaylandManager,
+        state: AppState,
+        show_lyrics_atomic: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<Self> {
+        let fps = state.config.fps;
+        let current_fps = fps;
+
+        info!("Initialising wgpu renderer...");
+
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
+            ..Default::default()
+        });
+
+        let outputs_info = wayland_manager.outputs();
+        if outputs_info.is_empty() {
+            anyhow::bail!("No Wayland outputs found to render to");
+        }
+
+        let mut surfaces = Vec::new();
+        for info in &outputs_info {
+            let target = wgpu::SurfaceTargetUnsafe::RawHandle {
+                raw_display_handle: info.raw_display_handle(),
+                raw_window_handle: info.raw_window_handle(),
+            };
+            surfaces.push(unsafe { instance.create_surface_unsafe(target) }?);
+        }
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: Some(&surfaces[0]),
+                force_fallback_adapter: false,
+            })
+            .await
+            .expect("No suitable GPU adapter found");
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("COSMIC Wallpaper Device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
+                },
+                None,
+            )
+            .await?;
+
+        let mut outputs = Vec::new();
+        for (info, surface) in outputs_info.into_iter().zip(surfaces) {
+            let caps = surface.get_capabilities(&adapter);
+            let format = caps
+                .formats
+                .iter()
+                .copied()
+                .find(|f| f.is_srgb())
+                .unwrap_or(caps.formats[0]);
+
+            let alpha_mode = if caps
+                .alpha_modes
+                .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+            {
+                wgpu::CompositeAlphaMode::PreMultiplied
+            } else if caps
+                .alpha_modes
+                .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
+            {
+                wgpu::CompositeAlphaMode::PostMultiplied
+            } else {
+                caps.alpha_modes[0]
+            };
+
+            let present_mode = if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
+                wgpu::PresentMode::Mailbox
+            } else if caps.present_modes.contains(&wgpu::PresentMode::FifoRelaxed) {
+                wgpu::PresentMode::FifoRelaxed
+            } else {
+                caps.present_modes[0]
+            };
+
+            let config = wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format,
+                width: info.width,
+                height: info.height,
+                present_mode,
+                alpha_mode,
+                view_formats: vec![],
+                desired_maximum_frame_latency: 2,
+            };
+            surface.configure(&device, &config);
+
+            outputs.push(GpuOutput { surface, config });
+        }
+
+        let config_format = outputs[0].config.format;
+
+        // --- Visualiser Pipeline Setup ---
+        let visualiser_pass = VisualiserPass::new(
+            &device,
+            config_format,
+            state.config.audio.bands,
+            &state.config.audio.style,
+        )
+        .await?;
+
+        // --- Text Rendering Setup ---
+        let font_system = FontSystem::new();
+        let swash_cache = SwashCache::new();
+        let text_renderer = TextRenderer::new(&device, config_format)?;
+
+        let (
+            album_art_pipeline,
+            album_art_layout,
+            album_art_bg_uniform_buffer,
+            album_art_fg_uniform_buffer,
+            empty_texture,
+            album_art_sampler,
+        ) = Self::create_album_art_pipeline(&device, &queue, config_format);
+        let (
+            ambient_pipeline,
+            ambient_bind_group,
+            ambient_uniform_buffer,
+            custom_bg_uniform_buffer,
+        ) = Self::create_ambient_pipeline(&device, config_format);
+        let (
+            particle_buffer,
+            weather_compute_uniform_buffer,
+            weather_compute_bind_group,
+            weather_compute_pipeline,
+            weather_render_bind_group,
+            weather_render_pipeline,
+        ) = Self::create_weather_pipelines(&device, &queue, config_format);
         let theme = super::config::ThemeLayout::load(&state.config.audio.style);
         let a_weighting_curve = Self::build_a_weighting_curve(state.config.audio.bands);
         let frequency_bin_ranges = Self::build_frequency_bin_ranges(state.config.audio.bands);
         let waveform_bin_ranges = Self::build_waveform_bin_ranges(state.config.audio.bands);
-
-        let album_art_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
 
         let mut renderer = Self {
             instance,
