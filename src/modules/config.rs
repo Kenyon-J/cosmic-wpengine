@@ -309,6 +309,43 @@ mod tests {
             assert_eq!(rt.block_on(config.resolved_background_path()), None);
         });
     }
+
+    #[test]
+    fn test_fallback_to_home_dir_with_xdg_config_home_unset() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home_dir = temp_dir.path().join("home_dir");
+        let expected_config_dir = home_dir.join(".config");
+        let cosmic_dir = setup_mock_cosmic_dir(&expected_config_dir);
+
+        let img_path = temp_dir.path().join("image.jpg");
+        std::fs::write(&img_path, "fake image data").unwrap();
+
+        let ron_content = format!(r#"Path("{}")"#, img_path.display());
+        std::fs::write(cosmic_dir.join("bg.ron"), ron_content).unwrap();
+
+        let config = AppearanceConfig::default();
+
+        with_env_lock(None, Some(home_dir.to_str().unwrap()), || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            assert_eq!(
+                rt.block_on(config.resolved_background_path()),
+                Some(img_path.to_string_lossy().to_string())
+            );
+        });
+    }
+
+    #[test]
+    fn test_fallback_with_both_env_vars_missing() {
+        let config = AppearanceConfig::default();
+
+        with_env_lock(None, None, || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            // With both vars missing, HOME is not set, so it should fall back to an empty string,
+            // producing `.config/...` relatively, which will probably fail to read.
+            // This tests that we handle this missing case without panicking.
+            assert_eq!(rt.block_on(config.resolved_background_path()), None);
+        });
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
