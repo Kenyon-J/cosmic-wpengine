@@ -33,7 +33,7 @@ pub struct Renderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
     text_renderer: TextRenderer,
-    text_buffer_pool: Vec<Buffer>,
+    text_buffer_cache: std::collections::HashMap<String, Buffer>,
     visualiser_pass: VisualiserPass,
     album_art_pipeline: wgpu::RenderPipeline,
     album_art_layout: wgpu::BindGroupLayout,
@@ -344,8 +344,9 @@ impl Renderer {
         wgpu::RenderPipeline,
     ) {
         // --- Weather Compute Pipeline Setup ---
-        let mut initial_particles = Vec::with_capacity(10000);
-        for i in 0..10000 {
+        let max_particles = 2500;
+        let mut initial_particles = Vec::with_capacity(max_particles);
+        for i in 0..max_particles {
             initial_particles.push(Particle {
                 pos: [
                     (i as f32 * 12.9898).sin().fract() * 2.0 - 0.5, // Random X scatter
@@ -354,7 +355,6 @@ impl Renderer {
                 vel: [0.0, 0.5 + (i as f32 % 5.0) * 0.1], // Base downward velocity
                 lifetime: 5.0 + (i as f32 % 5.0),
                 scale: 1.0,
-                padding: [0.0; 2],
             });
         }
 
@@ -614,7 +614,7 @@ impl Renderer {
                 present_mode,
                 alpha_mode,
                 view_formats: vec![],
-                desired_maximum_frame_latency: 2,
+                desired_maximum_frame_latency: 1, // Enforce Double Buffering to save ~33MB+ VRAM per monitor
             };
             surface.configure(&device, &config);
 
@@ -673,7 +673,7 @@ impl Renderer {
             font_system,
             swash_cache,
             text_renderer,
-            text_buffer_pool: Vec::new(),
+            text_buffer_cache: std::collections::HashMap::new(),
             visualiser_pass,
             album_art_pipeline,
             album_art_layout,
@@ -838,7 +838,7 @@ impl Renderer {
                         present_mode,
                         alpha_mode,
                         view_formats: vec![],
-                        desired_maximum_frame_latency: 2,
+                        desired_maximum_frame_latency: 1,
                     };
                     surface.configure(&self.device, &config);
 
@@ -979,20 +979,25 @@ impl Renderer {
                 self.update_weather_string();
                 info!("Live settings applied!");
             }
-            Event::TrackChanged(track) => {
+            Event::TrackChanged(mut track) => {
+                self.text_buffer_cache.clear(); // Free old shaped lyrics from memory!
+                self.text_buffer_cache.shrink_to_fit();
                 info!("Now playing: {} - {}", track.artist, track.title);
-                if let Some(art) = &track.album_art {
+                let has_art = track.album_art.is_some();
+                // take() strips the massive image payload out of TrackInfo so we don't hoard it in RAM permanently!
+                if let Some(art) = track.album_art.take() {
                     info!(
                         "Track contains album art ({} bytes raw). Sending to GPU...",
                         (art.len() as wgpu::BufferAddress)
                     );
-                    self.update_album_art_texture(art);
+                    self.update_album_art_texture(&art);
                 } else {
                     warn!("Track event received, but album_art payload is None!");
                     self.album_art_bg_bind_group = None;
                     self.album_art_fg_bind_group = None;
                     self.current_album_texture = None;
                 }
+                self.state.has_album_art = has_art;
                 self.cached_track_str =
                     format!("{} — {}\n{}", track.title, track.artist, track.album);
                 self.state.previous_palette = self
@@ -1018,10 +1023,18 @@ impl Renderer {
 
             Event::VideoFrame(frame) => {
                 self.update_video_frame(&frame);
+                let buffer = frame.into_raw();
+                if let Ok(mut pool) = crate::modules::video::get_frame_pool().lock() {
+                    if pool.len() < 3 {
+                        pool.push(buffer);
+                    }
+                }
             }
 
             Event::PlayerShutDown => {
                 self.cached_track_str.clear();
+                self.text_buffer_cache.clear();
+                self.text_buffer_cache.shrink_to_fit();
                 self.state.previous_palette = self
                     .state
                     .current_track
@@ -1030,11 +1043,23 @@ impl Renderer {
                 self.album_art_bg_bind_group = None;
                 self.album_art_fg_bind_group = None;
                 self.current_album_texture = None;
+                self.state.has_album_art = false;
                 self.state.current_track = None;
                 self.state.is_playing = false;
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;
                 self.state.begin_transition();
+                
+                // Free the padding buffers back to the OS allocator on idle
+                self.video_frame_buffer.clear();
+                self.video_frame_buffer.shrink_to_fit();
+                self.album_art_pad_buffer.clear();
+                self.album_art_pad_buffer.shrink_to_fit();
+
+                if let Ok(mut pool) = crate::modules::video::get_frame_pool().lock() {
+                    pool.clear();
+                    pool.shrink_to_fit();
+                }
             }
 
             Event::PlaybackPosition(pos) => {
@@ -1201,12 +1226,7 @@ impl Renderer {
         // --- IMPORTANT FIX ---
         // The old state check can fail due to subtle race conditions.
         // The most robust way to check for media is to see if the GPU resources for it exist.
-        let has_media_check_state = self
-            .state
-            .current_track
-            .as_ref()
-            .and_then(|t| t.album_art.as_ref())
-            .is_some();
+        let has_media_check_state = self.state.has_album_art;
         let has_media_check_gpu = self.album_art_fg_bind_group.is_some();
         if has_media_check_gpu && !has_media_check_state {
             warn!("Album art visibility check mismatch! State: false, GPU: true. Using GPU state.");
@@ -1758,19 +1778,16 @@ impl Renderer {
                             if final_color[3] > 0.01 {
                                 let metrics =
                                     Metrics::new(active_font_size, active_font_size * 1.2);
-                                let mut buffer = self
-                                    .text_buffer_pool
-                                    .pop()
-                                    .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
-                                buffer.set_metrics(&mut self.font_system, metrics);
-                                buffer.set_size(&mut self.font_system, width_f, height_f);
+                            let mut buffer = self.text_buffer_cache.remove(&lyric_line.text).unwrap_or_else(|| {
+                                let mut b = Buffer::new(&mut self.font_system, metrics);
+                                b.set_metrics(&mut self.font_system, metrics);
+                                b.set_size(&mut self.font_system, width_f, height_f);
+                                b.set_text(&mut self.font_system, &lyric_line.text, attrs, Shaping::Advanced);
+                                b
+                            });
+                            buffer.set_metrics(&mut self.font_system, metrics);
+                            buffer.set_size(&mut self.font_system, width_f, height_f);
 
-                                buffer.set_text(
-                                    &mut self.font_system,
-                                    &lyric_line.text,
-                                    attrs,
-                                    Shaping::Advanced,
-                                );
                                 let align = map_align(&self.theme.lyrics.align);
                                 buffer.lines.iter_mut().for_each(|line| {
                                     line.set_align(Some(align));
@@ -1783,6 +1800,7 @@ impl Renderer {
 
                                 text_buffers.push(PositionedBuffer {
                                     buffer,
+                                text_key: lyric_line.text.clone(),
                                     pos,
                                     color: final_color,
                                     scale: render_scale,
@@ -1797,24 +1815,21 @@ impl Renderer {
             if self.state.current_track.is_some() && !self.cached_track_str.is_empty() {
                 let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
-                let mut buffer = self
-                    .text_buffer_pool
-                    .pop()
-                    .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
-                buffer.set_metrics(&mut self.font_system, metrics);
-                buffer.set_size(&mut self.font_system, width_f, height_f);
+            let mut buffer = self.text_buffer_cache.remove(&self.cached_track_str).unwrap_or_else(|| {
+                let mut b = Buffer::new(&mut self.font_system, metrics);
+                b.set_metrics(&mut self.font_system, metrics);
+                b.set_size(&mut self.font_system, width_f, height_f);
+                b.set_text(&mut self.font_system, &self.cached_track_str, attrs, Shaping::Advanced);
+                b
+            });
+            buffer.set_metrics(&mut self.font_system, metrics);
+            buffer.set_size(&mut self.font_system, width_f, height_f);
                 let final_color = [
                     secondary_text[0],
                     secondary_text[1],
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                buffer.set_text(
-                    &mut self.font_system,
-                    &self.cached_track_str,
-                    attrs,
-                    Shaping::Advanced,
-                );
                 let align = map_align(&self.theme.track_info.align);
                 buffer.lines.iter_mut().for_each(|line| {
                     line.set_align(Some(align));
@@ -1825,6 +1840,7 @@ impl Renderer {
                 ];
                 text_buffers.push(PositionedBuffer {
                     buffer,
+                text_key: self.cached_track_str.clone(),
                     pos,
                     color: final_color,
                     scale: 1.0,
@@ -1835,24 +1851,21 @@ impl Renderer {
             if self.state.weather.is_some() && !self.cached_weather_str.is_empty() {
                 let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
-                let mut buffer = self
-                    .text_buffer_pool
-                    .pop()
-                    .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
-                buffer.set_metrics(&mut self.font_system, metrics);
-                buffer.set_size(&mut self.font_system, width_f, height_f);
+            let mut buffer = self.text_buffer_cache.remove(&self.cached_weather_str).unwrap_or_else(|| {
+                let mut b = Buffer::new(&mut self.font_system, metrics);
+                b.set_metrics(&mut self.font_system, metrics);
+                b.set_size(&mut self.font_system, width_f, height_f);
+                b.set_text(&mut self.font_system, &self.cached_weather_str, attrs, Shaping::Advanced);
+                b
+            });
+            buffer.set_metrics(&mut self.font_system, metrics);
+            buffer.set_size(&mut self.font_system, width_f, height_f);
                 let final_color = [
                     secondary_text[0],
                     secondary_text[1],
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                buffer.set_text(
-                    &mut self.font_system,
-                    &self.cached_weather_str,
-                    attrs,
-                    Shaping::Advanced,
-                );
                 let align = map_align(&self.theme.weather.align);
                 buffer.lines.iter_mut().for_each(|line| {
                     line.set_align(Some(align));
@@ -1863,6 +1876,7 @@ impl Renderer {
                 ];
                 text_buffers.push(PositionedBuffer {
                     buffer,
+                text_key: self.cached_weather_str.clone(),
                     pos,
                     color: final_color,
                     scale: 1.0,
@@ -1881,9 +1895,15 @@ impl Renderer {
                 height_f,
             );
 
-            for p_buf in text_buffers {
-                self.text_buffer_pool.push(p_buf.buffer);
-            }
+        // Prevent unbound memory growth for weather/ambient setups left running for days
+        if self.text_buffer_cache.len() > 100 {
+            self.text_buffer_cache.clear();
+            self.text_buffer_cache.shrink_to_fit();
+        }
+
+        for p_buf in text_buffers {
+            self.text_buffer_cache.insert(p_buf.text_key, p_buf.buffer);
+        }
 
             if self.text_renderer.vertex_capacity < self.text_renderer.cpu_vertices.len() {
                 self.text_renderer.vertex_capacity =

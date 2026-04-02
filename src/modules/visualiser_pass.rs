@@ -7,6 +7,7 @@ pub struct VisualiserPass {
     pub uniform_buffer: wgpu::Buffer,
     pub bands_buffer: wgpu::Buffer,
     layout: wgpu::BindGroupLayout,
+    shader_src: String,
 }
 
 impl VisualiserPass {
@@ -65,12 +66,15 @@ impl VisualiserPass {
         let bind_group = Self::create_bind_group(device, &layout, &uniform_buffer, &bands_buffer);
 
         let theme = super::config::ThemeLayout::load(style);
+        let mut shader_src = Self::load_shader_source(theme.visualiser.shader.as_deref());
+
         let mut pipeline =
-            Self::create_pipeline(device, format, &layout, theme.visualiser.shader.as_deref())
-                .await;
+            Self::create_pipeline(device, format, &layout, &shader_src).await;
+
         if pipeline.is_none() {
             tracing::warn!("Falling back to 'bars' due to invalid initial shader.");
-            pipeline = Self::create_pipeline(device, format, &layout, None).await;
+            shader_src = include_str!("visualiser.wgsl").to_string();
+            pipeline = Self::create_pipeline(device, format, &layout, &shader_src).await;
         }
 
         Ok(Self {
@@ -80,6 +84,7 @@ impl VisualiserPass {
             uniform_buffer,
             bands_buffer,
             layout,
+            shader_src,
         })
     }
 
@@ -129,17 +134,37 @@ impl VisualiserPass {
         }
 
         let theme = super::config::ThemeLayout::load(style);
-        if let Some(new_pipeline) = Self::create_pipeline(
-            device,
-            format,
-            &self.layout,
-            theme.visualiser.shader.as_deref(),
-        )
-        .await
-        {
-            self.pipeline = new_pipeline;
+        let new_shader_src = Self::load_shader_source(theme.visualiser.shader.as_deref());
+
+        // WGSL pipeline compilation is extremely expensive. Only rebuild if the shader code actually changed!
+        if self.shader_src != new_shader_src {
+            if let Some(new_pipeline) = Self::create_pipeline(
+                device,
+                format,
+                &self.layout,
+                &new_shader_src,
+            )
+            .await
+            {
+                self.pipeline = new_pipeline;
+                self.shader_src = new_shader_src;
+            } else {
+                tracing::warn!("Keeping previous visualiser shader due to compilation failure.");
+            }
+        }
+    }
+
+    fn load_shader_source(custom_shader: Option<&str>) -> String {
+        if let Some(shader_name) = custom_shader {
+            let path = super::config::Config::config_dir()
+                .join("shaders")
+                .join(shader_name);
+            std::fs::read_to_string(&path).unwrap_or_else(|e| {
+                tracing::warn!("Failed to read custom shader '{shader_name}': {e}. Falling back to default.");
+                include_str!("visualiser.wgsl").to_string()
+            })
         } else {
-            tracing::warn!("Keeping previous visualiser shader due to compilation failure.");
+            include_str!("visualiser.wgsl").to_string()
         }
     }
 
@@ -147,23 +172,8 @@ impl VisualiserPass {
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         layout: &wgpu::BindGroupLayout,
-        custom_shader: Option<&str>,
+        shader_src: &str,
     ) -> Option<wgpu::RenderPipeline> {
-        let shader_src = {
-            if let Some(shader_name) = custom_shader {
-                let path = super::config::Config::config_dir()
-                    .join("shaders")
-                    .join(shader_name);
-                std::fs::read_to_string(&path).unwrap_or_else(|e| {
-                    tracing::warn!("Failed to read custom shader '{shader_name}': {e}. Falling back to default.");
-                    include_str!("visualiser.wgsl").to_string()
-                })
-            } else {
-                // Always load the single, unified visualiser shader by default
-                include_str!("visualiser.wgsl").to_string()
-            }
-        };
-
         device.push_error_scope(wgpu::ErrorFilter::Validation);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {

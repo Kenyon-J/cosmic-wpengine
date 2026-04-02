@@ -1,10 +1,17 @@
 use anyhow::Result;
+use std::sync::{Mutex, OnceLock};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
 use super::event::Event;
+
+static FRAME_POOL: OnceLock<Mutex<Vec<Vec<u8>>>> = OnceLock::new();
+
+pub fn get_frame_pool() -> &'static Mutex<Vec<Vec<u8>>> {
+    FRAME_POOL.get_or_init(|| Mutex::new(Vec::with_capacity(3)))
+}
 
 pub struct VideoDecoder;
 
@@ -44,8 +51,8 @@ impl VideoDecoder {
 
         info!("Starting FFmpeg video decoder for: {}", safe_url);
 
-        let width = 1080;
-        let height = 1920;
+        let width = 540;
+        let height = 960;
         let frame_size = width * height * 4;
 
         let mut child = Command::new("ffmpeg")
@@ -62,7 +69,7 @@ impl VideoDecoder {
                 &safe_url,
                 // Scale and crop seamlessly to ensure it fits the 9:16 Canvas perfectly
                 "-vf",
-                "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
+                "scale=540:960:force_original_aspect_ratio=increase,crop=540:960",
                 "-f",
                 "rawvideo",
                 "-pix_fmt",
@@ -77,9 +84,16 @@ impl VideoDecoder {
             .spawn()?;
 
         let mut stdout = child.stdout.take().expect("Failed to open stdout");
-        let mut buffer = vec![0u8; frame_size];
 
         loop {
+            let mut buffer = get_frame_pool()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .pop()
+                .unwrap_or_else(|| vec![0u8; frame_size]);
+            if buffer.len() != frame_size {
+                buffer.resize(frame_size, 0);
+            }
             tokio::select! {
                 _ = cancel_rx.changed() => {
                     if *cancel_rx.borrow() {
@@ -90,9 +104,19 @@ impl VideoDecoder {
                 result = stdout.read_exact(&mut buffer) => {
                     match result {
                         Ok(_) => {
-                            if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, buffer.clone()) {
-                                if tx.send(Event::VideoFrame(img)).await.is_err() {
-                                    break;
+                            if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, buffer) {
+                                match tx.try_send(Event::VideoFrame(img)) {
+                                    Ok(_) => {}
+                                    Err(tokio::sync::mpsc::error::TrySendError::Full(Event::VideoFrame(dropped_img))) => {
+                                        warn!("Renderer busy, dropping video frame to prevent memory bloat");
+                                        if let Ok(mut pool) = get_frame_pool().lock() {
+                                            if pool.len() < 3 {
+                                                pool.push(dropped_img.into_raw());
+                                            }
+                                        }
+                                    }
+                                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
+                                    _ => {}
                                 }
                             }
                         }

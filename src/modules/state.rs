@@ -7,6 +7,7 @@ pub struct AppState {
     pub config: Config,
 
     pub current_track: Option<TrackInfo>,
+    pub has_album_art: bool,
     pub is_playing: bool,
     pub previous_palette: Option<Vec<[f32; 3]>>,
     pub playback_position: std::time::Duration,
@@ -33,6 +34,7 @@ impl AppState {
         Self {
             config,
             current_track: None,
+            has_album_art: false,
             is_playing: false,
             previous_palette: None,
             playback_position: std::time::Duration::ZERO,
@@ -74,12 +76,7 @@ impl AppState {
     }
 
     pub fn scene_description(&self) -> SceneHint {
-        if self
-            .current_track
-            .as_ref()
-            .and_then(|t| t.album_art.as_ref())
-            .is_some()
-        {
+        if self.has_album_art {
             return SceneHint::AlbumArt;
         }
 
@@ -144,6 +141,7 @@ mod tests {
             lyrics: None,
             video_url: None,
         });
+        state.has_album_art = true;
         assert_eq!(state.scene_description(), SceneHint::AlbumArt);
     }
 }

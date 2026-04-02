@@ -362,7 +362,11 @@ impl WaylandManager {
     }
 
     pub fn cleanup_dead_windows(&mut self) {
-        self.app_data.dead_windows.clear();
+        for win in self.app_data.dead_windows.drain(..) {
+            // WlCallback has no destroy request, and SCTK's LayerSurface handles its own cleanup on Drop.
+            // However, raw Wayland proxies like WlSurface DO need explicit destruction to avoid VRAM leaks.
+            win.surface.destroy();
+        }
     }
 
     pub fn mark_frame_rendered(&mut self, index: usize) {

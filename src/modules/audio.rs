@@ -150,7 +150,6 @@ impl AudioCapture {
                         return;
                     }
 
-                    let mut mono_samples = Vec::new();
                     let mut valid = 0;
 
                     if datas.len() >= 2 {
@@ -179,7 +178,7 @@ impl AudioCapture {
                                     )
                                 };
                                 for i in 0..valid {
-                                    mono_samples.push((left_f32[i] + right_f32[i]) * 0.5);
+                                    sample_buffer.push((left_f32[i] + right_f32[i]) * 0.5);
                                 }
                             }
                         }
@@ -194,9 +193,9 @@ impl AudioCapture {
                                 };
                                 for chunk in f32_samples.chunks(2) {
                                     if chunk.len() == 2 {
-                                        mono_samples.push((chunk[0] + chunk[1]) * 0.5);
+                                        sample_buffer.push((chunk[0] + chunk[1]) * 0.5);
                                     } else {
-                                        mono_samples.push(chunk[0]);
+                                        sample_buffer.push(chunk[0]);
                                     }
                                 }
                             }
@@ -218,10 +217,6 @@ impl AudioCapture {
                                 valid_chunks
                             );
                         }
-                    }
-
-                    for s in mono_samples {
-                        sample_buffer.push(s);
                     }
 
                     while sample_buffer.len() >= FFT_SIZE {

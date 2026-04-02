@@ -1,3 +1,6 @@
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use cosmic::app::Core;
 use cosmic::iced::widget::{checkbox, pick_list, slider};
 use cosmic::iced::Length;

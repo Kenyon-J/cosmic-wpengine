@@ -350,11 +350,14 @@ impl MprisWatcher {
             if visible && !is_timed_out && last_metadata != last_processed_metadata {
                 if let Some(meta) = last_metadata.clone() {
                     // Prevent boundless memory growth in caches for a long-running process
-                    if palette_cache.len() > 50 {
+                    if palette_cache.len() > 50 || lyrics_cache.len() > 50 || video_cache.len() > 50 {
                         info!("Clearing MPRIS caches to free memory...");
                         palette_cache.clear();
+                        palette_cache.shrink_to_fit();
                         lyrics_cache.clear();
+                        lyrics_cache.shrink_to_fit();
                         video_cache.clear();
+                        video_cache.shrink_to_fit();
                     }
 
                     info!("Fetching track info for: {} - {}", meta.artist, meta.title);
@@ -462,7 +465,15 @@ impl MprisWatcher {
                 // to a dedicated blocking thread. This saves ~50-100ms of executor stall time.
                 tokio::task::spawn_blocking(move || {
                     let palette = cached.unwrap_or_else(|| extract_palette(&img));
-                    let rgba = img.into_rgba8();
+
+                    // Optimisation: Limit album art size to 1024x1024 to prevent massive RAM usage.
+                    let resized_img = if img.width() > 1024 || img.height() > 1024 {
+                        img.thumbnail(1024, 1024)
+                    } else {
+                        img
+                    };
+
+                    let rgba = resized_img.into_rgba8();
                     (Some(rgba), Some(palette))
                 })
                 .await

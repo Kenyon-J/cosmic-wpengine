@@ -20,5 +20,4 @@ pub struct Particle {
     pub vel: [f32; 2],
     pub lifetime: f32,
     pub scale: f32,
-    pub padding: [f32; 2], // Pad to 32 bytes to satisfy WGSL alignment rules
 }
