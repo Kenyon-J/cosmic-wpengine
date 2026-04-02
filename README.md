@@ -46,7 +46,7 @@ cosmic-wallpaper/
 │       ├── tray.rs          # System tray menu and GUI launcher
 │       ├── audio.rs         # PipeWire Capture & FFT computation
 │       ├── weather.rs       # Open-Meteo API polling
-│       ├── renderer.rs      # wgpu multi-surface compositor
+│       ├── renderer/        # wgpu multi-surface compositor and text rendering
 │       ├── wayland.rs       # wlr-layer-shell surface management
 │       ├── colour.rs        # K-Means palette extraction
 │       ├── album_art.wgsl   # Frosted glass, dropshadows & art
@@ -84,11 +84,11 @@ To compile the application, you'll need the PipeWire development headers and Cla
 
 **Ubuntu / Pop!_OS:**
 ```bash
-sudo apt install clang libclang-dev libpipewire-0.3-dev pkg-config
+sudo apt-get update && sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libdbus-1-dev
 ```
 **Arch Linux:**
 ```bash
-sudo pacman -S clang pipewire pkgconf
+sudo pacman -S base-devel clang pipewire pkgconf rust libxkbcommon dbus
 ```
 
 ## Building
@@ -101,7 +101,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 git clone https://github.com/Kenyon-J/cosmic-wpengine
 cd cosmic-wpengine
 # This builds both the main engine and the cosmic-wallpaper-gui binary
-cargo build --release
+cargo build --release --locked --all-targets
 
 # Run
 ./target/release/cosmic-wallpaper
