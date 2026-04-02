@@ -63,7 +63,11 @@ fn main() {
             let (bin_lo, bin_hi) = frequency_bin_ranges[i];
             let safe_end = bin_hi.min(bands_len);
 
-            let max_val = bands.get(bin_lo..safe_end).unwrap_or(&[]).iter().fold(0.0f32, |acc, &val| if val > acc { val } else { acc });
+            let max_val = bands
+                .get(bin_lo..safe_end)
+                .unwrap_or(&[])
+                .iter()
+                .fold(0.0f32, |acc, &val| if val > acc { val } else { acc });
 
             let a_weighting_norm = a_weighting_curve[i];
             let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
@@ -80,10 +84,21 @@ fn main() {
             let (start, end) = waveform_bin_ranges[i];
             let safe_end = end.min(wave_len);
 
-            let peak = waveform.get(start..safe_end).unwrap_or(&[]).iter().fold(0.0f32, |acc, &val| if val.abs() > acc.abs() { val } else { acc });
+            let peak =
+                waveform
+                    .get(start..safe_end)
+                    .unwrap_or(&[])
+                    .iter()
+                    .fold(
+                        0.0f32,
+                        |acc, &val| if val.abs() > acc.abs() { val } else { acc },
+                    );
 
             *current = *current * smoothing + peak * (1.0 - smoothing);
         }
     }
-    println!("Optimized 3 (.get().unwrap_or().iter().fold()): {:?}", start.elapsed());
+    println!(
+        "Optimized 3 (.get().unwrap_or().iter().fold()): {:?}",
+        start.elapsed()
+    );
 }

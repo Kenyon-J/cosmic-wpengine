@@ -9,7 +9,7 @@ fn main() {
     let start = Instant::now();
     for _ in 0..100_000 {
         // Original logic for audio bounds
-        for (i, current) in audio_bands.iter_mut().enumerate() {
+        for (i, _current) in audio_bands.iter_mut().enumerate() {
             let bin_lo = (i as f32 * bands_per_bar) as usize;
             let bin_hi = ((i + 1) as f32 * bands_per_bar) as usize;
             let mut max_val: f32 = 0.0;
@@ -25,13 +25,17 @@ fn main() {
     for _ in 0..100_000 {
         // Optimized logic
         let bands_len = bands.len();
-        for (i, current) in audio_bands.iter_mut().enumerate() {
+        for (i, _current) in audio_bands.iter_mut().enumerate() {
             let bin_lo = (i as f32 * bands_per_bar) as usize;
             let bin_hi = ((i + 1) as f32 * bands_per_bar) as usize;
 
-            let max_val = bands.get(bin_lo..bin_hi.min(bands_len)).map_or(0.0, |slice| {
-                slice.iter().fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
-            });
+            let _max_val = bands
+                .get(bin_lo..bin_hi.min(bands_len))
+                .map_or(0.0, |slice| {
+                    slice
+                        .iter()
+                        .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
+                });
         }
     }
     println!("Optimized map_or iter fold inline: {:?}", start.elapsed());

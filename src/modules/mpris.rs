@@ -223,12 +223,10 @@ impl MprisWatcher {
                             _ => {}
                         }
                     }
-                } else {
-                    if shutdown_rx2.recv_timeout(std::time::Duration::from_secs(1))
-                        != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-                    {
-                        break;
-                    }
+                } else if shutdown_rx2.recv_timeout(std::time::Duration::from_secs(1))
+                    != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                {
+                    break;
                 }
             }
         });
@@ -350,7 +348,8 @@ impl MprisWatcher {
             if visible && !is_timed_out && last_metadata != last_processed_metadata {
                 if let Some(meta) = last_metadata.clone() {
                     // Prevent boundless memory growth in caches for a long-running process
-                    if palette_cache.len() > 50 || lyrics_cache.len() > 50 || video_cache.len() > 50 {
+                    if palette_cache.len() > 50 || lyrics_cache.len() > 50 || video_cache.len() > 50
+                    {
                         info!("Clearing MPRIS caches to free memory...");
                         palette_cache.clear();
                         palette_cache.shrink_to_fit();

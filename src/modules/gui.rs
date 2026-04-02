@@ -4,10 +4,10 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use cosmic::app::Core;
 use cosmic::iced::widget::{checkbox, pick_list, slider};
 use cosmic::iced::Length;
-use cosmic_text::fontdb;
 use cosmic::iced::Task;
 use cosmic::widget::{column, row, text, text_editor, text_input};
 use cosmic::{Application, Element};
+use cosmic_text::fontdb;
 
 // You can import your existing config logic directly!
 #[allow(dead_code)]
@@ -125,9 +125,10 @@ fn load_files() -> Vec<String> {
 fn load_fonts() -> Vec<String> {
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
-    let mut font_names: Vec<String> = db.faces().flat_map(|face| {
-        face.families.iter().map(|(name, _lang)| name.clone())
-    }).collect();
+    let mut font_names: Vec<String> = db
+        .faces()
+        .flat_map(|face| face.families.iter().map(|(name, _lang)| name.clone()))
+        .collect();
     font_names.sort_unstable();
     font_names.dedup();
     // Add a "System Default" option
@@ -146,19 +147,20 @@ async fn fetch_patch_notes() -> String {
     let client = reqwest::Client::builder()
         .user_agent("cosmic-wallpaper/1.0")
         .build();
-    
+
     let client = match client {
         Ok(c) => c,
         Err(e) => return format!("Failed to build HTTP client: {}", e),
     };
 
     match client.get(url).send().await {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<GitHubRelease>().await {
-                Ok(release) => format!("COSMIC Wallpaper Engine {}\n\n{}", release.tag_name, release.body),
-                Err(e) => format!("Failed to parse patch notes from GitHub: {}", e),
-            }
-        }
+        Ok(resp) if resp.status().is_success() => match resp.json::<GitHubRelease>().await {
+            Ok(release) => format!(
+                "COSMIC Wallpaper Engine {}\n\n{}",
+                release.tag_name, release.body
+            ),
+            Err(e) => format!("Failed to parse patch notes from GitHub: {}", e),
+        },
         Ok(resp) => format!("Failed to fetch patch notes: HTTP {}", resp.status()),
         Err(e) => format!("Failed to fetch patch notes: {}", e),
     }
@@ -170,11 +172,11 @@ async fn check_for_updates() -> Option<String> {
         .user_agent("cosmic-wallpaper/1.0")
         .build()
         .ok()?;
-    
+
     let release: GitHubRelease = client.get(url).send().await.ok()?.json().await.ok()?;
     let latest_version = release.tag_name.trim_start_matches('v');
     let current_version = env!("CARGO_PKG_VERSION");
-    
+
     let is_newer = match (
         latest_version.split('.').collect::<Vec<_>>(),
         current_version.split('.').collect::<Vec<_>>(),
@@ -186,13 +188,19 @@ async fn check_for_updates() -> Option<String> {
             let c_major: u32 = c[0].parse().unwrap_or(0);
             let c_minor: u32 = c[1].parse().unwrap_or(0);
             let c_patch: u32 = c[2].parse().unwrap_or(0);
-            
-            l_major > c_major || (l_major == c_major && l_minor > c_minor) || (l_major == c_major && l_minor == c_minor && l_patch > c_patch)
+
+            l_major > c_major
+                || (l_major == c_major && l_minor > c_minor)
+                || (l_major == c_major && l_minor == c_minor && l_patch > c_patch)
         }
         _ => latest_version != current_version,
     };
 
-    if is_newer { Some(release.tag_name) } else { None }
+    if is_newer {
+        Some(release.tag_name)
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -283,7 +291,9 @@ impl Application for SettingsApp {
                 status_msg: "Ready.".into(),
                 update_available: None,
             },
-            Task::perform(check_for_updates(), |version| Message::UpdateCheckDone(version).into()),
+            Task::perform(check_for_updates(), |version| {
+                Message::UpdateCheckDone(version).into()
+            }),
         )
     }
 
@@ -443,9 +453,12 @@ amplitude = 1.5"#;
             }
             Message::ShowPatchNotes => {
                 self.selected_file = None;
-                self.editor_content = text_editor::Content::with_text("Fetching latest patch notes from GitHub...");
+                self.editor_content =
+                    text_editor::Content::with_text("Fetching latest patch notes from GitHub...");
                 self.status_msg = "Fetching patch notes...".into();
-                return Task::perform(fetch_patch_notes(), |notes| Message::PatchNotesLoaded(notes).into());
+                return Task::perform(fetch_patch_notes(), |notes| {
+                    Message::PatchNotesLoaded(notes).into()
+                });
             }
             Message::PatchNotesLoaded(notes) => {
                 self.editor_content = text_editor::Content::with_text(&notes);
@@ -529,14 +542,14 @@ amplitude = 1.5"#;
             .spacing(15);
 
         let font_row = row()
-            .push(
-                text("Font Family:")
-                    .font(font)
-                    .width(Length::Fixed(200.0)),
-            )
+            .push(text("Font Family:").font(font).width(Length::Fixed(200.0)))
             .push(pick_list(
                 self.available_fonts.clone(),
-                self.wp_config.appearance.font_family.clone().or_else(|| Some("System Default".to_string())),
+                self.wp_config
+                    .appearance
+                    .font_family
+                    .clone()
+                    .or_else(|| Some("System Default".to_string())),
                 Message::FontFamilySelected,
             ))
             .spacing(20);
@@ -547,7 +560,11 @@ amplitude = 1.5"#;
                     .font(font)
                     .width(Length::Fixed(200.0)),
             )
-            .push(slider(15.0..=144.0, self.wp_config.fps as f32, Message::FpsChanged))
+            .push(slider(
+                15.0..=144.0,
+                self.wp_config.fps as f32,
+                Message::FpsChanged,
+            ))
             .spacing(20);
 
         let blur_row = row()
@@ -634,20 +651,21 @@ amplitude = 1.5"#;
         let notes_btn = cosmic::iced::widget::button(text("Patch Notes").font(font).size(14))
             .on_press(Message::ShowPatchNotes);
 
-        let version_display: Element<'_, Self::Message> = if let Some(new_v) = &self.update_available {
-            cosmic::iced::widget::button(
-                text(format!("Update Available: {}", new_v))
+        let version_display: Element<'_, Self::Message> =
+            if let Some(new_v) = &self.update_available {
+                cosmic::iced::widget::button(
+                    text(format!("Update Available: {}", new_v))
+                        .font(font)
+                        .size(14),
+                )
+                .on_press(Message::OpenUpdateLink)
+                .into()
+            } else {
+                text(format!("v{}", env!("CARGO_PKG_VERSION")))
                     .font(font)
                     .size(14)
-            )
-            .on_press(Message::OpenUpdateLink)
-            .into()
-        } else {
-            text(format!("v{}", env!("CARGO_PKG_VERSION")))
-                .font(font)
-                .size(14)
-                .into()
-        };
+                    .into()
+            };
 
         let footer_row = row()
             .push(

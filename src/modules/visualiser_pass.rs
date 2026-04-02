@@ -68,8 +68,7 @@ impl VisualiserPass {
         let theme = super::config::ThemeLayout::load(style);
         let mut shader_src = Self::load_shader_source(theme.visualiser.shader.as_deref());
 
-        let mut pipeline =
-            Self::create_pipeline(device, format, &layout, &shader_src).await;
+        let mut pipeline = Self::create_pipeline(device, format, &layout, &shader_src).await;
 
         if pipeline.is_none() {
             tracing::warn!("Falling back to 'bars' due to invalid initial shader.");
@@ -138,13 +137,8 @@ impl VisualiserPass {
 
         // WGSL pipeline compilation is extremely expensive. Only rebuild if the shader code actually changed!
         if self.shader_src != new_shader_src {
-            if let Some(new_pipeline) = Self::create_pipeline(
-                device,
-                format,
-                &self.layout,
-                &new_shader_src,
-            )
-            .await
+            if let Some(new_pipeline) =
+                Self::create_pipeline(device, format, &self.layout, &new_shader_src).await
             {
                 self.pipeline = new_pipeline;
                 self.shader_src = new_shader_src;
@@ -160,7 +154,9 @@ impl VisualiserPass {
                 .join("shaders")
                 .join(shader_name);
             std::fs::read_to_string(&path).unwrap_or_else(|e| {
-                tracing::warn!("Failed to read custom shader '{shader_name}': {e}. Falling back to default.");
+                tracing::warn!(
+                    "Failed to read custom shader '{shader_name}': {e}. Falling back to default."
+                );
                 include_str!("visualiser.wgsl").to_string()
             })
         } else {

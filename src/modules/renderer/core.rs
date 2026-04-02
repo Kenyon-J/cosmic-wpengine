@@ -1049,7 +1049,7 @@ impl Renderer {
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;
                 self.state.begin_transition();
-                
+
                 // Free the padding buffers back to the OS allocator on idle
                 self.video_frame_buffer.clear();
                 self.video_frame_buffer.shrink_to_fit();
@@ -1778,15 +1778,23 @@ impl Renderer {
                             if final_color[3] > 0.01 {
                                 let metrics =
                                     Metrics::new(active_font_size, active_font_size * 1.2);
-                            let mut buffer = self.text_buffer_cache.remove(&lyric_line.text).unwrap_or_else(|| {
-                                let mut b = Buffer::new(&mut self.font_system, metrics);
-                                b.set_metrics(&mut self.font_system, metrics);
-                                b.set_size(&mut self.font_system, width_f, height_f);
-                                b.set_text(&mut self.font_system, &lyric_line.text, attrs, Shaping::Advanced);
-                                b
-                            });
-                            buffer.set_metrics(&mut self.font_system, metrics);
-                            buffer.set_size(&mut self.font_system, width_f, height_f);
+                                let mut buffer = self
+                                    .text_buffer_cache
+                                    .remove(&lyric_line.text)
+                                    .unwrap_or_else(|| {
+                                        let mut b = Buffer::new(&mut self.font_system, metrics);
+                                        b.set_metrics(&mut self.font_system, metrics);
+                                        b.set_size(&mut self.font_system, width_f, height_f);
+                                        b.set_text(
+                                            &mut self.font_system,
+                                            &lyric_line.text,
+                                            attrs,
+                                            Shaping::Advanced,
+                                        );
+                                        b
+                                    });
+                                buffer.set_metrics(&mut self.font_system, metrics);
+                                buffer.set_size(&mut self.font_system, width_f, height_f);
 
                                 let align = map_align(&self.theme.lyrics.align);
                                 buffer.lines.iter_mut().for_each(|line| {
@@ -1800,7 +1808,7 @@ impl Renderer {
 
                                 text_buffers.push(PositionedBuffer {
                                     buffer,
-                                text_key: lyric_line.text.clone(),
+                                    text_key: lyric_line.text.clone(),
                                     pos,
                                     color: final_color,
                                     scale: render_scale,
@@ -1815,15 +1823,23 @@ impl Renderer {
             if self.state.current_track.is_some() && !self.cached_track_str.is_empty() {
                 let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
-            let mut buffer = self.text_buffer_cache.remove(&self.cached_track_str).unwrap_or_else(|| {
-                let mut b = Buffer::new(&mut self.font_system, metrics);
-                b.set_metrics(&mut self.font_system, metrics);
-                b.set_size(&mut self.font_system, width_f, height_f);
-                b.set_text(&mut self.font_system, &self.cached_track_str, attrs, Shaping::Advanced);
-                b
-            });
-            buffer.set_metrics(&mut self.font_system, metrics);
-            buffer.set_size(&mut self.font_system, width_f, height_f);
+                let mut buffer = self
+                    .text_buffer_cache
+                    .remove(&self.cached_track_str)
+                    .unwrap_or_else(|| {
+                        let mut b = Buffer::new(&mut self.font_system, metrics);
+                        b.set_metrics(&mut self.font_system, metrics);
+                        b.set_size(&mut self.font_system, width_f, height_f);
+                        b.set_text(
+                            &mut self.font_system,
+                            &self.cached_track_str,
+                            attrs,
+                            Shaping::Advanced,
+                        );
+                        b
+                    });
+                buffer.set_metrics(&mut self.font_system, metrics);
+                buffer.set_size(&mut self.font_system, width_f, height_f);
                 let final_color = [
                     secondary_text[0],
                     secondary_text[1],
@@ -1840,7 +1856,7 @@ impl Renderer {
                 ];
                 text_buffers.push(PositionedBuffer {
                     buffer,
-                text_key: self.cached_track_str.clone(),
+                    text_key: self.cached_track_str.clone(),
                     pos,
                     color: final_color,
                     scale: 1.0,
@@ -1851,15 +1867,23 @@ impl Renderer {
             if self.state.weather.is_some() && !self.cached_weather_str.is_empty() {
                 let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
-            let mut buffer = self.text_buffer_cache.remove(&self.cached_weather_str).unwrap_or_else(|| {
-                let mut b = Buffer::new(&mut self.font_system, metrics);
-                b.set_metrics(&mut self.font_system, metrics);
-                b.set_size(&mut self.font_system, width_f, height_f);
-                b.set_text(&mut self.font_system, &self.cached_weather_str, attrs, Shaping::Advanced);
-                b
-            });
-            buffer.set_metrics(&mut self.font_system, metrics);
-            buffer.set_size(&mut self.font_system, width_f, height_f);
+                let mut buffer = self
+                    .text_buffer_cache
+                    .remove(&self.cached_weather_str)
+                    .unwrap_or_else(|| {
+                        let mut b = Buffer::new(&mut self.font_system, metrics);
+                        b.set_metrics(&mut self.font_system, metrics);
+                        b.set_size(&mut self.font_system, width_f, height_f);
+                        b.set_text(
+                            &mut self.font_system,
+                            &self.cached_weather_str,
+                            attrs,
+                            Shaping::Advanced,
+                        );
+                        b
+                    });
+                buffer.set_metrics(&mut self.font_system, metrics);
+                buffer.set_size(&mut self.font_system, width_f, height_f);
                 let final_color = [
                     secondary_text[0],
                     secondary_text[1],
@@ -1876,7 +1900,7 @@ impl Renderer {
                 ];
                 text_buffers.push(PositionedBuffer {
                     buffer,
-                text_key: self.cached_weather_str.clone(),
+                    text_key: self.cached_weather_str.clone(),
                     pos,
                     color: final_color,
                     scale: 1.0,
@@ -1895,15 +1919,15 @@ impl Renderer {
                 height_f,
             );
 
-        // Prevent unbound memory growth for weather/ambient setups left running for days
-        if self.text_buffer_cache.len() > 100 {
-            self.text_buffer_cache.clear();
-            self.text_buffer_cache.shrink_to_fit();
-        }
+            // Prevent unbound memory growth for weather/ambient setups left running for days
+            if self.text_buffer_cache.len() > 100 {
+                self.text_buffer_cache.clear();
+                self.text_buffer_cache.shrink_to_fit();
+            }
 
-        for p_buf in text_buffers {
-            self.text_buffer_cache.insert(p_buf.text_key, p_buf.buffer);
-        }
+            for p_buf in text_buffers {
+                self.text_buffer_cache.insert(p_buf.text_key, p_buf.buffer);
+            }
 
             if self.text_renderer.vertex_capacity < self.text_renderer.cpu_vertices.len() {
                 self.text_renderer.vertex_capacity =

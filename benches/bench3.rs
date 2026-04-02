@@ -106,11 +106,13 @@ fn main() {
             // }
 
             let peak = if start < safe_end {
-                waveform[start..safe_end]
-                    .iter()
-                    .fold(0.0f32, |acc, &val| {
-                        if val.abs() > acc.abs() { val } else { acc }
-                    })
+                waveform[start..safe_end].iter().fold(0.0f32, |acc, &val| {
+                    if val.abs() > acc.abs() {
+                        val
+                    } else {
+                        acc
+                    }
+                })
             } else {
                 0.0f32
             };
@@ -118,5 +120,8 @@ fn main() {
             *current = *current * smoothing + peak * (1.0 - smoothing);
         }
     }
-    println!("Optimized (fold/iter + no redundant min): {:?}", start.elapsed());
+    println!(
+        "Optimized (fold/iter + no redundant min): {:?}",
+        start.elapsed()
+    );
 }

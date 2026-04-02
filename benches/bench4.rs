@@ -99,5 +99,8 @@ fn main() {
             *current = *current * smoothing + peak * (1.0 - smoothing);
         }
     }
-    println!("Optimized 2 (for loop + no redundant min): {:?}", start.elapsed());
+    println!(
+        "Optimized 2 (for loop + no redundant min): {:?}",
+        start.elapsed()
+    );
 }
