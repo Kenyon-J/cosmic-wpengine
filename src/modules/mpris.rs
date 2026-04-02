@@ -460,17 +460,20 @@ impl MprisWatcher {
             }
         };
 
-        let video_future = async {
-            let mut track_id = None;
-            if meta.track_id.contains("spotify:track:") {
-                track_id = meta.track_id.split(':').next_back();
-            } else if meta.track_id.contains("open.spotify.com/track/")
-                || meta.track_id.contains("/com/spotify/track/")
-            {
-                track_id = meta.track_id.split('/').next_back();
-            }
+        // Optimization: Extract track ID once to avoid redundant string searches and allocations
+        // The track_id is needed both for fetching the canvas and caching the result
+        let raw_id = if meta.track_id.contains("spotify:track:") {
+            meta.track_id.split(':').next_back()
+        } else if meta.track_id.contains("open.spotify.com/track/")
+            || meta.track_id.contains("/com/spotify/track/")
+        {
+            meta.track_id.split('/').next_back()
+        } else {
+            None
+        };
 
-            if let Some(id) = track_id {
+        let video_future = async {
+            if let Some(id) = raw_id {
                 if let Some(cached) = video_cache.get(id) {
                     cached.clone()
                 } else {
@@ -493,16 +496,6 @@ impl MprisWatcher {
         if cached_lyrics.is_none() && fetch_lyrics {
             lyrics_cache.insert(lyrics_cache_key, lyrics.clone());
         }
-
-        let raw_id = if meta.track_id.contains("spotify:track:") {
-            meta.track_id.split(':').next_back()
-        } else if meta.track_id.contains("open.spotify.com/track/")
-            || meta.track_id.contains("/com/spotify/track/")
-        {
-            meta.track_id.split('/').next_back()
-        } else {
-            None
-        };
 
         if let Some(id) = raw_id {
             if !video_cache.contains_key(id) {
