@@ -3,27 +3,46 @@ use image::{DynamicImage, GenericImageView, Rgba};
 pub fn extract_palette(image: &DynamicImage) -> Vec<[f32; 3]> {
     let thumb = image.thumbnail(64, 64);
 
-    let mut buckets: std::collections::HashMap<(u8, u8, u8), u32> =
-        std::collections::HashMap::new();
+    // Optimization: Use a fixed-size array for the histogram instead of a HashMap.
+    // Since we bin colors into 32-unit buckets (8 levels per channel), there are
+    // only 8 * 8 * 8 = 512 possible buckets. This avoids heap allocations and hashing overhead.
+    let mut buckets = [0u32; 512];
 
     for (_, _, Rgba([r, g, b, a])) in thumb.pixels() {
         if a < 128 {
             continue;
         }
 
-        let key = ((r / 32) * 32, (g / 32) * 32, (b / 32) * 32);
-        *buckets.entry(key).or_insert(0) += 1;
+        // Map RGB to 512 buckets: 3 bits per channel (8 levels each)
+        let r_idx = (r / 32) as usize;
+        let g_idx = (g / 32) as usize;
+        let b_idx = (b / 32) as usize;
+        let index = (r_idx << 6) | (g_idx << 3) | b_idx;
+        buckets[index] += 1;
     }
 
-    let mut sorted: Vec<_> = buckets.into_iter().collect();
+    // Convert buckets to a vector for sorting, filtering out empty buckets and invalid brightness.
+    // We filter before sorting to reduce the number of elements handled by the sort algorithm.
+    let mut sorted: Vec<((u8, u8, u8), u32)> = Vec::with_capacity(512);
+    for (index, &count) in buckets.iter().enumerate() {
+        if count == 0 {
+            continue;
+        }
+
+        let r = ((index >> 6) & 0x07) as u8 * 32;
+        let g = ((index >> 3) & 0x07) as u8 * 32;
+        let b = (index & 0x07) as u8 * 32;
+
+        let brightness = (r as u32 + g as u32 + b as u32) / 3;
+        if brightness > 30 && brightness < 220 {
+            sorted.push(((r, g, b), count));
+        }
+    }
+
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
     sorted
         .iter()
-        .filter(|((r, g, b), _)| {
-            let brightness = (*r as u32 + *g as u32 + *b as u32) / 3;
-            brightness > 30 && brightness < 220
-        })
         .take(5)
         .map(|((r, g, b), _)| [*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0])
         .collect()
