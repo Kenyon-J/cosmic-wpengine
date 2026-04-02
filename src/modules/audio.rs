@@ -102,9 +102,10 @@ impl AudioCapture {
     fn run_pipewire_capture(tx: tokio::sync::mpsc::Sender<Vec<f32>>) -> Result<()> {
         pipewire::init();
 
-        let mainloop = MainLoopBox::new(None).map_err(|e| anyhow::anyhow!("Failed to create PipeWire mainloop: {}", e))?;
-        let context =
-            ContextBox::new(mainloop.loop_(), None).map_err(|e| anyhow::anyhow!("Failed to create PipeWire context: {}", e))?;
+        let mainloop = MainLoopBox::new(None)
+            .map_err(|e| anyhow::anyhow!("Failed to create PipeWire mainloop: {}", e))?;
+        let context = ContextBox::new(mainloop.loop_(), None)
+            .map_err(|e| anyhow::anyhow!("Failed to create PipeWire context: {}", e))?;
         let core = context
             .connect(None)
             .map_err(|e| anyhow::anyhow!("Failed to connect to PipeWire: {}", e))?;
@@ -281,7 +282,8 @@ impl AudioCapture {
         .into_inner();
 
         // 4. Cast the raw bytes into the binary C-level Pod
-        let pod = pipewire::spa::pod::Pod::from_bytes(&values).ok_or_else(|| anyhow::anyhow!("Failed to parse POD bytes"))?;
+        let pod = pipewire::spa::pod::Pod::from_bytes(&values)
+            .ok_or_else(|| anyhow::anyhow!("Failed to parse POD bytes"))?;
 
         // 5. Connect perfectly
         stream
