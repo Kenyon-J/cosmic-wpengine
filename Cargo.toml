@@ -52,75 +52,94 @@ tempfile = "3.27.0"
 [[bench]]
 name = "bench"
 path = "benches/bench.rs"
+harness = false
 
 [[bench]]
 name = "bench10"
 path = "benches/bench10.rs"
+harness = false
 
 [[bench]]
 name = "bench11"
 path = "benches/bench11.rs"
+harness = false
 
 [[bench]]
 name = "bench12"
 path = "benches/bench12.rs"
+harness = false
 
 [[bench]]
 name = "bench13"
 path = "benches/bench13.rs"
+harness = false
 
 [[bench]]
 name = "bench14"
 path = "benches/bench14.rs"
+harness = false
 
 [[bench]]
 name = "bench15"
 path = "benches/bench15.rs"
+harness = false
 
 [[bench]]
 name = "bench16"
 path = "benches/bench16.rs"
+harness = false
 
 [[bench]]
 name = "bench17"
 path = "benches/bench17.rs"
+harness = false
 
 [[bench]]
 name = "bench18"
 path = "benches/bench18.rs"
+harness = false
 
 [[bench]]
 name = "bench19"
 path = "benches/bench19.rs"
+harness = false
 
 [[bench]]
 name = "bench2"
 path = "benches/bench2.rs"
+harness = false
 
 [[bench]]
 name = "bench3"
 path = "benches/bench3.rs"
+harness = false
 
 [[bench]]
 name = "bench4"
 path = "benches/bench4.rs"
+harness = false
 
 [[bench]]
 name = "bench5"
 path = "benches/bench5.rs"
+harness = false
 
 [[bench]]
 name = "bench6"
 path = "benches/bench6.rs"
+harness = false
 
 [[bench]]
 name = "bench7"
 path = "benches/bench7.rs"
+harness = false
 
 [[bench]]
 name = "bench8"
 path = "benches/bench8.rs"
+harness = false
 
 [[bench]]
 name = "bench9"
 path = "benches/bench9.rs"
+harness = false

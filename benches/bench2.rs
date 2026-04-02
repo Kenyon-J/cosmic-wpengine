@@ -45,7 +45,9 @@ fn main() {
             let safe_end = bin_hi.min(bands_len);
 
             let max_val = if bin_lo < safe_end {
-                bands[bin_lo..safe_end].iter().fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
+                bands[bin_lo..safe_end]
+                    .iter()
+                    .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
             } else {
                 0.0
             };
@@ -72,7 +74,11 @@ fn main() {
 
             // let max_val = bands[bin_lo..bin_hi.min(bands_len)].iter().max_by(|a, b| a.partial_cmp(b).unwrap()).copied().unwrap_or(0.0);
 
-            let max_val = bands.get(bin_lo..bin_hi.min(bands_len)).unwrap_or(&[]).iter().fold(0.0f32, |acc, &val| if val > acc { val } else { acc });
+            let max_val = bands
+                .get(bin_lo..bin_hi.min(bands_len))
+                .unwrap_or(&[])
+                .iter()
+                .fold(0.0f32, |acc, &val| if val > acc { val } else { acc });
 
             let a_weighting_norm = a_weighting_curve[i];
             let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);

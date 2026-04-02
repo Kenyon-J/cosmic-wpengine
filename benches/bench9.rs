@@ -62,9 +62,13 @@ fn main() {
         for (i, current) in audio_bands.iter_mut().enumerate() {
             let (bin_lo, bin_hi) = frequency_bin_ranges[i];
 
-            let max_val = bands.get(bin_lo..bin_hi.min(bands_len)).map_or(0.0, |slice| {
-                slice.iter().fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
-            });
+            let max_val = bands
+                .get(bin_lo..bin_hi.min(bands_len))
+                .map_or(0.0, |slice| {
+                    slice
+                        .iter()
+                        .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
+                });
 
             let a_weighting_norm = a_weighting_curve[i];
             let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
@@ -81,11 +85,17 @@ fn main() {
             let (start, end) = waveform_bin_ranges[i];
 
             let peak = waveform.get(start..end.min(wave_len)).map_or(0.0, |slice| {
-                slice.iter().fold(0.0f32, |acc, &val| if val.abs() > acc.abs() { val } else { acc })
+                slice.iter().fold(
+                    0.0f32,
+                    |acc, &val| if val.abs() > acc.abs() { val } else { acc },
+                )
             });
 
             *current = *current * smoothing + peak * (1.0 - smoothing);
         }
     }
-    println!("Optimized 5 again (.get().map_or() with manual compare): {:?}", start.elapsed());
+    println!(
+        "Optimized 5 again (.get().map_or() with manual compare): {:?}",
+        start.elapsed()
+    );
 }

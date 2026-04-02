@@ -1,5 +1,5 @@
-use std::time::Instant;
 use std::hint::black_box;
+use std::time::Instant;
 
 fn main() {
     let bands = vec![0.5f32; 2048];
@@ -24,7 +24,10 @@ fn main() {
         }
         black_box(&audio_bands);
     }
-    println!("Original inline bounds (fixed panic): {:?}", start.elapsed());
+    println!(
+        "Original inline bounds (fixed panic): {:?}",
+        start.elapsed()
+    );
 
     let mut audio_bands = vec![0.0f32; 128];
     let start = Instant::now();
@@ -36,9 +39,13 @@ fn main() {
             let bin_hi = ((i + 1) as f32 * bands_per_bar) as usize;
 
             // `get` with safe range handles if bin_lo > bands_len by returning None
-            let max_val = bands.get(bin_lo..bin_hi.min(bands_len)).map_or(0.0, |slice| {
-                slice.iter().fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
-            });
+            let max_val = bands
+                .get(bin_lo..bin_hi.min(bands_len))
+                .map_or(0.0, |slice| {
+                    slice
+                        .iter()
+                        .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
+                });
             *current = max_val;
         }
         black_box(&audio_bands);

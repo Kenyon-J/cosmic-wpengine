@@ -13,7 +13,7 @@ fn main() {
             let bin_lo = (i as f32 * bands_per_bar) as usize;
             let bin_hi = ((i + 1) as f32 * bands_per_bar) as usize;
             let mut max_val: f32 = 0.0;
-            for &val in &bands[bin_lo..bin_hi.min(bands.len())] {
+            for &val in &bands[bin_lo.min(bands.len())..bin_hi.min(bands.len())] {
                 max_val = max_val.max(val);
             }
         }
@@ -29,9 +29,13 @@ fn main() {
             let bin_lo = (i as f32 * bands_per_bar) as usize;
             let bin_hi = ((i + 1) as f32 * bands_per_bar) as usize;
 
-            let max_val = bands.get(bin_lo..bin_hi.min(bands_len)).map_or(0.0, |slice| {
-                slice.iter().fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
-            });
+            let max_val = bands
+                .get(bin_lo..bin_hi.min(bands_len))
+                .map_or(0.0, |slice| {
+                    slice
+                        .iter()
+                        .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
+                });
         }
     }
     println!("Optimized map_or iter fold inline: {:?}", start.elapsed());
