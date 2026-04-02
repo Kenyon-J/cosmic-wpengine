@@ -191,4 +191,60 @@ mod tests {
         let expected_fg = [192.0 / 255.0, 96.0 / 255.0, 96.0 / 255.0];
         assert!(approx_eq(palette[1], expected_fg));
     }
+
+    #[test]
+    fn test_extract_palette_top_5() {
+        let mut img = image::RgbaImage::new(128, 128);
+
+        // Define 6 valid colors that map exactly to distinct bins
+        // Color A (largest area)
+        let color_a = image::Rgba([64, 64, 64, 255]); // bin: (64, 64, 64)
+                                                      // Color B
+        let color_b = image::Rgba([96, 64, 64, 255]); // bin: (96, 64, 64)
+                                                      // Color C
+        let color_c = image::Rgba([64, 96, 64, 255]); // bin: (64, 96, 64)
+                                                      // Color D
+        let color_d = image::Rgba([64, 64, 96, 255]); // bin: (64, 64, 96)
+                                                      // Color E
+        let color_e = image::Rgba([96, 96, 64, 255]); // bin: (96, 96, 64)
+                                                      // Color F (smallest area)
+        let color_f = image::Rgba([64, 96, 96, 255]); // bin: (64, 96, 96)
+
+        for y in 0..128 {
+            for x in 0..128 {
+                let color = if y < 64 {
+                    color_a // 64 rows
+                } else if y < 96 {
+                    color_b // 32 rows
+                } else if y < 112 {
+                    color_c // 16 rows
+                } else if y < 120 {
+                    color_d // 8 rows
+                } else if y < 126 {
+                    color_e // 6 rows
+                } else {
+                    color_f // 2 rows
+                };
+                img.put_pixel(x, y, color);
+            }
+        }
+
+        let dyn_img = image::DynamicImage::ImageRgba8(img);
+        let palette = extract_palette(&dyn_img);
+
+        // Should return exactly 5 colors (ignoring F)
+        assert_eq!(palette.len(), 5);
+
+        let expected_a = [64.0 / 255.0, 64.0 / 255.0, 64.0 / 255.0];
+        let expected_b = [96.0 / 255.0, 64.0 / 255.0, 64.0 / 255.0];
+        let expected_c = [64.0 / 255.0, 96.0 / 255.0, 64.0 / 255.0];
+        let expected_d = [64.0 / 255.0, 64.0 / 255.0, 96.0 / 255.0];
+        let expected_e = [96.0 / 255.0, 96.0 / 255.0, 64.0 / 255.0];
+
+        assert!(approx_eq(palette[0], expected_a));
+        assert!(approx_eq(palette[1], expected_b));
+        assert!(approx_eq(palette[2], expected_c));
+        assert!(approx_eq(palette[3], expected_d));
+        assert!(approx_eq(palette[4], expected_e));
+    }
 }
