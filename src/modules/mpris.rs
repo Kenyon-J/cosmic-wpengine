@@ -78,6 +78,8 @@ impl MprisWatcher {
         .await
         .expect("Tokio spawn_blocking failed to execute reqwest client builder")?;
         let (update_tx, mut update_rx) = tokio::sync::mpsc::channel(16);
+        let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel::<()>();
+        let (shutdown_tx2, shutdown_rx2) = std::sync::mpsc::channel::<()>();
 
         // Background position polling to handle media players that fail to send Seeked signals
         let poll_tx = tx.clone();
@@ -85,7 +87,11 @@ impl MprisWatcher {
         std::thread::spawn(move || {
             let mut finder = mpris::PlayerFinder::new();
             loop {
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                if shutdown_rx.recv_timeout(std::time::Duration::from_secs(1))
+                    != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                {
+                    break;
+                }
                 // Suspend D-Bus heavy polling when wallpaper is out of view
                 if !poll_visible.load(std::sync::atomic::Ordering::Relaxed) {
                     continue;
@@ -120,7 +126,11 @@ impl MprisWatcher {
                     Ok(f) => f,
                     Err(_) => {
                         finder = mpris::PlayerFinder::new();
-                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        if shutdown_rx2.recv_timeout(std::time::Duration::from_secs(3))
+                            != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                        {
+                            break;
+                        }
                         continue;
                     }
                 };
@@ -130,7 +140,11 @@ impl MprisWatcher {
                     Err(_) => {
                         let _ = update_tx
                             .blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Stopped));
-                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        if shutdown_rx2.recv_timeout(std::time::Duration::from_secs(3))
+                            != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                        {
+                            break;
+                        }
                         continue;
                     }
                 };
@@ -210,10 +224,18 @@ impl MprisWatcher {
                         }
                     }
                 } else {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    if shutdown_rx2.recv_timeout(std::time::Duration::from_secs(1))
+                        != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                    {
+                        break;
+                    }
                 }
             }
         });
+
+        // Ensure shutdown signals are preserved across the async execution to keep threads alive
+        let _shutdown_guard_1 = shutdown_tx;
+        let _shutdown_guard_2 = shutdown_tx2;
 
         let mut is_playing = false;
         let mut is_timed_out = false;
