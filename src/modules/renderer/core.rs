@@ -18,7 +18,7 @@ use super::types::*;
 use crate::modules::config::{
     ArtShape, TemperatureUnit, TextAlign, ThemeLayout, VisAlign, VisShape, WallpaperMode,
 };
-use crate::modules::event::{LyricLine, WeatherCondition};
+use crate::modules::event::WeatherCondition;
 pub struct GpuOutput {
     pub surface: wgpu::Surface<'static>,
     pub config: wgpu::SurfaceConfiguration,
@@ -1710,7 +1710,7 @@ impl Renderer {
                         let line_spacing = active_font_size * 1.2;
 
                         let start_idx = self.current_lyric_idx.saturating_sub(2);
-                        let end_idx = (self.current_lyric_idx + 2).min(lyrics.len()) as usize;
+                        let end_idx = (self.current_lyric_idx + 2).min(lyrics.len());
 
                         for i in start_idx..=end_idx {
                             if i == 0 || i > lyrics.len() {

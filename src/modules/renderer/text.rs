@@ -1,8 +1,9 @@
 const TEXT_SHADER_SRC: &str = include_str!("../text.wgsl");
 use super::core::{GLYPH_CACHE_HEIGHT, GLYPH_CACHE_WIDTH};
-use super::types::*;
+
+
 use anyhow::Result;
-use cosmic_text::{self, Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache};
+use cosmic_text::{self, Buffer};
 
 pub struct PositionedBuffer {
     pub buffer: Buffer,
