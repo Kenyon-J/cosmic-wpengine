@@ -3,4 +3,4 @@ pub mod text;
 pub mod types;
 
 #[allow(unused_imports)]
-pub use self::core::{Renderer, GpuOutput};
+pub use self::core::{GpuOutput, Renderer};

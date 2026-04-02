@@ -1,7 +1,6 @@
 const TEXT_SHADER_SRC: &str = include_str!("../text.wgsl");
 use super::core::{GLYPH_CACHE_HEIGHT, GLYPH_CACHE_WIDTH};
 
-
 use anyhow::Result;
 use cosmic_text::{self, Buffer};
 
