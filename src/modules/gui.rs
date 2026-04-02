@@ -515,18 +515,40 @@ amplitude = 1.5"#;
             Message::FileSelected,
         );
 
-        let save_btn =
-            cosmic::iced::widget::button(text("Save File").font(font)).on_press(Message::SaveFile);
+        let save_btn = {
+            let btn = cosmic::iced::widget::button(text("Save File").font(font));
+            if self.selected_file.is_some() {
+                btn.on_press(Message::SaveFile)
+            } else {
+                btn
+            }
+        };
 
-        let apply_btn = cosmic::iced::widget::button(text("Apply Theme").font(font))
-            .on_press(Message::ApplyTheme);
+        let apply_btn = {
+            let btn = cosmic::iced::widget::button(text("Apply Theme").font(font));
+            let is_theme = self
+                .selected_file
+                .as_ref()
+                .is_some_and(|f| f.starts_with("shaders/") && f.ends_with(".toml"));
+            if is_theme {
+                btn.on_press(Message::ApplyTheme)
+            } else {
+                btn
+            }
+        };
 
         let new_theme_input = text_input("New Theme Name...", &self.new_theme_name)
             .on_input(Message::NewThemeNameChanged)
             .on_submit(|_| Message::CreateTheme);
 
-        let create_btn = cosmic::iced::widget::button(text("Create Theme").font(font))
-            .on_press(Message::CreateTheme);
+        let create_btn = {
+            let btn = cosmic::iced::widget::button(text("Create Theme").font(font));
+            if !self.new_theme_name.trim().is_empty() {
+                btn.on_press(Message::CreateTheme)
+            } else {
+                btn
+            }
+        };
 
         let toolbar = row()
             .push(text("Edit File:").font(font).width(Length::Shrink))
