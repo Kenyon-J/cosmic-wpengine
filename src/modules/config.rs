@@ -218,6 +218,43 @@ mod tests {
     }
 
     #[test]
+    fn test_falls_back_to_older_config_if_newer_is_invalid() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_home = temp_dir.path().join("config_home");
+        let cosmic_dir = setup_mock_cosmic_dir(&config_home);
+
+        let valid_img = temp_dir.path().join("valid.jpg");
+        std::fs::write(&valid_img, "fake image").unwrap();
+
+        let missing_img = temp_dir.path().join("missing.jpg");
+
+        // Write the OLDER RON referencing the VALID image.
+        let ron_valid = format!(r#"Path("{}")"#, valid_img.display());
+        let valid_ron_path = cosmic_dir.join("older_valid_bg.ron");
+        std::fs::write(&valid_ron_path, ron_valid).unwrap();
+
+        // Ensure the newer file has a strictly later modification time.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // Write the NEWER RON referencing the MISSING image.
+        let ron_missing = format!(r#"Path("{}")"#, missing_img.display());
+        let missing_ron_path = cosmic_dir.join("newer_missing_bg.ron");
+        std::fs::write(&missing_ron_path, ron_missing).unwrap();
+
+        let config = AppearanceConfig::default();
+
+        with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            // It should skip the newer RON (since its image is missing)
+            // and pick the older RON (whose image exists).
+            assert_eq!(
+                rt.block_on(config.resolved_background_path()),
+                Some(valid_img.to_string_lossy().to_string())
+            );
+        });
+    }
+
+    #[test]
     fn test_selects_most_recently_modified_config() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config_home = temp_dir.path().join("config_home");
