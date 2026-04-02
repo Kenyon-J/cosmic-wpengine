@@ -704,12 +704,10 @@ mod tests {
 
     #[test]
     fn test_is_safe_path() {
-
         // To avoid parallel test issues, test against the real home directory or handle it properly.
         // Actually, just save and restore HOME or use a mutex if we really need to set it.
         let old_home = std::env::var("HOME").ok();
         std::env::set_var("HOME", "/home/testuser");
-
 
         // Valid absolute paths in safe locations
         assert!(MprisWatcher::is_safe_path(Path::new("/tmp/art.png")));
