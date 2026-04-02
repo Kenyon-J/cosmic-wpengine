@@ -1226,15 +1226,17 @@ impl Renderer {
                     self.last_treble_time = Instant::now();
                 }
 
+                let bands_len = bands.len();
                 for (i, current) in self.state.audio_bands.iter_mut().enumerate() {
                     let (bin_lo, bin_hi) = self.frequency_bin_ranges[i];
 
-                    let mut max_val = 0.0f32;
-                    for &val in &bands[bin_lo..bin_hi.min(bands.len())] {
-                        if val > max_val {
-                            max_val = val;
-                        }
-                    }
+                    let max_val = bands
+                        .get(bin_lo..bin_hi.min(bands_len))
+                        .map_or(0.0, |slice| {
+                            slice
+                                .iter()
+                                .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
+                        });
 
                     let a_weighting_norm = self.a_weighting_curve[i];
                     let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
@@ -1250,15 +1252,22 @@ impl Renderer {
                     self.state.audio_waveform = vec![0.0; target_len];
                 }
 
+                let wave_len = waveform.len();
                 for (i, current) in self.state.audio_waveform.iter_mut().enumerate() {
                     let (start, end) = self.waveform_bin_ranges[i];
 
-                    let mut peak = 0.0f32;
-                    for &val in &waveform[start..end.min(waveform.len())] {
-                        if val.abs() > peak.abs() {
-                            peak = val;
+                    let peak = waveform.get(start..end.min(wave_len)).map_or(0.0, |slice| {
+                        let mut peak = 0.0f32;
+                        let mut peak_abs = 0.0f32;
+                        for &val in slice {
+                            let val_abs = val.abs();
+                            if val_abs > peak_abs {
+                                peak_abs = val_abs;
+                                peak = val;
+                            }
                         }
-                    }
+                        peak
+                    });
 
                     *current = *current * smoothing + peak * (1.0 - smoothing);
                 }
