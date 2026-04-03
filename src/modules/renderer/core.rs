@@ -1852,9 +1852,10 @@ impl Renderer {
                     .text_buffer_cache
                     .remove(self.cached_track_str.as_ref())
                     .unwrap_or_else(|| {
-                        let mut b = self.buffer_pool.pop().unwrap_or_else(|| {
-                            Buffer::new(&mut self.font_system, metrics)
-                        });
+                        let mut b = self
+                            .buffer_pool
+                            .pop()
+                            .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
                         b.set_metrics(&mut self.font_system, metrics);
                         b.set_size(&mut self.font_system, width_f, height_f);
                         b.set_text(
@@ -1898,9 +1899,10 @@ impl Renderer {
                     .text_buffer_cache
                     .remove(self.cached_weather_str.as_ref())
                     .unwrap_or_else(|| {
-                        let mut b = self.buffer_pool.pop().unwrap_or_else(|| {
-                            Buffer::new(&mut self.font_system, metrics)
-                        });
+                        let mut b = self
+                            .buffer_pool
+                            .pop()
+                            .unwrap_or_else(|| Buffer::new(&mut self.font_system, metrics));
                         b.set_metrics(&mut self.font_system, metrics);
                         b.set_size(&mut self.font_system, width_f, height_f);
                         b.set_text(
@@ -2527,7 +2529,8 @@ impl Renderer {
                 WeatherCondition::Thunderstorm => "Thunderstorm",
                 WeatherCondition::Fog => "Fog",
             };
-            self.cached_weather_str = format!("{} {:.1}°{}", condition_str, val, unit).into_boxed_str();
+            self.cached_weather_str =
+                format!("{} {:.1}°{}", condition_str, val, unit).into_boxed_str();
         } else {
             self.cached_weather_str = "".into();
         }

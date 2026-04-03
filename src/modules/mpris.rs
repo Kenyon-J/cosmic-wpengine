@@ -1,7 +1,7 @@
 use anyhow::Result;
+use std::borrow::Cow;
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
-use std::borrow::Cow;
 use url::Url;
 
 use super::{
@@ -26,7 +26,11 @@ impl MetadataUpdate {
             artist: metadata.artists().unwrap_or_default().join(", ").into(),
             album: metadata.album_name().unwrap_or("").into(),
             art_url: metadata.art_url().map(Into::into),
-            track_id: metadata.track_id().map(|id| id.to_string()).unwrap_or_default().into(),
+            track_id: metadata
+                .track_id()
+                .map(|id| id.to_string())
+                .unwrap_or_default()
+                .into(),
         }
     }
 }
@@ -206,7 +210,8 @@ impl MprisWatcher {
 
                 match update {
                     MprisUpdate::Metadata(meta) => {
-                        let is_empty = (meta.title.as_ref() == "Unknown" || meta.title.trim().is_empty())
+                        let is_empty = (meta.title.as_ref() == "Unknown"
+                            || meta.title.trim().is_empty())
                             && meta.artist.trim().is_empty();
                         if !is_empty {
                             last_metadata = Some(meta);
