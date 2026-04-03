@@ -74,8 +74,8 @@ impl AudioCapture {
 
                     let _ = tx
                         .send(Event::AudioFrame {
-                            bands: normalised,
-                            waveform: samples,
+                            bands: normalised.into_boxed_slice(),
+                            waveform: samples.into_boxed_slice(),
                         })
                         .await;
                 }
@@ -87,8 +87,8 @@ impl AudioCapture {
                     }
                     let _ = tx
                         .send(Event::AudioFrame {
-                            bands: vec![0.0; FFT_SIZE / 2],
-                            waveform: vec![0.0; FFT_SIZE],
+                            bands: vec![0.0; FFT_SIZE / 2].into_boxed_slice(),
+                            waveform: vec![0.0; FFT_SIZE].into_boxed_slice(),
                         })
                         .await;
                 }

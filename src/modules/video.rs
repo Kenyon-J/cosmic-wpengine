@@ -13,6 +13,7 @@ pub fn get_frame_pool() -> &'static Mutex<Vec<Vec<u8>>> {
     FRAME_POOL.get_or_init(|| Mutex::new(Vec::with_capacity(3)))
 }
 
+#[repr(transparent)]
 pub struct PooledImage(Option<image::RgbaImage>);
 
 impl PooledImage {

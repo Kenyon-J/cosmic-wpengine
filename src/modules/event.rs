@@ -1,31 +1,34 @@
 #[derive(Debug)]
 pub enum Event {
-    ConfigUpdated(super::config::Config),
-    TrackChanged(TrackInfo),
+    ConfigUpdated(Box<super::config::Config>),
+    TrackChanged(Box<TrackInfo>),
     PlaybackStopped,
     PlaybackResumed,
     PlayerShutDown,
     PlaybackPosition(std::time::Duration),
-    AudioFrame { bands: Vec<f32>, waveform: Vec<f32> },
+    AudioFrame {
+        bands: Box<[f32]>,
+        waveform: Box<[f32]>,
+    },
     VideoFrame(super::video::PooledImage),
-    WeatherUpdated(WeatherData),
+    WeatherUpdated(Box<WeatherData>),
 }
 
 #[derive(Debug, Clone)]
 pub struct TrackInfo {
-    pub title: String,
-    pub artist: String,
-    pub album: String,
+    pub title: Box<str>,
+    pub artist: Box<str>,
+    pub album: Box<str>,
     pub album_art: Option<image::RgbaImage>,
-    pub palette: Option<Vec<[f32; 3]>>,
-    pub lyrics: Option<Vec<LyricLine>>,
-    pub video_url: Option<String>,
+    pub palette: Option<Box<[[f32; 3]]>>,
+    pub lyrics: Option<Box<[LyricLine]>>,
+    pub video_url: Option<Box<str>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct LyricLine {
     pub start_time_secs: f32,
-    pub text: String,
+    pub text: Box<str>,
 }
 
 #[derive(Debug, Clone)]

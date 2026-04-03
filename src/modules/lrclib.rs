@@ -14,7 +14,7 @@ pub async fn fetch_synced_lyrics(
     artist: &str,
     album: &str,
     client: &reqwest::Client,
-) -> Option<Vec<LyricLine>> {
+) -> Option<Box<[LyricLine]>> {
     let resp = client
         .get("https://lrclib.net/api/get")
         .query(&[
@@ -37,7 +37,7 @@ pub async fn fetch_synced_lyrics(
     Some(parse_lrc(&lyrics_text))
 }
 
-fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
+fn parse_lrc(lrc: &str) -> Box<[LyricLine]> {
     let mut lines = Vec::new();
 
     for line in lrc.lines() {
@@ -45,7 +45,7 @@ fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
         if let (Some(start), Some(end)) = (line.find('['), line.find(']')) {
             if start < end {
                 let time_str = &line[start + 1..end];
-                let text = line[end + 1..].trim().to_string();
+                let text = line[end + 1..].trim().to_string().into_boxed_str();
 
                 let mut parts = time_str.split(':');
                 if let (Some(m), Some(s)) = (parts.next(), parts.next()) {
@@ -59,7 +59,7 @@ fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
             }
         }
     }
-    lines
+    lines.into_boxed_slice()
 }
 
 #[cfg(test)]
@@ -82,13 +82,13 @@ mod tests {
         assert_eq!(lines.len(), 3);
 
         assert!((lines[0].start_time_secs - 12.34).abs() < TOLERANCE);
-        assert_eq!(lines[0].text, "First line of lyrics");
+        assert_eq!(lines[0].text.as_ref(), "First line of lyrics");
 
         assert!((lines[1].start_time_secs - 65.67).abs() < TOLERANCE);
-        assert_eq!(lines[1].text, "Second line of lyrics");
+        assert_eq!(lines[1].text.as_ref(), "Second line of lyrics");
 
         assert!((lines[2].start_time_secs - 165.00).abs() < TOLERANCE);
-        assert_eq!(lines[2].text, "Third line of lyrics");
+        assert_eq!(lines[2].text.as_ref(), "Third line of lyrics");
     }
 
     #[test]
@@ -105,10 +105,10 @@ mod tests {
         assert_eq!(lines.len(), 2);
 
         assert!((lines[0].start_time_secs - 12.34).abs() < TOLERANCE);
-        assert_eq!(lines[0].text, "Valid line");
+        assert_eq!(lines[0].text.as_ref(), "Valid line");
 
         assert!((lines[1].start_time_secs - 165.00).abs() < TOLERANCE);
-        assert_eq!(lines[1].text, "Another valid line");
+        assert_eq!(lines[1].text.as_ref(), "Another valid line");
     }
 
     #[test]
@@ -127,10 +127,10 @@ mod tests {
         assert_eq!(lines.len(), 2);
 
         assert!((lines[0].start_time_secs - 1.0).abs() < TOLERANCE);
-        assert_eq!(lines[0].text, "");
+        assert_eq!(lines[0].text.as_ref(), "");
 
         assert!((lines[1].start_time_secs - 5.0).abs() < TOLERANCE);
-        assert_eq!(lines[1].text, "Valid lyrics");
+        assert_eq!(lines[1].text.as_ref(), "Valid lyrics");
     }
 
     #[test]
@@ -159,14 +159,14 @@ mod tests {
 
         // "[01:22] No dot should be ignored safely" parses as 1 min, 22 secs
         assert!((lines[0].start_time_secs - 82.0).abs() < TOLERANCE);
-        assert_eq!(lines[0].text, "No dot should be ignored safely");
+        assert_eq!(lines[0].text.as_ref(), "No dot should be ignored safely");
 
         // "[03:00.00] Valid amid chaos" parses as 3 mins, 0 secs
         assert!((lines[1].start_time_secs - 180.0).abs() < TOLERANCE);
-        assert_eq!(lines[1].text, "Valid amid chaos");
+        assert_eq!(lines[1].text.as_ref(), "Valid amid chaos");
 
         // "[00:10.00] Valid lyrics" parses as 0 mins, 10 secs
         assert!((lines[2].start_time_secs - 10.0).abs() < TOLERANCE);
-        assert_eq!(lines[2].text, "Valid lyrics");
+        assert_eq!(lines[2].text.as_ref(), "Valid lyrics");
     }
 }

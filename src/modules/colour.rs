@@ -1,6 +1,6 @@
 use image::{DynamicImage, GenericImageView, Rgba};
 
-pub fn extract_palette(image: &DynamicImage) -> Vec<[f32; 3]> {
+pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
     // Optimization: Skip expensive Lanczos3 filtering and extra allocations
     // by sampling the original image directly. For a coarse 512-bucket histogram,
     // simple nearest-neighbor sampling is significantly faster and more than sufficient.
@@ -53,7 +53,8 @@ pub fn extract_palette(image: &DynamicImage) -> Vec<[f32; 3]> {
         .iter()
         .take(5)
         .map(|((r, g, b), _)| [*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0])
-        .collect()
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
 }
 
 pub fn lerp_colour(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
