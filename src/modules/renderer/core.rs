@@ -1320,6 +1320,158 @@ impl Renderer {
                 .write_buffer(&self.visualiser_pass.bands_buffer, 0, bands_bytes);
         }
 
+        // Optimization: Pre-calculate common render values out of the monitor loop
+        // to avoid redundant calculations for each output.
+
+        // 1. Pre-calculate Visualizer colors
+        let (top_col, bottom_col) = if has_audio {
+            let get_colors = |palette: Option<&[[f32; 3]]>| -> ([f32; 3], [f32; 3]) {
+                let top = self.theme.visualiser.color_top;
+                let bottom = self.theme.visualiser.color_bottom;
+
+                match palette {
+                    _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
+                    Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
+                    Some(p) if p.len() == 1 => (
+                        top.unwrap_or(p[0]),
+                        bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
+                    ),
+                    _ => (
+                        top.unwrap_or([1.0, 0.2, 0.5]),
+                        bottom.unwrap_or([0.2, 0.5, 1.0]),
+                    ),
+                }
+            };
+            let target_colors = get_colors(
+                self.state
+                    .current_track
+                    .as_ref()
+                    .and_then(|t| t.palette.as_deref()),
+            );
+            if self.state.transition_progress < 1.0 {
+                let prev_colors = get_colors(self.state.previous_palette.as_deref());
+                let t = self.state.transition_progress;
+                let top_rgb = lerp_colour(prev_colors.0, target_colors.0, t);
+                let bottom_rgb = lerp_colour(prev_colors.1, target_colors.1, t);
+                (
+                    [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
+                    [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
+                )
+            } else {
+                let top_rgb = target_colors.0;
+                let bottom_rgb = target_colors.1;
+                (
+                    [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
+                    [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
+                )
+            }
+        } else {
+            ([0.0; 4], [0.0; 4])
+        };
+
+        // 2. Pre-calculate Album Art colors
+        let art_tint_color = if show_art_fg || show_art_bg || show_color_bg {
+            self.state
+                .current_track
+                .as_ref()
+                .map(|track| {
+                    let target_color = track
+                        .palette
+                        .as_deref()
+                        .and_then(|p| p.first())
+                        .copied()
+                        .unwrap_or([0.1, 0.1, 0.1]);
+                    if self.state.transition_progress < 1.0 {
+                        let prev_color = self
+                            .state
+                            .previous_palette
+                            .as_deref()
+                            .and_then(|p| p.first())
+                            .copied()
+                            .unwrap_or([0.1, 0.1, 0.1]);
+                        lerp_colour(prev_color, target_color, self.state.transition_progress)
+                    } else {
+                        target_color
+                    }
+                })
+                .unwrap_or([0.1, 0.1, 0.1])
+        } else {
+            [0.1, 0.1, 0.1]
+        };
+
+        // 3. Pre-calculate Sky colors
+        let sky_color_data = if self.custom_bg_bind_group.is_none() {
+            let elapsed = self.start_time.elapsed().as_secs_f32();
+            let mut weather_type = 0u32;
+            let sky = time_to_sky_colour(self.state.time_of_day);
+            let final_sky = if let Some(weather) = &self.state.weather {
+                weather_type = match weather.condition {
+                    WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
+                    WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
+                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
+                    WeatherCondition::Snow => 3,
+                };
+                match weather.condition {
+                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
+                        lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
+                    }
+                    WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
+                    _ => sky,
+                }
+            } else {
+                sky
+            };
+            Some((elapsed, weather_type, final_sky))
+        } else {
+            None
+        };
+
+        // 4. Pre-calculate Text colors (luminance and tinting)
+        let (primary_text, secondary_text) = {
+            let text_bg_color = self
+                .state
+                .current_track
+                .as_ref()
+                .and_then(|t| t.palette.as_deref())
+                .and_then(|p| p.first())
+                .copied()
+                .unwrap_or([0.1, 0.1, 0.1]);
+            let text_accent = self
+                .state
+                .current_track
+                .as_ref()
+                .and_then(|t| t.palette.as_deref())
+                .and_then(|p| p.get(1).or_else(|| p.first()))
+                .copied()
+                .unwrap_or([1.0, 1.0, 1.0]);
+
+            let luminance =
+                0.299 * text_bg_color[0] + 0.587 * text_bg_color[1] + 0.114 * text_bg_color[2];
+            if luminance > 0.55 {
+                // Dark text for bright backgrounds, tinted with the accent color
+                let tint = [
+                    text_accent[0] * 0.3,
+                    text_accent[1] * 0.3,
+                    text_accent[2] * 0.3,
+                ];
+                (
+                    [tint[0], tint[1], tint[2], 1.0],
+                    [tint[0], tint[1], tint[2], 0.7],
+                )
+            } else {
+                // Light text for dark backgrounds, lightly tinted with the accent color
+                let tint = [
+                    text_accent[0] * 0.3 + 0.7,
+                    text_accent[1] * 0.3 + 0.7,
+                    text_accent[2] * 0.3 + 0.7,
+                ];
+                (
+                    [tint[0], tint[1], tint[2], 1.0],
+                    [tint[0], tint[1], tint[2], 0.45],
+                )
+            }
+        };
+
         for (i, gpu_out) in self.outputs.iter_mut().enumerate() {
             if wayland_manager.is_frame_pending(i) {
                 continue; // The compositor hasn't shown the last frame yet (e.g., hidden behind a window)
@@ -1343,47 +1495,6 @@ impl Renderer {
 
             // 1. Process visualizer uniforms
             if has_audio {
-                let get_colors = |palette: Option<&[[f32; 3]]>| -> ([f32; 3], [f32; 3]) {
-                    let top = self.theme.visualiser.color_top;
-                    let bottom = self.theme.visualiser.color_bottom;
-
-                    match palette {
-                        _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
-                        Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
-                        Some(p) if p.len() == 1 => (
-                            top.unwrap_or(p[0]),
-                            bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
-                        ),
-                        _ => (
-                            top.unwrap_or([1.0, 0.2, 0.5]),
-                            bottom.unwrap_or([0.2, 0.5, 1.0]),
-                        ),
-                    }
-                };
-                let target_colors = get_colors(
-                    self.state
-                        .current_track
-                        .as_ref()
-                        .and_then(|t| t.palette.as_deref()),
-                );
-                let (top_col, bottom_col) = if self.state.transition_progress < 1.0 {
-                    let prev_colors = get_colors(self.state.previous_palette.as_deref());
-                    let t = self.state.transition_progress;
-                    let top_rgb = lerp_colour(prev_colors.0, target_colors.0, t);
-                    let bottom_rgb = lerp_colour(prev_colors.1, target_colors.1, t);
-                    (
-                        [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
-                        [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
-                    )
-                } else {
-                    let top_rgb = target_colors.0;
-                    let bottom_rgb = target_colors.1;
-                    (
-                        [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
-                        [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
-                    )
-                };
-
                 #[repr(C, align(16))]
                 struct VisUniforms {
                     res: [f32; 2],
@@ -1440,26 +1551,8 @@ impl Renderer {
 
             // 2. Process album art uniforms
             if show_art_fg || show_art_bg || show_color_bg {
-                if let Some(track) = &self.state.current_track {
-                    let target_color = track
-                        .palette
-                        .as_deref()
-                        .and_then(|p| p.first())
-                        .copied()
-                        .unwrap_or([0.1, 0.1, 0.1]);
-                    let color = if self.state.transition_progress < 1.0 {
-                        let prev_color = self
-                            .state
-                            .previous_palette
-                            .as_deref()
-                            .and_then(|p| p.first())
-                            .copied()
-                            .unwrap_or([0.1, 0.1, 0.1]);
-                        lerp_colour(prev_color, target_color, self.state.transition_progress)
-                    } else {
-                        target_color
-                    };
-
+                if let Some(_track) = &self.state.current_track {
+                    let color = art_tint_color;
                     let bg_mode = if show_color_bg {
                         3
                     } else if self.state.config.appearance.disable_blur {
@@ -1594,29 +1687,8 @@ impl Renderer {
                 };
                 self.queue
                     .write_buffer(&self.custom_bg_uniform_buffer, 0, cbg_bytes);
-            } else {
+            } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
                 // 3. Process ambient uniforms
-                let elapsed = self.start_time.elapsed().as_secs_f32();
-                let mut weather_type = 0u32;
-                let sky = time_to_sky_colour(self.state.time_of_day);
-                let final_sky = if let Some(weather) = &self.state.weather {
-                    weather_type = match weather.condition {
-                        WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
-                        WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
-                        WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
-                        WeatherCondition::Snow => 3,
-                    };
-                    match weather.condition {
-                        WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
-                            lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
-                        }
-                        WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
-                        _ => sky,
-                    }
-                } else {
-                    sky
-                };
-
                 let bg_alpha_val = 1.0 - self.state.transparent_fade;
 
                 #[repr(C, align(16))]
@@ -1657,50 +1729,6 @@ impl Renderer {
                 .map(|w| w.scale_factor as f32)
                 .unwrap_or(1.0);
             let logical_height = height_f / scale_factor;
-
-            // Calculate perceived brightness of the background to ensure lyrics are always readable!
-            let text_bg_color = self
-                .state
-                .current_track
-                .as_ref()
-                .and_then(|t| t.palette.as_deref())
-                .and_then(|p| p.first())
-                .copied()
-                .unwrap_or([0.1, 0.1, 0.1]);
-            let text_accent = self
-                .state
-                .current_track
-                .as_ref()
-                .and_then(|t| t.palette.as_deref())
-                .and_then(|p| p.get(1).or_else(|| p.first()))
-                .copied()
-                .unwrap_or([1.0, 1.0, 1.0]);
-
-            let luminance =
-                0.299 * text_bg_color[0] + 0.587 * text_bg_color[1] + 0.114 * text_bg_color[2];
-            let (primary_text, secondary_text) = if luminance > 0.55 {
-                // Dark text for bright backgrounds, tinted with the accent color
-                let tint = [
-                    text_accent[0] * 0.3,
-                    text_accent[1] * 0.3,
-                    text_accent[2] * 0.3,
-                ];
-                (
-                    [tint[0], tint[1], tint[2], 1.0],
-                    [tint[0], tint[1], tint[2], 0.7],
-                )
-            } else {
-                // Light text for dark backgrounds, lightly tinted with the accent color
-                let tint = [
-                    text_accent[0] * 0.3 + 0.7,
-                    text_accent[1] * 0.3 + 0.7,
-                    text_accent[2] * 0.3 + 0.7,
-                ];
-                (
-                    [tint[0], tint[1], tint[2], 1.0],
-                    [tint[0], tint[1], tint[2], 0.45],
-                )
-            };
 
             let map_align = |a: &TextAlign| -> cosmic_text::Align {
                 match a {

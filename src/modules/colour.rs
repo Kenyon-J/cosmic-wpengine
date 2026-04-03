@@ -1,24 +1,32 @@
 use image::{DynamicImage, GenericImageView, Rgba};
 
 pub fn extract_palette(image: &DynamicImage) -> Vec<[f32; 3]> {
-    let thumb = image.thumbnail(64, 64);
+    // Optimization: Skip expensive Lanczos3 filtering and extra allocations
+    // by sampling the original image directly. For a coarse 512-bucket histogram,
+    // simple nearest-neighbor sampling is significantly faster and more than sufficient.
+    let (width, height) = image.dimensions();
+    let step_x = (width / 64).max(1);
+    let step_y = (height / 64).max(1);
 
     // Optimization: Use a fixed-size array for the histogram instead of a HashMap.
     // Since we bin colors into 32-unit buckets (8 levels per channel), there are
     // only 8 * 8 * 8 = 512 possible buckets. This avoids heap allocations and hashing overhead.
     let mut buckets = [0u32; 512];
 
-    for (_, _, Rgba([r, g, b, a])) in thumb.pixels() {
-        if a < 128 {
-            continue;
-        }
+    for y in (0..height).step_by(step_y as usize) {
+        for x in (0..width).step_by(step_x as usize) {
+            let Rgba([r, g, b, a]) = image.get_pixel(x, y);
+            if a < 128 {
+                continue;
+            }
 
-        // Map RGB to 512 buckets: 3 bits per channel (8 levels each)
-        let r_idx = (r / 32) as usize;
-        let g_idx = (g / 32) as usize;
-        let b_idx = (b / 32) as usize;
-        let index = (r_idx << 6) | (g_idx << 3) | b_idx;
-        buckets[index] += 1;
+            // Map RGB to 512 buckets: 3 bits per channel (8 levels each)
+            let r_idx = (r / 32) as usize;
+            let g_idx = (g / 32) as usize;
+            let b_idx = (b / 32) as usize;
+            let index = (r_idx << 6) | (g_idx << 3) | b_idx;
+            buckets[index] += 1;
+        }
     }
 
     // Convert buckets to a vector for sorting, filtering out empty buckets and invalid brightness.
