@@ -1,15 +1,3 @@
-## 03-02-2025- Optimize MPRIS module with Async (REJECTED)
-**Learning:** For long-running, reactive tasks like MPRIS monitoring, a dedicated `std::thread` is often the better architectural choice. Moving to a polling model with `tokio::task::spawn_blocking` every few seconds introduces lag, increases overhead, and risks blocking the async executor if D-Bus calls are executed directly.
-**Action:** Preserve dedicated threads for reactive event-based monitoring to ensure real-time responsiveness and avoid overloading the async task scheduler.
-
-## 03-02-2025- Optimize audio visualiser with pre-calculated Hann window
-**Learning:** Redundant trigonometric calculations in high-frequency hot loops (like audio DSP) can significantly increase CPU usage.
-**Action:** Always pre-calculate static coefficients (like window functions) into lookup tables (arrays or vectors) outside the main processing loop to save thousands of redundant math operations per second.
-
-## 04-02-2025- Offload Blocking Operations to Worker Threads
-**Learning:** Mixing synchronous, CPU-intensive work (like image decoding) or blocking library calls (like D-Bus via the `mpris` crate) directly inside an async task stalls the Tokio executor, leading to frame drops and UI stutter.
-**Action:** Always wrap heavy synchronous operations and blocking library calls in `tokio::task::spawn_blocking`. This offloads the work to a dedicated thread pool, preserving the responsiveness of the main async event loop.
-
-## 02-04-2026- Optimize Bounded Histograms with Fixed-Size Arrays
-**Learning:** For bounded counting tasks with a small key space (e.g., color histograms with 512 buckets), `HashMap` introduces unnecessary hashing overhead and heap allocations.
-**Action:** Prefer fixed-size arrays over `HashMap` for performance-critical loops when the key space is small and can be mapped to indices efficiently.
+## 2024-05-24 - Zero-copy JSON Deserialization and Buffer Pooling
+**Learning:** `reqwest`'s `.json()` or intermediate `serde_json::Value` structures break zero-copy deserialization lifetimes (like `Cow<'a, str>`) because they take ownership of the data buffer. Dropping and re-allocating complex GUI objects like `cosmic_text::Buffer` in hot rendering loops causes massive heap fragmentation.
+**Action:** Always fetch API responses as raw text using `.text().await` and parse with `serde_json::from_str` to preserve `Cow` lifetimes. Maintain explicit Object Pools (e.g., `Vec<Buffer>`) for heavy text-shaping objects, calling `.lines.clear()` rather than dropping the buffer.

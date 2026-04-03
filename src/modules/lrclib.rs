@@ -1,12 +1,13 @@
+use std::borrow::Cow;
 use serde::Deserialize;
 use tracing::warn;
 
 use super::event::LyricLine;
 
 #[derive(Deserialize)]
-struct LrclibResponse {
-    #[serde(rename = "syncedLyrics")]
-    synced_lyrics: Option<String>,
+struct LrclibResponse<'a> {
+    #[serde(borrow, rename = "syncedLyrics")]
+    synced_lyrics: Option<Cow<'a, str>>,
 }
 
 pub async fn fetch_synced_lyrics(
@@ -31,7 +32,8 @@ pub async fn fetch_synced_lyrics(
         return None;
     }
 
-    let data: LrclibResponse = resp.json().await.ok()?;
+    let text = resp.text().await.ok()?;
+    let data: LrclibResponse = serde_json::from_str(&text).ok()?;
     let lyrics_text = data.synced_lyrics?;
 
     Some(parse_lrc(&lyrics_text))

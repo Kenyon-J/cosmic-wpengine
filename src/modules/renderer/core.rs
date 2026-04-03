@@ -33,7 +33,8 @@ pub struct Renderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
     text_renderer: TextRenderer,
-    text_buffer_cache: std::collections::HashMap<String, Buffer>,
+    text_buffer_cache: std::collections::HashMap<Box<str>, Buffer>,
+    buffer_pool: Vec<Buffer>,
     visualiser_pass: VisualiserPass,
     album_art_pipeline: wgpu::RenderPipeline,
     album_art_layout: wgpu::BindGroupLayout,
@@ -73,8 +74,8 @@ pub struct Renderer {
     waveform_bin_ranges: Vec<(usize, usize)>,
     lyric_bounce_value: f32,
     lyric_bounce_velocity: f32,
-    cached_track_str: String,
-    cached_weather_str: String,
+    cached_track_str: Box<str>,
+    cached_weather_str: Box<str>,
     current_lyric_idx: usize,
     lyric_scroll_offset: f32,
     video_frame_buffer: Vec<u8>,
@@ -674,6 +675,7 @@ impl Renderer {
             swash_cache,
             text_renderer,
             text_buffer_cache: std::collections::HashMap::new(),
+            buffer_pool: Vec::new(),
             visualiser_pass,
             album_art_pipeline,
             album_art_layout,
@@ -713,8 +715,8 @@ impl Renderer {
             waveform_bin_ranges,
             lyric_bounce_value: 0.0,
             lyric_bounce_velocity: 0.0,
-            cached_track_str: String::new(),
-            cached_weather_str: String::new(),
+            cached_track_str: "".into(),
+            cached_weather_str: "".into(),
             current_lyric_idx: 0,
             lyric_scroll_offset: 0.0,
             video_frame_buffer: Vec::new(),
@@ -966,8 +968,10 @@ impl Renderer {
                 info!("Live settings applied!");
             }
             Event::TrackChanged(mut track) => {
-                self.text_buffer_cache.clear(); // Free old shaped lyrics from memory!
-                self.text_buffer_cache.shrink_to_fit();
+                for (_, mut buffer) in self.text_buffer_cache.drain() {
+                    buffer.lines.clear();
+                    self.buffer_pool.push(buffer);
+                }
                 info!("Now playing: {} - {}", track.artist, track.title);
                 let has_art = track.album_art.is_some();
                 // take() strips the massive image payload out of TrackInfo so we don't hoard it in RAM permanently!
@@ -985,7 +989,7 @@ impl Renderer {
                 }
                 self.state.has_album_art = has_art;
                 self.cached_track_str =
-                    format!("{} — {}\n{}", track.title, track.artist, track.album);
+                    format!("{} — {}\n{}", track.title, track.artist, track.album).into_boxed_str();
                 self.state.previous_palette = self
                     .state
                     .current_track
@@ -1018,9 +1022,11 @@ impl Renderer {
             }
 
             Event::PlayerShutDown => {
-                self.cached_track_str.clear();
-                self.text_buffer_cache.clear();
-                self.text_buffer_cache.shrink_to_fit();
+                self.cached_track_str = "".into();
+                for (_, mut buffer) in self.text_buffer_cache.drain() {
+                    buffer.lines.clear();
+                    self.buffer_pool.push(buffer);
+                }
                 self.state.previous_palette = self
                     .state
                     .current_track
@@ -1799,7 +1805,9 @@ impl Renderer {
                                     .text_buffer_cache
                                     .remove(lyric_line.text.as_ref())
                                     .unwrap_or_else(|| {
-                                        let mut b = Buffer::new(&mut self.font_system, metrics);
+                                        let mut b = self.buffer_pool.pop().unwrap_or_else(|| {
+                                            Buffer::new(&mut self.font_system, metrics)
+                                        });
                                         b.set_metrics(&mut self.font_system, metrics);
                                         b.set_size(&mut self.font_system, width_f, height_f);
                                         b.set_text(
@@ -1825,7 +1833,7 @@ impl Renderer {
 
                                 text_buffers.push(PositionedBuffer {
                                     buffer,
-                                    text_key: lyric_line.text.to_string(),
+                                    text_key: lyric_line.text.clone(),
                                     pos,
                                     color: final_color,
                                     scale: render_scale,
@@ -1842,9 +1850,11 @@ impl Renderer {
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
                 let mut buffer = self
                     .text_buffer_cache
-                    .remove(&self.cached_track_str)
+                    .remove(self.cached_track_str.as_ref())
                     .unwrap_or_else(|| {
-                        let mut b = Buffer::new(&mut self.font_system, metrics);
+                        let mut b = self.buffer_pool.pop().unwrap_or_else(|| {
+                            Buffer::new(&mut self.font_system, metrics)
+                        });
                         b.set_metrics(&mut self.font_system, metrics);
                         b.set_size(&mut self.font_system, width_f, height_f);
                         b.set_text(
@@ -1886,9 +1896,11 @@ impl Renderer {
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
                 let mut buffer = self
                     .text_buffer_cache
-                    .remove(&self.cached_weather_str)
+                    .remove(self.cached_weather_str.as_ref())
                     .unwrap_or_else(|| {
-                        let mut b = Buffer::new(&mut self.font_system, metrics);
+                        let mut b = self.buffer_pool.pop().unwrap_or_else(|| {
+                            Buffer::new(&mut self.font_system, metrics)
+                        });
                         b.set_metrics(&mut self.font_system, metrics);
                         b.set_size(&mut self.font_system, width_f, height_f);
                         b.set_text(
@@ -1938,8 +1950,10 @@ impl Renderer {
 
             // Prevent unbound memory growth for weather/ambient setups left running for days
             if self.text_buffer_cache.len() > 100 {
-                self.text_buffer_cache.clear();
-                self.text_buffer_cache.shrink_to_fit();
+                for (_, mut buffer) in self.text_buffer_cache.drain() {
+                    buffer.lines.clear();
+                    self.buffer_pool.push(buffer);
+                }
             }
 
             for p_buf in text_buffers {
@@ -2513,9 +2527,9 @@ impl Renderer {
                 WeatherCondition::Thunderstorm => "Thunderstorm",
                 WeatherCondition::Fog => "Fog",
             };
-            self.cached_weather_str = format!("{} {:.1}°{}", condition_str, val, unit);
+            self.cached_weather_str = format!("{} {:.1}°{}", condition_str, val, unit).into_boxed_str();
         } else {
-            self.cached_weather_str.clear();
+            self.cached_weather_str = "".into();
         }
     }
 
