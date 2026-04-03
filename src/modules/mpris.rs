@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::borrow::Cow;
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 use url::Url;
@@ -12,25 +11,24 @@ use super::{
 
 #[derive(Debug, Clone, PartialEq)]
 struct MetadataUpdate {
-    title: Box<str>,
-    artist: Box<str>,
-    album: Box<str>,
-    art_url: Option<Box<str>>,
-    track_id: Box<str>,
+    title: String,
+    artist: String,
+    album: String,
+    art_url: Option<String>,
+    track_id: String,
 }
 
 impl MetadataUpdate {
     fn from_metadata(metadata: &mpris::Metadata) -> Self {
         Self {
-            title: metadata.title().unwrap_or("Unknown").into(),
-            artist: metadata.artists().unwrap_or_default().join(", ").into(),
-            album: metadata.album_name().unwrap_or("").into(),
-            art_url: metadata.art_url().map(Into::into),
+            title: metadata.title().unwrap_or("Unknown").to_string(),
+            artist: metadata.artists().unwrap_or_default().join(", "),
+            album: metadata.album_name().unwrap_or("").to_string(),
+            art_url: metadata.art_url().map(|s| s.to_string()),
             track_id: metadata
                 .track_id()
                 .map(|id| id.to_string())
-                .unwrap_or_default()
-                .into(),
+                .unwrap_or_default(),
         }
     }
 }
@@ -42,21 +40,20 @@ enum MprisUpdate {
 }
 
 #[derive(serde::Deserialize)]
-struct ITunesResponse<'a> {
-    #[serde(borrow)]
-    results: Vec<ITunesResult<'a>>,
+struct ITunesResponse {
+    results: Vec<ITunesResult>,
 }
 
 #[derive(serde::Deserialize)]
-struct ITunesResult<'a> {
-    #[serde(borrow, rename = "artworkUrl100")]
-    artwork_url: Option<Cow<'a, str>>,
+struct ITunesResult {
+    #[serde(rename = "artworkUrl100")]
+    artwork_url: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
-struct CanvasResponse<'a> {
-    #[serde(borrow, rename = "canvas_url")]
-    url: Option<Cow<'a, str>>,
+struct CanvasResponse {
+    #[serde(rename = "canvas_url")]
+    url: Option<String>,
 }
 
 pub struct MprisWatcher;
@@ -210,8 +207,7 @@ impl MprisWatcher {
 
                 match update {
                     MprisUpdate::Metadata(meta) => {
-                        let is_empty = (meta.title.as_ref() == "Unknown"
-                            || meta.title.trim().is_empty())
+                        let is_empty = (meta.title == "Unknown" || meta.title.trim().is_empty())
                             && meta.artist.trim().is_empty();
                         if !is_empty {
                             last_metadata = Some(meta);
@@ -315,8 +311,7 @@ impl MprisWatcher {
     ) -> TrackInfo {
         let cache_key = meta
             .art_url
-            .as_ref()
-            .map(|s| s.to_string())
+            .clone()
             .unwrap_or_else(|| format!("fallback:{}:{}", meta.artist, meta.album));
         let cached_palette = palette_cache.get(&cache_key).cloned();
 
@@ -325,7 +320,7 @@ impl MprisWatcher {
 
         let art_future = async {
             let mut local_img = None;
-            if let Some(art_url) = meta.art_url.as_deref() {
+            if let Some(art_url) = &meta.art_url {
                 info!("Extracted art_url from MPRIS metadata: {}", art_url);
                 match Self::fetch_album_art(art_url, client).await {
                     Ok(img) => {
@@ -449,9 +444,9 @@ impl MprisWatcher {
         }
 
         TrackInfo {
-            title: meta.title.clone(),
-            artist: meta.artist.clone(),
-            album: meta.album.clone(),
+            title: meta.title.clone().into_boxed_str(),
+            artist: meta.artist.clone().into_boxed_str(),
+            album: meta.album.clone().into_boxed_str(),
             album_art,
             palette,
             lyrics,
@@ -579,7 +574,7 @@ impl MprisWatcher {
             format!("{} {}", artist, album)
         };
 
-        let resp_text = client
+        let resp: ITunesResponse = client
             .get("https://itunes.apple.com/search")
             .query(&[
                 ("term", search_str.as_str()),
@@ -588,10 +583,8 @@ impl MprisWatcher {
             ])
             .send()
             .await?
-            .text()
+            .json()
             .await?;
-
-        let resp: ITunesResponse = serde_json::from_str(&resp_text)?;
 
         if let Some(first) = resp.results.first() {
             if let Some(art_url) = &first.artwork_url {
@@ -652,10 +645,8 @@ impl MprisWatcher {
             .send()
             .await
         {
-            if let Ok(text) = resp.text().await {
-                if let Ok(canvas) = serde_json::from_str::<CanvasResponse>(&text) {
-                    return canvas.url.map(|c| c.into_owned());
-                }
+            if let Ok(canvas) = resp.json::<CanvasResponse>().await {
+                return canvas.url;
             }
         }
         None

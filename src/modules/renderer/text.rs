@@ -6,7 +6,7 @@ use cosmic_text::{self, Buffer};
 
 pub struct PositionedBuffer {
     pub buffer: Buffer,
-    pub text_key: Box<str>,
+    pub text_key: String,
     pub pos: [f32; 2],
     pub color: [f32; 4],
     pub scale: f32,
