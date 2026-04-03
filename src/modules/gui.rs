@@ -618,7 +618,8 @@ amplitude = 1.5"#;
                     btn,
                     "Select a theme (.toml in shaders/) to apply it.",
                     cosmic::iced::widget::tooltip::Position::Top,
-                ).into()
+                )
+                .into()
             }
         };
 
@@ -635,7 +636,8 @@ amplitude = 1.5"#;
                     btn,
                     "Enter a name for the new theme first.",
                     cosmic::iced::widget::tooltip::Position::Top,
-                ).into()
+                )
+                .into()
             }
         };
 
