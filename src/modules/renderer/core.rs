@@ -1920,7 +1920,7 @@ impl Renderer {
             );
 
             // Prevent unbound memory growth for weather/ambient setups left running for days
-            if self.text_buffer_cache.len() > 100 {
+            if self.text_buffer_cache.len() > 30 {
                 self.text_buffer_cache.clear();
                 self.text_buffer_cache.shrink_to_fit();
             }
@@ -2184,6 +2184,8 @@ impl Renderer {
                 },
                 texture_size,
             );
+            self.album_art_pad_buffer.clear();
+            self.album_art_pad_buffer.shrink_to_fit();
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -2384,6 +2386,8 @@ impl Renderer {
                 },
                 texture_size,
             );
+            self.album_art_pad_buffer.clear();
+            self.album_art_pad_buffer.shrink_to_fit();
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
