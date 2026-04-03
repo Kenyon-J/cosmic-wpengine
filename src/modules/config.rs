@@ -1325,7 +1325,7 @@ impl Config {
 
                     if let Ok(config) = Self::load_or_default() {
                         let _ = watch_tx.send(config.clone());
-                        let _ = tx.send(Event::ConfigUpdated(config)).await;
+                        let _ = tx.send(Event::ConfigUpdated(Box::new(config))).await;
                     }
                 }
             }

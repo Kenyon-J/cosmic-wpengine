@@ -168,8 +168,9 @@ impl MprisWatcher {
 
         let cache_cap = std::num::NonZeroUsize::new(50)
             .ok_or_else(|| anyhow::anyhow!("Failed to initialize non-zero cache capacity"))?;
-        let mut palette_cache: lru::LruCache<String, Vec<[f32; 3]>> = lru::LruCache::new(cache_cap);
-        let mut lyrics_cache: lru::LruCache<String, Option<Vec<LyricLine>>> =
+        let mut palette_cache: lru::LruCache<String, Box<[[f32; 3]]>> =
+            lru::LruCache::new(cache_cap);
+        let mut lyrics_cache: lru::LruCache<String, Option<Box<[LyricLine]>>> =
             lru::LruCache::new(cache_cap);
         let mut video_cache: lru::LruCache<String, Option<String>> = lru::LruCache::new(cache_cap);
         let mut video_cancel_tx: Option<tokio::sync::watch::Sender<bool>> = None;
@@ -283,13 +284,15 @@ impl MprisWatcher {
                         let url_clone = url.clone();
                         tokio::spawn(async move {
                             let _ = super::video::VideoDecoder::run_decoder(
-                                url_clone, tx_clone, cancel_rx,
+                                url_clone.to_string(),
+                                tx_clone,
+                                cancel_rx,
                             )
                             .await;
                         });
                     }
 
-                    let _ = tx.send(Event::TrackChanged(track_info)).await;
+                    let _ = tx.send(Event::TrackChanged(Box::new(track_info))).await;
                     last_processed_metadata = Some(meta);
                 }
             }
@@ -300,8 +303,8 @@ impl MprisWatcher {
 
     async fn build_track_info(
         meta: &MetadataUpdate,
-        palette_cache: &mut lru::LruCache<String, Vec<[f32; 3]>>,
-        lyrics_cache: &mut lru::LruCache<String, Option<Vec<LyricLine>>>,
+        palette_cache: &mut lru::LruCache<String, Box<[[f32; 3]]>>,
+        lyrics_cache: &mut lru::LruCache<String, Option<Box<[LyricLine]>>>,
         video_cache: &mut lru::LruCache<String, Option<String>>,
         fetch_lyrics: bool,
         client: &reqwest::Client,
@@ -441,13 +444,13 @@ impl MprisWatcher {
         }
 
         TrackInfo {
-            title: meta.title.clone(),
-            artist: meta.artist.clone(),
-            album: meta.album.clone(),
+            title: meta.title.clone().into_boxed_str(),
+            artist: meta.artist.clone().into_boxed_str(),
+            album: meta.album.clone().into_boxed_str(),
             album_art,
             palette,
             lyrics,
-            video_url,
+            video_url: video_url.map(|u| u.into_boxed_str()),
         }
     }
 

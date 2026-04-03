@@ -46,24 +46,23 @@ impl WeatherWatcher {
             let poll_interval =
                 tokio::time::Duration::from_secs(current_config.poll_interval_minutes.max(1) * 60);
 
-            if current_config.enabled
-                && (force_fetch || last_fetch.elapsed() >= poll_interval) {
-                    match Self::fetch_weather(&current_config, &client).await {
-                        Ok(data) => {
-                            info!(
-                                "Weather updated: {:?} {:.1}°C",
-                                data.condition, data.temperature_celsius
-                            );
-                            let _ = tx.send(Event::WeatherUpdated(data)).await;
-                            last_fetch = tokio::time::Instant::now();
-                        }
-                        Err(e) => {
-                            warn!("Weather fetch failed: {}", e);
-                            last_fetch = tokio::time::Instant::now() - poll_interval
-                                + tokio::time::Duration::from_secs(60);
-                        }
+            if current_config.enabled && (force_fetch || last_fetch.elapsed() >= poll_interval) {
+                match Self::fetch_weather(&current_config, &client).await {
+                    Ok(data) => {
+                        info!(
+                            "Weather updated: {:?} {:.1}°C",
+                            data.condition, data.temperature_celsius
+                        );
+                        let _ = tx.send(Event::WeatherUpdated(Box::new(data))).await;
+                        last_fetch = tokio::time::Instant::now();
+                    }
+                    Err(e) => {
+                        warn!("Weather fetch failed: {}", e);
+                        last_fetch = tokio::time::Instant::now() - poll_interval
+                            + tokio::time::Duration::from_secs(60);
                     }
                 }
+            }
 
             last_config = current_config;
 

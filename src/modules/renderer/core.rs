@@ -940,8 +940,8 @@ impl Renderer {
                 }
 
                 if config.audio.bands != self.state.config.audio.bands {
-                    self.state.audio_bands = vec![0.0; config.audio.bands];
-                    self.state.audio_waveform = vec![0.0; config.audio.bands];
+                    self.state.audio_bands = vec![0.0; config.audio.bands].into_boxed_slice();
+                    self.state.audio_waveform = vec![0.0; config.audio.bands].into_boxed_slice();
                     self.a_weighting_curve = Self::build_a_weighting_curve(config.audio.bands);
                     self.frequency_bin_ranges =
                         Self::build_frequency_bin_ranges(config.audio.bands);
@@ -961,7 +961,7 @@ impl Renderer {
 
                 // Always reload the theme layout so live edits to the .toml apply instantly!
                 self.theme = ThemeLayout::load(&config.audio.style);
-                self.state.config = config;
+                self.state.config = *config;
                 self.update_weather_string();
                 info!("Live settings applied!");
             }
@@ -990,8 +990,8 @@ impl Renderer {
                     .state
                     .current_track
                     .as_ref()
-                    .and_then(|t| t.palette.clone());
-                self.state.current_track = Some(track);
+                    .and_then(|t| t.palette.clone().map(|p| p.into_vec()));
+                self.state.current_track = Some(*track);
                 self.state.is_playing = true;
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;
@@ -1025,7 +1025,7 @@ impl Renderer {
                     .state
                     .current_track
                     .as_ref()
-                    .and_then(|t| t.palette.clone());
+                    .and_then(|t| t.palette.clone().map(|p| p.into_vec()));
                 self.album_art_bg_bind_group = None;
                 self.album_art_fg_bind_group = None;
                 self.current_album_texture = None;
@@ -1143,7 +1143,7 @@ impl Renderer {
                 }
 
                 if self.state.audio_waveform.len() != target_len {
-                    self.state.audio_waveform = vec![0.0; target_len];
+                    self.state.audio_waveform = vec![0.0; target_len].into_boxed_slice();
                 }
 
                 let wave_len = waveform.len();
@@ -1175,7 +1175,7 @@ impl Renderer {
                     "Weather: {:?} {:.1}°C",
                     weather.condition, weather.temperature_celsius
                 );
-                self.state.weather = Some(weather);
+                self.state.weather = Some(*weather);
                 self.update_weather_string();
                 self.state.begin_transition();
             }
@@ -1797,7 +1797,7 @@ impl Renderer {
                                     Metrics::new(active_font_size, active_font_size * 1.2);
                                 let mut buffer = self
                                     .text_buffer_cache
-                                    .remove(&lyric_line.text)
+                                    .remove(lyric_line.text.as_ref())
                                     .unwrap_or_else(|| {
                                         let mut b = Buffer::new(&mut self.font_system, metrics);
                                         b.set_metrics(&mut self.font_system, metrics);
@@ -1825,7 +1825,7 @@ impl Renderer {
 
                                 text_buffers.push(PositionedBuffer {
                                     buffer,
-                                    text_key: lyric_line.text.clone(),
+                                    text_key: lyric_line.text.to_string(),
                                     pos,
                                     color: final_color,
                                     scale: render_scale,

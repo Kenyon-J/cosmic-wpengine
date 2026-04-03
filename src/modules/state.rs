@@ -12,8 +12,8 @@ pub struct AppState {
     pub previous_palette: Option<Vec<[f32; 3]>>,
     pub playback_position: std::time::Duration,
 
-    pub audio_bands: Vec<f32>,
-    pub audio_waveform: Vec<f32>,
+    pub audio_bands: Box<[f32]>,
+    pub audio_waveform: Box<[f32]>,
 
     pub weather: Option<WeatherData>,
 
@@ -38,8 +38,8 @@ impl AppState {
             is_playing: false,
             previous_palette: None,
             playback_position: std::time::Duration::ZERO,
-            audio_bands: vec![0.0; band_count],
-            audio_waveform: vec![0.0; band_count],
+            audio_bands: vec![0.0; band_count].into_boxed_slice(),
+            audio_waveform: vec![0.0; band_count].into_boxed_slice(),
             weather: None,
             time_of_day: Self::current_time_of_day(),
             transition_progress: 1.0,
@@ -128,7 +128,7 @@ mod tests {
         assert_eq!(state.scene_description(), SceneHint::Ambient);
 
         // With significant audio energy, it should switch to AudioVisualiser
-        state.audio_bands = vec![1.0; 64];
+        state.audio_bands = vec![1.0; 64].into_boxed_slice();
         assert_eq!(state.scene_description(), SceneHint::AudioVisualiser);
 
         // Track with album art should take highest precedence over everything
