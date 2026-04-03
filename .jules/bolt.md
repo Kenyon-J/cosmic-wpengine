@@ -13,3 +13,7 @@
 ## 02-04-2026- Optimize Bounded Histograms with Fixed-Size Arrays
 **Learning:** For bounded counting tasks with a small key space (e.g., color histograms with 512 buckets), `HashMap` introduces unnecessary hashing overhead and heap allocations.
 **Action:** Prefer fixed-size arrays over `HashMap` for performance-critical loops when the key space is small and can be mapped to indices efficiently.
+
+## 2025-04-03 - Optimize Vector Creation in Hot Loops with iterators
+**Learning:** Manual `for` loops appending array elements one by one via `.push()` can be up to 10-12x slower than standard library iterators because LLVM fails to vectorize the instructions.
+**Action:** When mapping arrays and zipping items together, particularly in hot loops like audio DSP, always favor `.extend()` with `.zip()`, `.map()`, and `.chunks_exact()`. This allows LLVM to process data branchlessly and vectorize array handling.

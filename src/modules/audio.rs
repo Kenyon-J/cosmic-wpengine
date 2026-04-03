@@ -177,9 +177,14 @@ impl AudioCapture {
                                         valid,
                                     )
                                 };
-                                for i in 0..valid {
-                                    sample_buffer.push((left_f32[i] + right_f32[i]) * 0.5);
-                                }
+                                // Optimization: Use zipped iterators and extend() instead of a manual for-loop.
+                                // This allows LLVM to vectorize the downmix operation, making it significantly faster.
+                                sample_buffer.extend(
+                                    left_f32
+                                        .iter()
+                                        .zip(right_f32.iter())
+                                        .map(|(&l, &r)| (l + r) * 0.5),
+                                );
                             }
                         }
                     } else if datas.len() == 1 {
@@ -191,12 +196,14 @@ impl AudioCapture {
                                 let f32_samples = unsafe {
                                     std::slice::from_raw_parts(data.as_ptr() as *const f32, valid)
                                 };
-                                for chunk in f32_samples.chunks(2) {
-                                    if chunk.len() == 2 {
-                                        sample_buffer.push((chunk[0] + chunk[1]) * 0.5);
-                                    } else {
-                                        sample_buffer.push(chunk[0]);
-                                    }
+
+                                // Optimization: Use chunks_exact for branchless iteration and extend() to vectorise.
+                                sample_buffer.extend(
+                                    f32_samples.chunks_exact(2).map(|c| (c[0] + c[1]) * 0.5),
+                                );
+                                if let Some(last) = f32_samples.chunks_exact(2).remainder().first()
+                                {
+                                    sample_buffer.push(*last);
                                 }
                             }
                         }
