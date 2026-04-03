@@ -605,16 +605,20 @@ amplitude = 1.5"#;
             }
         };
 
-        let apply_btn = {
+        let apply_btn: Element<'_, Self::Message> = {
             let btn = cosmic::iced::widget::button(text("Apply Theme").font(font));
             let is_theme = self
                 .selected_file
                 .as_ref()
                 .is_some_and(|f| f.starts_with("shaders/") && f.ends_with(".toml"));
             if is_theme {
-                btn.on_press(Message::ApplyTheme)
+                btn.on_press(Message::ApplyTheme).into()
             } else {
-                btn
+                cosmic::iced::widget::tooltip(
+                    btn,
+                    "Select a theme (.toml in shaders/) to apply it.",
+                    cosmic::iced::widget::tooltip::Position::Top,
+                ).into()
             }
         };
 
@@ -622,12 +626,16 @@ amplitude = 1.5"#;
             .on_input(Message::NewThemeNameChanged)
             .on_submit(|_| Message::CreateTheme);
 
-        let create_btn = {
+        let create_btn: Element<'_, Self::Message> = {
             let btn = cosmic::iced::widget::button(text("Create Theme").font(font));
             if !self.new_theme_name.trim().is_empty() {
-                btn.on_press(Message::CreateTheme)
+                btn.on_press(Message::CreateTheme).into()
             } else {
-                btn
+                cosmic::iced::widget::tooltip(
+                    btn,
+                    "Enter a name for the new theme first.",
+                    cosmic::iced::widget::tooltip::Position::Top,
+                ).into()
             }
         };
 
