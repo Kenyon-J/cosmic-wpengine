@@ -432,22 +432,32 @@ impl Application for SettingsApp {
 
                     let path = config::Config::config_dir().join(&file_name);
 
-                    if !path.exists() {
-                        let default_content = r#"[visualiser]
+                    let mut options = std::fs::OpenOptions::new();
+                    options.write(true).create_new(true);
+
+                    match options.open(&path) {
+                        Ok(mut file) => {
+                            let default_content = r#"[visualiser]
 shape = "linear"
 position = [0.5, 0.5]
 size = 0.85
 rotation = 0.0
 amplitude = 1.5"#;
-                        let _ = std::fs::write(&path, default_content);
-                        self.available_files = load_files();
-                        self.selected_file = Some(file_name.clone());
-                        let content_str = std::fs::read_to_string(path).unwrap_or_default();
-                        self.editor_content = text_editor::Content::with_text(&content_str);
-                        self.status_msg = format!("Created {}", file_name);
-                        self.new_theme_name.clear();
-                    } else {
-                        self.status_msg = format!("Theme '{}' already exists!", name);
+                            use std::io::Write;
+                            let _ = file.write_all(default_content.as_bytes());
+                            self.available_files = load_files();
+                            self.selected_file = Some(file_name.clone());
+                            let content_str = std::fs::read_to_string(path).unwrap_or_default();
+                            self.editor_content = text_editor::Content::with_text(&content_str);
+                            self.status_msg = format!("Created {}", file_name);
+                            self.new_theme_name.clear();
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                            self.status_msg = format!("Theme '{}' already exists!", name);
+                        }
+                        Err(e) => {
+                            self.status_msg = format!("Error creating theme: {}", e);
+                        }
                     }
                 }
             }
