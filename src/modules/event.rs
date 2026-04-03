@@ -7,7 +7,7 @@ pub enum Event {
     PlayerShutDown,
     PlaybackPosition(std::time::Duration),
     AudioFrame { bands: Vec<f32>, waveform: Vec<f32> },
-    VideoFrame(image::RgbaImage),
+    VideoFrame(super::video::PooledImage),
     WeatherUpdated(WeatherData),
 }
 

@@ -9,13 +9,8 @@ use cosmic::widget::{column, row, text, text_editor, text_input};
 use cosmic::{Application, Element};
 use cosmic_text::fontdb;
 
-// You can import your existing config logic directly!
-#[allow(dead_code)]
-#[path = "../modules/config.rs"]
-mod config;
-#[allow(dead_code)]
-#[path = "../modules/event.rs"]
-mod event; // Needed by config.rs
+// Import the shared modules from your newly created library crate!
+use cosmic_wallpaper::modules::config;
 
 fn main() -> cosmic::iced::Result {
     // Launch the libcosmic application

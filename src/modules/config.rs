@@ -911,21 +911,27 @@ struct VertexOutput {
     @location(0) uv: vec2<f32>,
     @location(1) local_uv: vec2<f32>,
     @location(2) bar_val: f32,
+    @location(3) rot_sc: vec2<f32>,
 }
+
+const POSITIONS = array<vec2<f32>, 6>(
+    vec2<f32>(0.0, 0.0),
+    vec2<f32>(1.0, 0.0),
+    vec2<f32>(0.0, 1.0),
+    vec2<f32>(1.0, 0.0),
+    vec2<f32>(1.0, 1.0),
+    vec2<f32>(0.0, 1.0)
+);
 
 @vertex
 fn vs_main(@builtin(vertex_index) v_idx: u32, @builtin(instance_index) i_idx: u32) -> VertexOutput {
     var out: VertexOutput;
     
-    var pos = array<vec2<f32>, 6>(
-        vec2<f32>(0.0, 0.0),
-        vec2<f32>(1.0, 0.0),
-        vec2<f32>(0.0, 1.0),
-        vec2<f32>(1.0, 0.0),
-        vec2<f32>(1.0, 1.0),
-        vec2<f32>(0.0, 1.0)
-    );
-    let p_quad = pos[v_idx];
+    let p_quad = POSITIONS[v_idx];
+    
+    let s = sin(uniforms.pos_size_rot.w);
+    let c = cos(uniforms.pos_size_rot.w);
+    out.rot_sc = vec2<f32>(s, c);
 
     if (uniforms.is_waveform == 1u) {
         if (i_idx == 0u) {
@@ -973,8 +979,6 @@ fn vs_main(@builtin(vertex_index) v_idx: u32, @builtin(instance_index) i_idx: u3
         
         let p = vec2<f32>(offset_x + local_x, offset_y - local_y);
         
-        let s = sin(uniforms.pos_size_rot.w);
-        let c = cos(uniforms.pos_size_rot.w);
         let p_rot = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
         
         let screen_p = vec2<f32>(p_rot.x / aspect, p_rot.y);
@@ -1020,8 +1024,6 @@ fn vs_main(@builtin(vertex_index) v_idx: u32, @builtin(instance_index) i_idx: u3
             r * sin(angle) + local_x * cos(angle)
         );
         
-        let s = sin(uniforms.pos_size_rot.w);
-        let c = cos(uniforms.pos_size_rot.w);
         let p_rot = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
         
         let aspect = uniforms.resolution.x / uniforms.resolution.y;
@@ -1038,8 +1040,11 @@ fn get_vis_waveform(uv: vec2<f32>, s: f32, c: f32, aspect: f32) -> vec4<f32> {
     
     let base_radius = uniforms.pos_size_rot.z + (uniforms.lyric_pulse * 0.02);
     let inner_bound = base_radius - 0.2;
+    let outer_bound = base_radius + (uniforms.amplitude * 0.2) + 0.1;
     let d_sq = dot(p, p);
-    if inner_bound > 0.0 && d_sq < inner_bound * inner_bound {
+    
+    // Branchless early discard using geometric bounds to bypass heavy atan2 logic
+    if (inner_bound > 0.0 && d_sq < inner_bound * inner_bound) || d_sq > outer_bound * outer_bound {
         return vec4<f32>(0.0);
     }
     let d = sqrt(d_sq);
@@ -1101,8 +1106,8 @@ fn eval_shadow(lx: f32, ly: f32, half_w: f32, height: f32, blur: f32) -> f32 {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let aspect = uniforms.resolution.x / uniforms.resolution.y;
-    let s = sin(uniforms.pos_size_rot.w);
-    let c = cos(uniforms.pos_size_rot.w);
+    let s = in.rot_sc.x;
+    let c = in.rot_sc.y;
 
     if (uniforms.is_waveform == 1u) {
         let bg = get_vis_waveform(in.uv, s, c, aspect);
@@ -1272,7 +1277,10 @@ impl Config {
         Self::config_dir().join("config.toml")
     }
 
-    pub async fn watch(tx: Sender<Event>) -> Result<()> {
+    pub async fn watch(
+        tx: Sender<Event>,
+        watch_tx: tokio::sync::watch::Sender<Config>,
+    ) -> Result<()> {
         let path = Self::config_path();
         let parent = path
             .parent()
@@ -1316,6 +1324,7 @@ impl Config {
                     while notify_rx.try_recv().is_ok() {}
 
                     if let Ok(config) = Self::load_or_default() {
+                        let _ = watch_tx.send(config.clone());
                         let _ = tx.send(Event::ConfigUpdated(config)).await;
                     }
                 }

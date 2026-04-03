@@ -37,7 +37,6 @@ enum MprisUpdate {
     Metadata(MetadataUpdate),
     Status(mpris::PlaybackStatus),
     Position(std::time::Duration),
-    ShutDown,
 }
 
 #[derive(serde::Deserialize)]
@@ -76,164 +75,89 @@ impl MprisWatcher {
                 .build()
         })
         .await
-        .expect("Tokio spawn_blocking failed to execute reqwest client builder")?;
+        .map_err(|e| anyhow::anyhow!("Tokio spawn_blocking failed: {}", e))??;
         let (update_tx, mut update_rx) = tokio::sync::mpsc::channel(16);
         let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel::<()>();
-        let (shutdown_tx2, shutdown_rx2) = std::sync::mpsc::channel::<()>();
 
-        // Background position polling to handle media players that fail to send Seeked signals
-        let poll_tx = tx.clone();
         let poll_visible = is_visible.clone();
         std::thread::spawn(move || {
             let mut finder = mpris::PlayerFinder::new();
+            let mut last_status = mpris::PlaybackStatus::Stopped;
+            let mut last_track_id = String::new();
+
             loop {
-                if shutdown_rx.recv_timeout(std::time::Duration::from_secs(1))
+                if shutdown_rx.recv_timeout(std::time::Duration::from_millis(500))
                     != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
                 {
                     break;
                 }
+
                 // Suspend D-Bus heavy polling when wallpaper is out of view
                 if !poll_visible.load(std::sync::atomic::Ordering::Relaxed) {
                     continue;
                 }
 
-                let pos_res = (|| {
-                    let f = match finder.as_ref() {
-                        Ok(f) => f,
-                        Err(_) => {
-                            finder = mpris::PlayerFinder::new();
-                            return None;
-                        }
-                    };
-                    let player = f.find_active().ok()?;
-                    if player.get_playback_status().ok()? == mpris::PlaybackStatus::Playing {
-                        return player.get_position().ok();
-                    }
-                    None
-                })();
-
-                if let Some(pos) = pos_res {
-                    let _ = poll_tx.blocking_send(Event::PlaybackPosition(pos));
-                }
-            }
-        });
-
-        std::thread::spawn(move || {
-            let mut finder = mpris::PlayerFinder::new();
-
-            loop {
                 let f = match finder.as_ref() {
                     Ok(f) => f,
                     Err(_) => {
                         finder = mpris::PlayerFinder::new();
-                        if shutdown_rx2.recv_timeout(std::time::Duration::from_secs(3))
-                            != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-                        {
-                            break;
-                        }
                         continue;
                     }
                 };
 
-                let player = match f.find_active() {
-                    Ok(p) => p,
-                    Err(_) => {
-                        let _ = update_tx
-                            .blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Stopped));
-                        if shutdown_rx2.recv_timeout(std::time::Duration::from_secs(3))
-                            != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-                        {
-                            break;
-                        }
-                        continue;
-                    }
-                };
-
-                // Prioritize any player that is currently playing over the "most recently active"
-                let active_player = f.find_all().ok().and_then(|players| {
-                    players.into_iter().find(|p| {
-                        p.get_playback_status()
-                            .unwrap_or(mpris::PlaybackStatus::Stopped)
-                            == mpris::PlaybackStatus::Playing
+                // Prioritize any player that is currently playing
+                let active_player = f
+                    .find_all()
+                    .ok()
+                    .and_then(|players| {
+                        players.into_iter().find(|p| {
+                            p.get_playback_status()
+                                .unwrap_or(mpris::PlaybackStatus::Stopped)
+                                == mpris::PlaybackStatus::Playing
+                        })
                     })
-                });
+                    .or_else(|| f.find_active().ok());
 
-                let player = match active_player {
-                    Some(p) => p,
-                    None => player, // Fallback to the most recently active player if none are playing
-                };
+                if let Some(player) = active_player {
+                    let current_status = player
+                        .get_playback_status()
+                        .unwrap_or(mpris::PlaybackStatus::Stopped);
+                    let metadata_opt = player.get_metadata().ok();
+                    let current_track_id = metadata_opt
+                        .as_ref()
+                        .and_then(|m| m.track_id().map(|id| id.to_string()))
+                        .unwrap_or_default();
 
-                if let Ok(metadata) = player.get_metadata() {
-                    let _ = update_tx.blocking_send(MprisUpdate::Metadata(
-                        MetadataUpdate::from_metadata(&metadata),
-                    ));
-                }
-                if let Ok(status) = player.get_playback_status() {
-                    let _ = update_tx.blocking_send(MprisUpdate::Status(status));
-                }
-                if let Ok(pos) = player.get_position() {
-                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
-                }
+                    if current_track_id != last_track_id {
+                        if let Some(metadata) = metadata_opt {
+                            let _ = update_tx.blocking_send(MprisUpdate::Metadata(
+                                MetadataUpdate::from_metadata(&metadata),
+                            ));
+                        }
+                        last_track_id = current_track_id;
+                    }
 
-                if let Ok(events) = player.events() {
-                    for event in events {
-                        match event {
-                            Ok(mpris::Event::TrackChanged(metadata)) => {
-                                let _ = update_tx.blocking_send(MprisUpdate::Metadata(
-                                    MetadataUpdate::from_metadata(&metadata),
-                                ));
-                                if let Ok(pos) = player.get_position() {
-                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
-                                }
-                            }
-                            Ok(mpris::Event::Playing) => {
-                                let _ = update_tx.blocking_send(MprisUpdate::Status(
-                                    mpris::PlaybackStatus::Playing,
-                                ));
-                                if let Ok(pos) = player.get_position() {
-                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
-                                }
-                            }
-                            Ok(mpris::Event::Paused) => {
-                                let _ = update_tx.blocking_send(MprisUpdate::Status(
-                                    mpris::PlaybackStatus::Paused,
-                                ));
-                                if let Ok(pos) = player.get_position() {
-                                    let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
-                                }
-                            }
-                            Ok(mpris::Event::Stopped) => {
-                                let _ = update_tx.blocking_send(MprisUpdate::Status(
-                                    mpris::PlaybackStatus::Stopped,
-                                ));
-                            }
-                            Ok(mpris::Event::Seeked { position_in_us }) => {
-                                let pos = std::time::Duration::from_micros(position_in_us);
-                                let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
-                            }
-                            Ok(mpris::Event::PlayerShutDown) => {
-                                let _ = update_tx.blocking_send(MprisUpdate::ShutDown);
-                                break;
-                            }
-                            Err(e) => {
-                                warn!("MPRIS Event stream error: {}", e);
-                                let _ = update_tx.blocking_send(MprisUpdate::ShutDown);
-                                break; // Break out of the infinite iterator safely!
-                            }
-                            _ => {}
+                    if current_status != last_status {
+                        let _ = update_tx.blocking_send(MprisUpdate::Status(current_status));
+                        last_status = current_status;
+                    }
+
+                    if current_status == mpris::PlaybackStatus::Playing {
+                        if let Ok(pos) = player.get_position() {
+                            let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
                         }
                     }
-                } else if shutdown_rx2.recv_timeout(std::time::Duration::from_secs(1))
-                    != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-                {
-                    break;
+                } else if last_status != mpris::PlaybackStatus::Stopped {
+                    let _ = update_tx
+                        .blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Stopped));
+                    last_status = mpris::PlaybackStatus::Stopped;
+                    last_track_id.clear();
                 }
             }
         });
 
         // Ensure shutdown signals are preserved across the async execution to keep threads alive
-        let _shutdown_guard_1 = shutdown_tx;
-        let _shutdown_guard_2 = shutdown_tx2;
+        let _shutdown_guard = shutdown_tx;
 
         let mut is_playing = false;
         let mut is_timed_out = false;
@@ -241,12 +165,13 @@ impl MprisWatcher {
         let timeout_duration = tokio::time::Duration::from_secs(15);
         let mut last_metadata: Option<MetadataUpdate> = None;
         let mut last_processed_metadata: Option<MetadataUpdate> = None;
-        let mut palette_cache: std::collections::HashMap<String, Vec<[f32; 3]>> =
-            std::collections::HashMap::new();
-        let mut lyrics_cache: std::collections::HashMap<String, Option<Vec<LyricLine>>> =
-            std::collections::HashMap::new();
-        let mut video_cache: std::collections::HashMap<String, Option<String>> =
-            std::collections::HashMap::new();
+
+        let cache_cap = std::num::NonZeroUsize::new(50)
+            .ok_or_else(|| anyhow::anyhow!("Failed to initialize non-zero cache capacity"))?;
+        let mut palette_cache: lru::LruCache<String, Vec<[f32; 3]>> = lru::LruCache::new(cache_cap);
+        let mut lyrics_cache: lru::LruCache<String, Option<Vec<LyricLine>>> =
+            lru::LruCache::new(cache_cap);
+        let mut video_cache: lru::LruCache<String, Option<String>> = lru::LruCache::new(cache_cap);
         let mut video_cancel_tx: Option<tokio::sync::watch::Sender<bool>> = None;
 
         let mut last_show_lyrics = show_lyrics.load(std::sync::atomic::Ordering::Relaxed);
@@ -312,18 +237,6 @@ impl MprisWatcher {
                             let _ = tx.send(Event::PlaybackPosition(pos)).await;
                         }
                     }
-                    MprisUpdate::ShutDown => {
-                        is_playing = false;
-                        is_timed_out = false;
-                        paused_since = None;
-                        info!("Player shut down");
-                        if let Some(cancel) = video_cancel_tx.take() {
-                            let _ = cancel.send(true);
-                        }
-                        let _ = tx.send(Event::PlayerShutDown).await;
-                        last_metadata = None;
-                        last_processed_metadata = None;
-                    }
                 }
             }
 
@@ -347,18 +260,6 @@ impl MprisWatcher {
             // If we are visible and have unprocessed metadata, fetch the art, palette, and lyrics!
             if visible && !is_timed_out && last_metadata != last_processed_metadata {
                 if let Some(meta) = last_metadata.clone() {
-                    // Prevent boundless memory growth in caches for a long-running process
-                    if palette_cache.len() > 50 || lyrics_cache.len() > 50 || video_cache.len() > 50
-                    {
-                        info!("Clearing MPRIS caches to free memory...");
-                        palette_cache.clear();
-                        palette_cache.shrink_to_fit();
-                        lyrics_cache.clear();
-                        lyrics_cache.shrink_to_fit();
-                        video_cache.clear();
-                        video_cache.shrink_to_fit();
-                    }
-
                     info!("Fetching track info for: {} - {}", meta.artist, meta.title);
                     let track_info = Self::build_track_info(
                         &meta,
@@ -399,9 +300,9 @@ impl MprisWatcher {
 
     async fn build_track_info(
         meta: &MetadataUpdate,
-        palette_cache: &mut std::collections::HashMap<String, Vec<[f32; 3]>>,
-        lyrics_cache: &mut std::collections::HashMap<String, Option<Vec<LyricLine>>>,
-        video_cache: &mut std::collections::HashMap<String, Option<String>>,
+        palette_cache: &mut lru::LruCache<String, Vec<[f32; 3]>>,
+        lyrics_cache: &mut lru::LruCache<String, Option<Vec<LyricLine>>>,
+        video_cache: &mut lru::LruCache<String, Option<String>>,
         fetch_lyrics: bool,
         client: &reqwest::Client,
     ) -> TrackInfo {
@@ -521,17 +422,17 @@ impl MprisWatcher {
 
         if cached_palette.is_none() {
             if let Some(p) = &palette {
-                palette_cache.insert(cache_key, p.clone());
+                palette_cache.put(cache_key, p.clone());
             }
         }
 
         if cached_lyrics.is_none() && fetch_lyrics {
-            lyrics_cache.insert(lyrics_cache_key, lyrics.clone());
+            lyrics_cache.put(lyrics_cache_key, lyrics.clone());
         }
 
         if let Some(id) = raw_id {
-            if !video_cache.contains_key(id) {
-                video_cache.insert(id.to_string(), video_url.clone());
+            if !video_cache.contains(id) {
+                video_cache.put(id.to_string(), video_url.clone());
             }
         }
 
@@ -548,6 +449,24 @@ impl MprisWatcher {
             lyrics,
             video_url,
         }
+    }
+
+    fn decode_image_safely(bytes: impl AsRef<[u8]>) -> Result<image::DynamicImage> {
+        let mut reader = image::io::Reader::new(std::io::Cursor::new(bytes))
+            .with_guessed_format()
+            .map_err(|e| anyhow::anyhow!("Failed to guess image format: {}", e))?;
+
+        let mut limits = image::io::Limits::default();
+        // Prevent OOM from maliciously crafted or ultra-high-res local album art.
+        // Caps to 4K resolution (~67MB uncompressed RGB)
+        limits.max_image_width = Some(4096);
+        limits.max_image_height = Some(4096);
+        limits.max_alloc = Some(1024 * 1024 * 128); // 128 MB maximum buffer allocation
+        reader.limits(limits);
+
+        reader
+            .decode()
+            .map_err(|e| anyhow::anyhow!("Failed to decode image: {}", e))
     }
 
     async fn fetch_album_art(
@@ -570,13 +489,13 @@ impl MprisWatcher {
             // Optimization: Image decoding is a synchronous, CPU-intensive task.
             // Offloading this to spawn_blocking prevents it from stalling the main async executor.
             return tokio::task::spawn_blocking(move || {
-                image::load_from_memory(&bytes).map_err(|e| {
+                Self::decode_image_safely(&bytes).map_err(|e| {
                     warn!("Failed to decode HTTP image data: {}", e);
-                    e.into()
+                    e
                 })
             })
             .await
-            .unwrap();
+            .unwrap_or_else(|e| Err(anyhow::anyhow!("Image decoding task panicked: {}", e)));
         }
 
         // Use the `url` crate for robust parsing of file:// paths
@@ -595,13 +514,15 @@ impl MprisWatcher {
                         e
                     })?;
                     return tokio::task::spawn_blocking(move || {
-                        image::load_from_memory(&bytes).map_err(|e| {
+                        Self::decode_image_safely(&bytes).map_err(|e| {
                             warn!("Failed to decode image from disk {:?}: {}", path, e);
-                            e.into()
+                            e
                         })
                     })
                     .await
-                    .unwrap();
+                    .unwrap_or_else(|e| {
+                        Err(anyhow::anyhow!("Image decoding task panicked: {}", e))
+                    });
                 }
                 warn!(
                     "Could not cleanly convert URL to valid file path: {}",
@@ -626,16 +547,16 @@ impl MprisWatcher {
         })?;
         let url_str_owned = url_str.to_string();
         tokio::task::spawn_blocking(move || {
-            image::load_from_memory(&bytes).map_err(|e| {
+            Self::decode_image_safely(&bytes).map_err(|e| {
                 warn!(
                     "Failed to decode image from raw path {}: {}",
                     url_str_owned, e
                 );
-                e.into()
+                e
             })
         })
         .await
-        .unwrap()
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("Image decoding task panicked: {}", e)))
     }
 
     async fn fetch_fallback_album_art(
@@ -666,11 +587,11 @@ impl MprisWatcher {
             if let Some(art_url) = &first.artwork_url {
                 let high_res_url = art_url.replace("100x100bb", "600x600bb");
                 let bytes = client.get(&high_res_url).send().await?.bytes().await?;
-                return tokio::task::spawn_blocking(move || {
-                    image::load_from_memory(&bytes).map_err(Into::into)
-                })
-                .await
-                .unwrap();
+                return tokio::task::spawn_blocking(move || Self::decode_image_safely(&bytes))
+                    .await
+                    .unwrap_or_else(|e| {
+                        Err(anyhow::anyhow!("Image decoding task panicked: {}", e))
+                    });
             }
         }
         anyhow::bail!("No fallback art found on iTunes")

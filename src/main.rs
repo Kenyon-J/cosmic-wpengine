@@ -40,13 +40,14 @@ async fn main() -> Result<()> {
             let audio_vis = is_visible.clone();
             tokio::spawn(async move { AudioCapture::run(audio_tx, audio_vis).await });
 
+            let (config_watch_tx, config_watch_rx) = tokio::sync::watch::channel(config.clone());
+
             let weather_tx = event_tx.clone();
-            let weather_config = config.weather.clone();
-            tokio::spawn(async move { WeatherWatcher::run(weather_tx, weather_config).await });
+            tokio::spawn(async move { WeatherWatcher::run(weather_tx, config_watch_rx).await });
 
             let config_tx = event_tx.clone();
             tokio::spawn(async move {
-                if let Err(e) = Config::watch(config_tx).await {
+                if let Err(e) = Config::watch(config_tx, config_watch_tx).await {
                     tracing::warn!("Config watcher failed: {}", e);
                 }
             });

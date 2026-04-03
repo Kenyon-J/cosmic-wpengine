@@ -67,11 +67,10 @@ impl AudioCapture {
 
                     let half = FFT_SIZE / 2;
 
-                    let mut normalised = Vec::with_capacity(half);
-                    for c in &buffer[0..half] {
-                        let magnitude = c.norm();
-                        normalised.push((magnitude / SCALE_FACTOR).clamp(0.0, 1.0));
-                    }
+                    let normalised: Vec<f32> = buffer[0..half]
+                        .iter()
+                        .map(|c| (c.norm() / SCALE_FACTOR).clamp(0.0, 1.0))
+                        .collect();
 
                     let _ = tx
                         .send(Event::AudioFrame {
@@ -191,13 +190,9 @@ impl AudioCapture {
                                 let f32_samples = unsafe {
                                     std::slice::from_raw_parts(data.as_ptr() as *const f32, valid)
                                 };
-                                for chunk in f32_samples.chunks(2) {
-                                    if chunk.len() == 2 {
-                                        sample_buffer.push((chunk[0] + chunk[1]) * 0.5);
-                                    } else {
-                                        sample_buffer.push(chunk[0]);
-                                    }
-                                }
+                                // If there is only 1 buffer in Planar (F32P) format, it is a mono stream.
+                                // Averaging adjacent temporal samples acts as an unintended low-pass filter!
+                                sample_buffer.extend_from_slice(f32_samples);
                             }
                         }
                     }

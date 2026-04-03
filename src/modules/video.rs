@@ -13,6 +13,44 @@ pub fn get_frame_pool() -> &'static Mutex<Vec<Vec<u8>>> {
     FRAME_POOL.get_or_init(|| Mutex::new(Vec::with_capacity(3)))
 }
 
+pub struct PooledImage(Option<image::RgbaImage>);
+
+impl PooledImage {
+    pub fn new(img: image::RgbaImage) -> Self {
+        Self(Some(img))
+    }
+
+    // Keeps backwards compatibility if the renderer manually consumes the raw buffer
+    pub fn into_raw(mut self) -> Vec<u8> {
+        self.0.take().unwrap().into_raw()
+    }
+}
+
+impl std::ops::Deref for PooledImage {
+    type Target = image::RgbaImage;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().unwrap()
+    }
+}
+
+impl Drop for PooledImage {
+    fn drop(&mut self) {
+        if let Some(img) = self.0.take() {
+            if let Ok(mut pool) = get_frame_pool().lock() {
+                if pool.len() < 3 {
+                    pool.push(img.into_raw());
+                }
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for PooledImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("PooledImage").finish()
+    }
+}
+
 pub struct VideoDecoder;
 
 impl VideoDecoder {
@@ -105,18 +143,13 @@ impl VideoDecoder {
                     match result {
                         Ok(_) => {
                             if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, buffer) {
-                                match tx.try_send(Event::VideoFrame(img)) {
+                                let pooled_img = PooledImage::new(img);
+                                match tx.try_send(Event::VideoFrame(pooled_img)) {
                                     Ok(_) => {}
-                                    Err(tokio::sync::mpsc::error::TrySendError::Full(Event::VideoFrame(dropped_img))) => {
+                                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                                         warn!("Renderer busy, dropping video frame to prevent memory bloat");
-                                        if let Ok(mut pool) = get_frame_pool().lock() {
-                                            if pool.len() < 3 {
-                                                pool.push(dropped_img.into_raw());
-                                            }
-                                        }
                                     }
                                     Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
-                                    _ => {}
                                 }
                             }
                         }

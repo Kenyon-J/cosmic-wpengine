@@ -11,10 +11,14 @@ use super::{
 pub struct WeatherWatcher;
 
 impl WeatherWatcher {
-    pub async fn run(tx: Sender<Event>, config: WeatherConfig) -> Result<()> {
+    pub async fn run(
+        tx: Sender<Event>,
+        mut config_rx: tokio::sync::watch::Receiver<super::config::Config>,
+    ) -> Result<()> {
+        let mut last_config = config_rx.borrow().weather.clone();
         info!(
             "Weather watcher started. Initial state: {}",
-            if config.enabled {
+            if last_config.enabled {
                 "enabled"
             } else {
                 "disabled"
@@ -26,22 +30,10 @@ impl WeatherWatcher {
             .timeout(std::time::Duration::from_secs(10))
             .build()?;
 
-        let mut last_config = config.clone();
         let mut last_fetch = tokio::time::Instant::now() - tokio::time::Duration::from_secs(86400);
 
         loop {
-            // Read directly to avoid triggering ThemeLayout::write_defaults() and heavy disk checks every 5s
-            let current_config = match tokio::fs::read_to_string(
-                super::config::Config::config_dir().join("config.toml"),
-            )
-            .await
-            {
-                Ok(text) => match toml::from_str::<super::config::Config>(&text) {
-                    Ok(c) => c.weather,
-                    Err(_) => last_config.clone(),
-                },
-                Err(_) => last_config.clone(),
-            };
+            let current_config = config_rx.borrow().weather.clone();
 
             let mut force_fetch = false;
             if (current_config.enabled && !last_config.enabled)
@@ -51,11 +43,11 @@ impl WeatherWatcher {
                 force_fetch = true;
             }
 
-            if current_config.enabled {
-                let poll_interval = tokio::time::Duration::from_secs(
-                    current_config.poll_interval_minutes.max(1) * 60,
-                );
-                if force_fetch || last_fetch.elapsed() >= poll_interval {
+            let poll_interval =
+                tokio::time::Duration::from_secs(current_config.poll_interval_minutes.max(1) * 60);
+
+            if current_config.enabled
+                && (force_fetch || last_fetch.elapsed() >= poll_interval) {
                     match Self::fetch_weather(&current_config, &client).await {
                         Ok(data) => {
                             info!(
@@ -72,11 +64,31 @@ impl WeatherWatcher {
                         }
                     }
                 }
-            }
 
             last_config = current_config;
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+            let sleep_duration = if last_config.enabled {
+                let elapsed = last_fetch.elapsed();
+                if elapsed < poll_interval {
+                    poll_interval - elapsed
+                } else {
+                    tokio::time::Duration::from_secs(0)
+                }
+            } else {
+                tokio::time::Duration::from_secs(86400) // Sleep indefinitely if disabled
+            };
+
+            tokio::select! {
+                _ = tokio::time::sleep(sleep_duration) => {}
+                res = config_rx.changed() => {
+                    if res.is_err() {
+                        break; // Channel closed, time to exit
+                    }
+                }
+            }
         }
+
+        Ok(())
     }
 
     async fn fetch_weather(

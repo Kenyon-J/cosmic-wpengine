@@ -130,7 +130,7 @@ impl OutputHandler for AppData {
         let mut i = 0;
         while i < self.windows.len() {
             if self.windows[i].output == output {
-                self.dead_windows.push(self.windows.remove(i));
+                self.dead_windows.push(self.windows.swap_remove(i));
                 self.configuration_serial += 1;
             } else {
                 i += 1;
@@ -196,7 +196,7 @@ impl LayerShellHandler for AppData {
         let mut i = 0;
         while i < self.windows.len() {
             if &self.windows[i].layer == layer {
-                self.dead_windows.push(self.windows.remove(i));
+                self.dead_windows.push(self.windows.swap_remove(i));
                 self.configuration_serial += 1;
             } else {
                 i += 1;
@@ -314,17 +314,14 @@ impl WaylandManager {
         })
     }
 
-    pub fn outputs(&self) -> Vec<WaylandOutput> {
-        self.app_data
-            .windows
-            .iter()
-            .map(|w| WaylandOutput {
-                width: w.width * (w.scale_factor as u32),
-                height: w.height * (w.scale_factor as u32),
-                display_ptr: self.display_ptr,
-                surface_ptr: w.surface.id().as_ptr() as *mut _,
-            })
-            .collect()
+    pub fn outputs(&self) -> impl ExactSizeIterator<Item = WaylandOutput> + '_ {
+        let display_ptr = self.display_ptr;
+        self.app_data.windows.iter().map(move |w| WaylandOutput {
+            width: w.width * (w.scale_factor as u32),
+            height: w.height * (w.scale_factor as u32),
+            display_ptr,
+            surface_ptr: w.surface.id().as_ptr() as *mut _,
+        })
     }
 
     pub fn dispatch_events(&mut self) -> Result<()> {
@@ -344,6 +341,10 @@ impl WaylandManager {
     }
 
     pub fn update_opaque_regions(&mut self, is_transparent: bool) {
+        if self.app_data.is_transparent == is_transparent {
+            return; // Prevent thousands of redundant wl_region allocations on the compositor
+        }
+
         self.app_data.is_transparent = is_transparent;
         let compositor = self.app_data.compositor_state.wl_compositor().clone();
         let qh = self._event_queue.handle();

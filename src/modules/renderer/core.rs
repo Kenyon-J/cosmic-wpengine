@@ -540,7 +540,7 @@ impl Renderer {
             ..Default::default()
         });
 
-        let outputs_info = wayland_manager.outputs();
+        let outputs_info: Vec<_> = wayland_manager.outputs().collect();
         if outputs_info.is_empty() {
             anyhow::bail!("No Wayland outputs found to render to");
         }
@@ -749,22 +749,8 @@ impl Renderer {
         wayland_manager.update_opaque_regions(self.state.config.appearance.transparent_background);
 
         loop {
-            // --- Dynamic FPS Throttling ---
-            // Check if we should drop the FPS to save power.
-            let is_weather_active = self.state.weather.as_ref().is_some_and(|w| {
-                matches!(
-                    w.condition,
-                    WeatherCondition::Rain
-                        | WeatherCondition::Snow
-                        | WeatherCondition::Thunderstorm
-                )
-            });
-            let should_throttle = !self.state.is_playing && !is_weather_active;
-            let target_fps = if should_throttle {
-                15.min(self.state.config.fps)
-            } else {
-                self.state.config.fps
-            };
+            // --- Dynamic FPS ---
+            let target_fps = self.state.config.fps;
 
             if self.current_fps != target_fps {
                 info!("Updating FPS from {} to {}", self.current_fps, target_fps);
@@ -781,7 +767,7 @@ impl Renderer {
 
             wayland_manager.dispatch_events()?;
 
-            let current_outputs = wayland_manager.outputs();
+            let current_outputs: Vec<_> = wayland_manager.outputs().collect();
             if wayland_manager.app_data.configuration_serial != last_config_serial {
                 last_config_serial = wayland_manager.app_data.configuration_serial;
                 info!(
@@ -1213,7 +1199,10 @@ impl Renderer {
         let max_energy = audio_data
             .iter()
             .fold(0.0f32, |a: f32, &b: &f32| a.max(b.abs()));
-        let has_audio = (max_energy > 0.001 || force_vis) && !force_weather && !force_art;
+        let has_audio = (max_energy > 0.001 || force_vis)
+            && !force_weather
+            && !force_art
+            && (self.state.current_track.is_some() || force_vis);
 
         let base_energy = if self.state.audio_bands.is_empty() {
             0.0
