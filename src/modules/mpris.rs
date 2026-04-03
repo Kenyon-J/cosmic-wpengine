@@ -146,8 +146,8 @@ impl MprisWatcher {
                         if let Ok(pos) = player.get_position() {
                             // Use try_send for high-frequency, non-critical updates to avoid backpressure
                             match update_tx.try_send(MprisUpdate::Position(pos)) {
-                                Ok(_) => {},
-                                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {},
+                                Ok(_) => {}
+                                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {}
                                 Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
                             }
                         }

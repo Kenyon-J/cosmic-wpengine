@@ -6,7 +6,7 @@ use rustfft::{num_complex::Complex, FftPlanner};
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
-use super::event::Event;
+use super::event::{Event, PooledAudioBuffer};
 
 const FFT_SIZE: usize = 2048;
 // Tweak this value to change how tall the bars render at normal volumes
@@ -22,9 +22,14 @@ impl AudioCapture {
         info!("Audio capture started");
 
         let (audio_tx, mut audio_rx) = tokio::sync::mpsc::channel::<Vec<f32>>(16);
+        let (recycle_bands_tx, mut recycle_bands_rx) = tokio::sync::mpsc::channel::<Box<[f32]>>(4);
+        let (recycle_waveform_tx, recycle_waveform_rx) =
+            tokio::sync::mpsc::channel::<Box<[f32]>>(4);
+        let (recycle_complex_tx, mut recycle_complex_rx) =
+            tokio::sync::mpsc::channel::<Vec<Complex<f32>>>(4);
 
         std::thread::spawn(move || {
-            if let Err(e) = Self::run_pipewire_capture(audio_tx) {
+            if let Err(e) = Self::run_pipewire_capture(audio_tx, recycle_waveform_rx) {
                 warn!("PipeWire capture failed: {}", e);
             }
         });
@@ -54,8 +59,9 @@ impl AudioCapture {
                             if !*visible_rx.borrow() {
                                 continue;
                             }
-        
-                            let mut process_buffer = Vec::with_capacity(FFT_SIZE);
+
+                            let mut process_buffer = recycle_complex_rx.try_recv().unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE));
+                            process_buffer.clear();
                             for (i, &s) in samples.iter().enumerate() {
                                 let window = hann_window[i];
                                 process_buffer.push(Complex {
@@ -63,24 +69,28 @@ impl AudioCapture {
                                     im: 0.0,
                                 });
                             }
-        
+
                             let fft_clone = std::sync::Arc::clone(&fft);
-        
+
+                            let mut norm_buffer = recycle_bands_rx.try_recv().map(|b| b.into_vec()).unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE / 2));
+                            let recycle_complex_tx_clone = recycle_complex_tx.clone();
+
                             // Optimization: Offload heavy CPU bound math to the dedicated blocking thread pool
                             let (normalised, original_waveform) = tokio::task::spawn_blocking(move || {
                                 fft_clone.process(&mut process_buffer);
                                 let half = FFT_SIZE / 2;
-                                let norm: Vec<f32> = process_buffer[0..half]
+                                norm_buffer.clear();
+                                norm_buffer.extend(process_buffer[0..half]
                                     .iter()
-                                    .map(|c| (c.norm() / SCALE_FACTOR).clamp(0.0, 1.0))
-                                    .collect();
-                                (norm, samples) // Return the processed data
+                                    .map(|c| (c.norm() / SCALE_FACTOR).clamp(0.0, 1.0)));
+                                let _ = recycle_complex_tx_clone.try_send(process_buffer);
+                                (norm_buffer, samples) // Return the processed data
                             }).await.unwrap();
-        
+
                             let _ = tx
                                 .send(Event::AudioFrame {
-                                    bands: normalised.into_boxed_slice(),
-                                    waveform: original_waveform.into_boxed_slice(),
+                                    bands: PooledAudioBuffer::new(normalised.into_boxed_slice(), recycle_bands_tx.clone()),
+                                    waveform: PooledAudioBuffer::new(original_waveform.into_boxed_slice(), recycle_waveform_tx.clone()),
                                 })
                                 .await;
                         }
@@ -90,10 +100,17 @@ impl AudioCapture {
                                 warn!("PipeWire audio receive timeout - no data arriving. (Is stream paused/empty?)");
                                 last_warn = std::time::Instant::now();
                             }
+                            let mut norm_buffer = recycle_bands_rx.try_recv().map(|b| b.into_vec()).unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE / 2));
+                            norm_buffer.clear();
+                            norm_buffer.extend(std::iter::repeat_n(0.0, FFT_SIZE / 2));
+                            let mut wave_buffer = Vec::with_capacity(FFT_SIZE);
+                            wave_buffer.clear();
+                            wave_buffer.extend(std::iter::repeat_n(0.0, FFT_SIZE));
+
                             let _ = tx
                                 .send(Event::AudioFrame {
-                                    bands: vec![0.0; FFT_SIZE / 2].into_boxed_slice(),
-                                    waveform: vec![0.0; FFT_SIZE].into_boxed_slice(),
+                                    bands: PooledAudioBuffer::new(norm_buffer.into_boxed_slice(), recycle_bands_tx.clone()),
+                                    waveform: PooledAudioBuffer::new(wave_buffer.into_boxed_slice(), recycle_waveform_tx.clone()),
                                 })
                                 .await;
                         }
@@ -105,7 +122,7 @@ impl AudioCapture {
         Ok(())
     }
 
-    fn run_pipewire_capture(tx: tokio::sync::mpsc::Sender<Vec<f32>>) -> Result<()> {
+    fn run_pipewire_capture(tx: tokio::sync::mpsc::Sender<Vec<f32>>, mut recycle_rx: tokio::sync::mpsc::Receiver<Box<[f32]>>) -> Result<()> {
         pipewire::init();
 
         let mainloop = MainLoopBox::new(None)
@@ -222,12 +239,16 @@ impl AudioCapture {
                     }
 
                     while sample_buffer.len() >= FFT_SIZE {
-                        let frame = sample_buffer[..FFT_SIZE].to_vec();
+                        let mut frame = recycle_rx.try_recv().map(|b| b.into_vec()).unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE));
+                        frame.clear();
+                        frame.extend_from_slice(&sample_buffer[..FFT_SIZE]);
                         sample_buffer.drain(..FFT_SIZE);
                         match tx.try_send(frame) {
                             Ok(_) => {}
                             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                                tracing::warn!("Audio channel closed, shutting down PipeWire callback.");
+                                tracing::warn!(
+                                    "Audio channel closed, shutting down PipeWire callback."
+                                );
                                 return; // Safely halts further processing if channel dies
                             }
                             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
