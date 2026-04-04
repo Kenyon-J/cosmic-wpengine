@@ -601,12 +601,17 @@ amplitude = 1.5"#;
             Message::FileSelected,
         );
 
-        let save_btn = {
+        let save_btn: Element<'_, Self::Message> = {
             let btn = cosmic::iced::widget::button(text("Save File").font(font));
             if self.selected_file.is_some() {
-                btn.on_press(Message::SaveFile)
+                btn.on_press(Message::SaveFile).into()
             } else {
-                btn
+                cosmic::iced::widget::tooltip(
+                    btn,
+                    "Select a file to enable saving.",
+                    cosmic::iced::widget::tooltip::Position::Top,
+                )
+                .into()
             }
         };
 
