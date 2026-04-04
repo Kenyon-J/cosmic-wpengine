@@ -122,7 +122,10 @@ impl AudioCapture {
         Ok(())
     }
 
-    fn run_pipewire_capture(tx: tokio::sync::mpsc::Sender<Vec<f32>>, mut recycle_rx: tokio::sync::mpsc::Receiver<Box<[f32]>>) -> Result<()> {
+    fn run_pipewire_capture(
+        tx: tokio::sync::mpsc::Sender<Vec<f32>>,
+        mut recycle_rx: tokio::sync::mpsc::Receiver<Box<[f32]>>,
+    ) -> Result<()> {
         pipewire::init();
 
         let mainloop = MainLoopBox::new(None)
@@ -239,7 +242,10 @@ impl AudioCapture {
                     }
 
                     while sample_buffer.len() >= FFT_SIZE {
-                        let mut frame = recycle_rx.try_recv().map(|b| b.into_vec()).unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE));
+                        let mut frame = recycle_rx
+                            .try_recv()
+                            .map(|b| b.into_vec())
+                            .unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE));
                         frame.clear();
                         frame.extend_from_slice(&sample_buffer[..FFT_SIZE]);
                         sample_buffer.drain(..FFT_SIZE);

@@ -10,8 +10,6 @@ impl<T> PooledAudioBuffer<T> {
             recycle_tx,
         }
     }
-
-
 }
 
 impl<T> std::ops::Deref for PooledAudioBuffer<T> {
