@@ -2,7 +2,7 @@ const TEXT_SHADER_SRC: &str = include_str!("../text.wgsl");
 use super::core::{GLYPH_CACHE_HEIGHT, GLYPH_CACHE_WIDTH};
 
 use anyhow::Result;
-use cosmic_text::{self, Buffer};
+use cosmic_text::{self, Buffer, FontSystem, SwashCache};
 
 pub struct PositionedBuffer {
     pub buffer: Buffer,
@@ -180,5 +180,193 @@ impl TextRenderer {
             cpu_vertices: Vec::with_capacity(vertex_capacity),
             cpu_indices: Vec::with_capacity(index_capacity),
         })
+    }
+}
+impl TextRenderer {
+    pub fn prepare_text(
+        text_renderer: &mut TextRenderer,
+        queue: &wgpu::Queue,
+        font_system: &mut FontSystem,
+        swash_cache: &mut SwashCache,
+        positioned_buffers: &mut [PositionedBuffer],
+        width: f32,
+        height: f32,
+    ) {
+        text_renderer.cpu_vertices.clear();
+        text_renderer.cpu_indices.clear();
+
+        for p_buf in positioned_buffers.iter_mut() {
+            p_buf.buffer.shape_until_scroll(font_system, false);
+        }
+
+        for p_buf in positioned_buffers {
+            let origin_x = match p_buf.align {
+                cosmic_text::Align::Left => 0.0,
+                cosmic_text::Align::Right => width,
+                _ => width / 2.0,
+            };
+            let origin_y = p_buf.buffer.metrics().font_size;
+
+            let buffer_offset_x = match p_buf.align {
+                cosmic_text::Align::Left => p_buf.pos[0],
+                cosmic_text::Align::Right => p_buf.pos[0] - width,
+                _ => p_buf.pos[0] - width / 2.0,
+            };
+            let buffer_offset_y = p_buf.pos[1] - origin_y;
+
+            for run in p_buf.buffer.layout_runs() {
+                for glyph in run.glyphs.iter() {
+                    // Force subpixel rendering layout to absolute 0.0 offsets. We do the real positioning in the shader!
+                    let physical_glyph: cosmic_text::PhysicalGlyph =
+                        glyph.physical((0.0, 0.0), 1.0);
+                    let cache_key = physical_glyph.cache_key;
+
+                    // Rasterize and pack into texture atlas if not already cached
+                    if !text_renderer.glyph_cache.contains_key(&cache_key) {
+                        if let Some(image) = swash_cache.get_image(font_system, cache_key) {
+                            let img_w = image.placement.width;
+                            let img_h = image.placement.height;
+
+                            if img_w == 0 || img_h == 0 {
+                                text_renderer.glyph_cache.insert(
+                                    cache_key,
+                                    CachedGlyph {
+                                        uv: [0.0, 0.0, 0.0, 0.0],
+                                        offset: [0, 0],
+                                        size: [0, 0],
+                                    },
+                                );
+                                continue;
+                            }
+
+                            if img_w > GLYPH_CACHE_WIDTH || img_h > GLYPH_CACHE_HEIGHT {
+                                tracing::warn!("Glyph ({}x{}) too large for cache!", img_w, img_h);
+                                continue;
+                            }
+
+                            if text_renderer.cache_x + img_w > GLYPH_CACHE_WIDTH {
+                                text_renderer.cache_x = 0;
+                                text_renderer.cache_y += text_renderer.cache_row_height;
+                                text_renderer.cache_row_height = 0;
+                            }
+
+                            if text_renderer.cache_y + img_h > GLYPH_CACHE_HEIGHT {
+                                tracing::warn!("Glyph cache full! Clearing and starting fresh.");
+                                text_renderer.glyph_cache.clear();
+                                text_renderer.glyph_cache.shrink_to_fit();
+                                text_renderer.cache_x = 0;
+                                text_renderer.cache_y = 0;
+                                text_renderer.cache_row_height = 0;
+                            }
+
+                            let cur_x = text_renderer.cache_x;
+                            let cur_y = text_renderer.cache_y;
+
+                            if let cosmic_text::SwashContent::Mask = image.content {
+                                queue.write_texture(
+                                    wgpu::ImageCopyTexture {
+                                        texture: &text_renderer.texture,
+                                        mip_level: 0,
+                                        origin: wgpu::Origin3d {
+                                            x: cur_x,
+                                            y: cur_y,
+                                            z: 0,
+                                        },
+                                        aspect: wgpu::TextureAspect::All,
+                                    },
+                                    &image.data,
+                                    wgpu::ImageDataLayout {
+                                        offset: 0,
+                                        bytes_per_row: Some(img_w),
+                                        rows_per_image: Some(img_h),
+                                    },
+                                    wgpu::Extent3d {
+                                        width: img_w,
+                                        height: img_h,
+                                        depth_or_array_layers: 1,
+                                    },
+                                );
+                            }
+
+                            let u_min = cur_x as f32 / GLYPH_CACHE_WIDTH as f32;
+                            let v_min = cur_y as f32 / GLYPH_CACHE_HEIGHT as f32;
+                            let u_max = (cur_x + img_w) as f32 / GLYPH_CACHE_WIDTH as f32;
+                            let v_max = (cur_y + img_h) as f32 / GLYPH_CACHE_HEIGHT as f32;
+
+                            text_renderer.glyph_cache.insert(
+                                cache_key,
+                                CachedGlyph {
+                                    uv: [u_min, v_min, u_max, v_max],
+                                    offset: [image.placement.left, image.placement.top],
+                                    size: [img_w, img_h],
+                                },
+                            );
+
+                            text_renderer.cache_x += img_w + 1; // 1px padding
+                            text_renderer.cache_row_height =
+                                text_renderer.cache_row_height.max(img_h + 1);
+                        }
+                    }
+
+                    // Retrieve from cache and build vertex layout
+                    if let Some(cached) = text_renderer.glyph_cache.get(&cache_key) {
+                        if cached.size[0] == 0 || cached.size[1] == 0 {
+                            continue;
+                        }
+
+                        let dx = glyph.x - origin_x;
+                        let dy = run.line_y + glyph.y - origin_y;
+
+                        let scaled_glyph_x = origin_x + dx * p_buf.scale;
+                        let scaled_glyph_y = origin_y + dy * p_buf.scale;
+
+                        let final_x = buffer_offset_x
+                            + scaled_glyph_x
+                            + cached.offset[0] as f32 * p_buf.scale;
+                        let final_y = buffer_offset_y + scaled_glyph_y
+                            - cached.offset[1] as f32 * p_buf.scale;
+
+                        let x = final_x / width * 2.0 - 1.0;
+                        let y = -(final_y / height * 2.0 - 1.0);
+
+                        let w = (cached.size[0] as f32 * p_buf.scale) / width * 2.0;
+                        let h = (cached.size[1] as f32 * p_buf.scale) / height * 2.0;
+
+                        let color = p_buf.color;
+
+                        let base_index = text_renderer.cpu_vertices.len() as u32;
+                        let [u_min, v_min, u_max, v_max] = cached.uv;
+
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [x, y],
+                            tex_pos: [u_min, v_min],
+                            color,
+                        });
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [x + w, y],
+                            tex_pos: [u_max, v_min],
+                            color,
+                        });
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [x, y - h],
+                            tex_pos: [u_min, v_max],
+                            color,
+                        });
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [x + w, y - h],
+                            tex_pos: [u_max, v_max],
+                            color,
+                        });
+
+                        text_renderer.cpu_indices.push(base_index);
+                        text_renderer.cpu_indices.push(base_index + 1);
+                        text_renderer.cpu_indices.push(base_index + 2);
+                        text_renderer.cpu_indices.push(base_index + 1);
+                        text_renderer.cpu_indices.push(base_index + 3);
+                        text_renderer.cpu_indices.push(base_index + 2);
+                    }
+                }
+            }
+        }
     }
 }
