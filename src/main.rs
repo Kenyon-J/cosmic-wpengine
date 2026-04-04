@@ -26,7 +26,8 @@ async fn main() -> Result<()> {
             let (event_tx, event_rx) = mpsc::channel(64);
 
             let (is_visible_tx, is_visible_rx) = tokio::sync::watch::channel(true);
-            let (show_lyrics_tx, show_lyrics_rx) = tokio::sync::watch::channel(config.audio.show_lyrics);
+            let (show_lyrics_tx, show_lyrics_rx) =
+                tokio::sync::watch::channel(config.audio.show_lyrics);
 
             let mpris_tx = event_tx.clone();
             let mpris_vis_rx = is_visible_rx.clone();

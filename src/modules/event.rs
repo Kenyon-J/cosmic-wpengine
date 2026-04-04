@@ -1,3 +1,38 @@
+pub struct PooledAudioBuffer<T> {
+    buf: Option<Box<[T]>>,
+    recycle_tx: tokio::sync::mpsc::Sender<Box<[T]>>,
+}
+
+impl<T> PooledAudioBuffer<T> {
+    pub fn new(buf: Box<[T]>, recycle_tx: tokio::sync::mpsc::Sender<Box<[T]>>) -> Self {
+        Self {
+            buf: Some(buf),
+            recycle_tx,
+        }
+    }
+}
+
+impl<T> std::ops::Deref for PooledAudioBuffer<T> {
+    type Target = [T];
+    fn deref(&self) -> &Self::Target {
+        self.buf.as_ref().unwrap()
+    }
+}
+
+impl<T> Drop for PooledAudioBuffer<T> {
+    fn drop(&mut self) {
+        if let Some(buf) = self.buf.take() {
+            let _ = self.recycle_tx.try_send(buf);
+        }
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for PooledAudioBuffer<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("PooledAudioBuffer").finish()
+    }
+}
+
 #[derive(Debug)]
 pub enum Event {
     ConfigUpdated(Box<super::config::Config>),
@@ -7,8 +42,8 @@ pub enum Event {
     PlayerShutDown,
     PlaybackPosition(std::time::Duration),
     AudioFrame {
-        bands: Box<[f32]>,
-        waveform: Box<[f32]>,
+        bands: PooledAudioBuffer<f32>,
+        waveform: PooledAudioBuffer<f32>,
     },
     VideoFrame(super::video::PooledImage),
     WeatherUpdated(Box<WeatherData>),

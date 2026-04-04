@@ -13,7 +13,10 @@ pub struct PooledImage {
 
 impl PooledImage {
     pub fn new(img: image::RgbaImage, recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>) -> Self {
-        Self { img: Some(img), recycle_tx }
+        Self {
+            img: Some(img),
+            recycle_tx,
+        }
     }
 
     // Keeps backwards compatibility if the renderer manually consumes the raw buffer
@@ -118,7 +121,9 @@ impl VideoDecoder {
         let mut stdout = child.stdout.take().expect("Failed to open stdout");
 
         loop {
-            let mut buffer = recycle_rx.try_recv().unwrap_or_else(|_| vec![0u8; frame_size]);
+            let mut buffer = recycle_rx
+                .try_recv()
+                .unwrap_or_else(|_| vec![0u8; frame_size]);
 
             if buffer.len() != frame_size {
                 buffer.resize(frame_size, 0);

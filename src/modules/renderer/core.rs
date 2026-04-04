@@ -8,7 +8,7 @@ use crate::modules::colour::{lerp_colour, time_to_sky_colour};
 use crate::modules::event::Event;
 use crate::modules::state::{AppState, SceneHint};
 use crate::modules::visualiser_pass::VisualiserPass;
-use crate::modules::wayland::WaylandManager;
+use crate::modules::wayland::{WaylandManager, WaylandOutput};
 
 pub const GLYPH_CACHE_WIDTH: u32 = 2048;
 pub const GLYPH_CACHE_HEIGHT: u32 = 2048;
@@ -34,6 +34,8 @@ pub struct Renderer {
     swash_cache: SwashCache,
     text_renderer: TextRenderer,
     text_buffer_cache: std::collections::HashMap<String, Buffer>,
+    text_buffers: Vec<PositionedBuffer>,
+    current_outputs_cache: Vec<WaylandOutput>,
     visualiser_pass: VisualiserPass,
     album_art_pipeline: wgpu::RenderPipeline,
     album_art_layout: wgpu::BindGroupLayout,
@@ -674,6 +676,8 @@ impl Renderer {
             swash_cache,
             text_renderer,
             text_buffer_cache: std::collections::HashMap::new(),
+            text_buffers: Vec::new(),
+            current_outputs_cache: Vec::new(),
             visualiser_pass,
             album_art_pipeline,
             album_art_layout,
@@ -767,7 +771,9 @@ impl Renderer {
 
             wayland_manager.dispatch_events()?;
 
-            let current_outputs: Vec<_> = wayland_manager.outputs().collect();
+            self.current_outputs_cache.clear();
+            self.current_outputs_cache.extend(wayland_manager.outputs());
+            let current_outputs = &self.current_outputs_cache;
             if wayland_manager.app_data.configuration_serial != last_config_serial {
                 last_config_serial = wayland_manager.app_data.configuration_serial;
                 info!(
@@ -778,7 +784,7 @@ impl Renderer {
                 self.outputs.clear();
                 wayland_manager.cleanup_dead_windows();
 
-                for info in &current_outputs {
+                for info in current_outputs {
                     let target = wgpu::SurfaceTargetUnsafe::RawHandle {
                         raw_display_handle: info.raw_display_handle(),
                         raw_window_handle: info.raw_window_handle(),
@@ -1722,7 +1728,7 @@ impl Renderer {
                 .map_or(Family::SansSerif, Family::Name);
             let attrs = Attrs::new().family(family);
 
-            let mut text_buffers = Vec::new();
+            self.text_buffers.clear();
 
             if self.state.config.audio.show_lyrics {
                 if let Some(track) = &self.state.current_track {
@@ -1809,7 +1815,7 @@ impl Renderer {
                                     self.theme.lyrics.position[1] * height_f + y_pos,
                                 ];
 
-                                text_buffers.push(PositionedBuffer {
+                                self.text_buffers.push(PositionedBuffer {
                                     buffer,
                                     text_key: lyric_line.text.to_string(),
                                     pos,
@@ -1857,7 +1863,7 @@ impl Renderer {
                     self.theme.track_info.position[0] * width_f,
                     self.theme.track_info.position[1] * height_f,
                 ];
-                text_buffers.push(PositionedBuffer {
+                self.text_buffers.push(PositionedBuffer {
                     buffer,
                     text_key: self.cached_track_str.clone(),
                     pos,
@@ -1901,7 +1907,7 @@ impl Renderer {
                     self.theme.weather.position[0] * width_f,
                     self.theme.weather.position[1] * height_f,
                 ];
-                text_buffers.push(PositionedBuffer {
+                self.text_buffers.push(PositionedBuffer {
                     buffer,
                     text_key: self.cached_weather_str.clone(),
                     pos,
@@ -1917,7 +1923,7 @@ impl Renderer {
                 &self.queue,
                 &mut self.font_system,
                 &mut self.swash_cache,
-                text_buffers.as_mut(),
+                self.text_buffers.as_mut(),
                 width_f,
                 height_f,
             );
@@ -1928,7 +1934,7 @@ impl Renderer {
                 self.text_buffer_cache.shrink_to_fit();
             }
 
-            for p_buf in text_buffers {
+            for p_buf in self.text_buffers.drain(..) {
                 self.text_buffer_cache.insert(p_buf.text_key, p_buf.buffer);
             }
 
