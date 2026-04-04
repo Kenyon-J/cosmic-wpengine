@@ -75,16 +75,29 @@ impl AudioCapture {
                             let recycle_complex_tx_clone = recycle_complex_tx.clone();
 
                             // Optimization: Offload heavy CPU bound math to the dedicated blocking thread pool
-                            let (normalised, original_waveform) = tokio::task::spawn_blocking(move || {
+                            let (normalised, original_waveform) = match tokio::task::spawn_blocking(move || {
                                 fft_clone.process(&mut process_buffer);
                                 let half = FFT_SIZE / 2;
                                 norm_buffer.clear();
+                                // Pre-allocate the required capacity to avoid reallocations during extension
+                                norm_buffer.reserve_exact(half);
+                                // Avoid allocating inside the mapping closure; use zipped iterators or direct maps
                                 norm_buffer.extend(process_buffer[0..half]
                                     .iter()
                                     .map(|c| (c.norm() / SCALE_FACTOR).clamp(0.0, 1.0)));
                                 let _ = recycle_complex_tx_clone.try_send(process_buffer);
                                 (norm_buffer, samples) // Return the processed data
-                            }).await.unwrap();
+                            }).await {
+                                Ok(res) => res,
+                                Err(e) => {
+                                    tracing::error!("FFT task failed: {}", e);
+                                    let mut default_norm = Vec::with_capacity(FFT_SIZE / 2);
+                                    default_norm.extend(std::iter::repeat_n(0.0, FFT_SIZE / 2));
+                                    let mut default_wave = Vec::with_capacity(FFT_SIZE);
+                                    default_wave.extend(std::iter::repeat_n(0.0, FFT_SIZE));
+                                    (default_norm, default_wave)
+                                }
+                            };
 
                             let _ = tx
                                 .send(Event::AudioFrame {
