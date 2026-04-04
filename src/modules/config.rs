@@ -1340,10 +1340,17 @@ impl Config {
                     while notify_rx.try_recv().is_ok() {}
 
                     // Safely offload synchronous I/O parsing to the blocking thread pool
-                    if let Ok(Ok(config)) = tokio::task::spawn_blocking(Self::load_or_default).await
+                    if let Ok(Ok((config, theme))) = tokio::task::spawn_blocking(|| {
+                        let config = Self::load_or_default()?;
+                        let theme = ThemeLayout::load(&config.audio.style);
+                        Ok::<_, anyhow::Error>((config, theme))
+                    })
+                    .await
                     {
                         let _ = watch_tx.send(config.clone());
-                        let _ = tx.send(Event::ConfigUpdated(Box::new(config))).await;
+                        let _ = tx
+                            .send(Event::ConfigUpdated(Box::new(config), Box::new(theme)))
+                            .await;
                     }
                 }
             }

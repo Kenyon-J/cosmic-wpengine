@@ -9,7 +9,7 @@ pub struct AppState {
     pub current_track: Option<TrackInfo>,
     pub has_album_art: bool,
     pub is_playing: bool,
-    pub previous_palette: Option<Vec<[f32; 3]>>,
+    pub previous_palette: Option<Box<[[f32; 3]]>>,
     pub playback_position: std::time::Duration,
 
     pub audio_bands: Box<[f32]>,

@@ -161,17 +161,20 @@ pub(crate) fn draw_frame(
             let top = renderer.theme.visualiser.color_top;
             let bottom = renderer.theme.visualiser.color_bottom;
 
-            match palette {
-                _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
-                Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
-                Some(p) if p.len() == 1 => (
-                    top.unwrap_or(p[0]),
-                    bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
-                ),
-                _ => (
-                    top.unwrap_or([1.0, 0.2, 0.5]),
-                    bottom.unwrap_or([0.2, 0.5, 1.0]),
-                ),
+            if let (Some(top_val), Some(bottom_val)) = (top, bottom) {
+                (top_val, bottom_val)
+            } else {
+                match palette {
+                    Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
+                    Some(p) if p.len() == 1 => (
+                        top.unwrap_or(p[0]),
+                        bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
+                    ),
+                    _ => (
+                        top.unwrap_or([1.0, 0.2, 0.5]),
+                        bottom.unwrap_or([0.2, 0.5, 1.0]),
+                    ),
+                }
             }
         };
         let target_colors = get_colors(

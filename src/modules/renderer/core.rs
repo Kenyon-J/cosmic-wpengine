@@ -412,7 +412,7 @@ impl Renderer {
             let mut transparent_changed = false;
 
             while let Ok(event) = event_rx.try_recv() {
-                if let Event::ConfigUpdated(ref config) = event {
+                if let Event::ConfigUpdated(ref config, _) = event {
                     if config.appearance.transparent_background
                         != self.state.config.appearance.transparent_background
                     {
@@ -487,7 +487,7 @@ impl Renderer {
 
     async fn handle_event(&mut self, event: Event) {
         match event {
-            Event::ConfigUpdated(config) => {
+            Event::ConfigUpdated(config, theme_layout) => {
                 let _ = self.show_lyrics_tx.send(config.audio.show_lyrics);
 
                 let new_bg = config.appearance.resolved_background_path().await;
@@ -519,7 +519,7 @@ impl Renderer {
                     .await;
 
                 // Always reload the theme layout so live edits to the .toml apply instantly!
-                self.theme = ThemeLayout::load(&config.audio.style);
+                self.theme = *theme_layout;
                 self.state.config = *config;
                 self.update_weather_string();
                 info!("Live settings applied!");
@@ -562,7 +562,7 @@ impl Renderer {
                     .state
                     .current_track
                     .as_ref()
-                    .and_then(|t| t.palette.clone().map(|p| p.into_vec()));
+                    .and_then(|t| t.palette.clone());
                 self.state.current_track = Some(*track);
                 self.state.is_playing = true;
                 self.current_lyric_idx = 0;
@@ -591,7 +591,7 @@ impl Renderer {
                     .state
                     .current_track
                     .as_ref()
-                    .and_then(|t| t.palette.clone().map(|p| p.into_vec()));
+                    .and_then(|t| t.palette.clone());
                 self.album_art_bg_bind_group = None;
                 self.album_art_fg_bind_group = None;
                 self.current_album_texture = None;
