@@ -1255,7 +1255,10 @@ impl Config {
                     let _ = file.write_all(toml::to_string_pretty(&config)?.as_bytes());
                     tracing::info!("Created default config at {:?}", path);
                 } else {
-                    tracing::warn!("Config file may have been created concurrently at {:?}", path);
+                    tracing::warn!(
+                        "Config file may have been created concurrently at {:?}",
+                        path
+                    );
                 }
                 Ok(config)
             }
