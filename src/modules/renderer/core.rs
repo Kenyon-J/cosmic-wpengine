@@ -971,6 +971,19 @@ impl Renderer {
             Event::TrackChanged(mut track) => {
                 self.text_buffer_cache.clear(); // Free old shaped lyrics from memory!
                 self.text_buffer_cache.shrink_to_fit();
+                
+                // Free padding buffers to the OS allocator
+                self.album_art_pad_buffer.shrink_to_fit();
+                self.video_frame_buffer.shrink_to_fit();
+                
+                // Recreate SwashCache to flush its internal rasterized glyph memory
+                self.swash_cache = SwashCache::new();
+                self.text_renderer.glyph_cache.clear();
+                self.text_renderer.glyph_cache.shrink_to_fit();
+                self.text_renderer.cache_x = 0;
+                self.text_renderer.cache_y = 0;
+                self.text_renderer.cache_row_height = 0;
+                
                 info!("Now playing: {} - {}", track.artist, track.title);
                 let has_art = track.album_art.is_some();
                 // take() strips the massive image payload out of TrackInfo so we don't hoard it in RAM permanently!
@@ -1225,19 +1238,25 @@ impl Renderer {
         // Use our new smart audio-reactive beat detector instead of the generic timer
         let pulse = self.beat_pulse;
 
-        let is_weather_active = self.state.weather.as_ref().is_some_and(|w| {
-            matches!(
-                w.condition,
-                WeatherCondition::Rain | WeatherCondition::Snow | WeatherCondition::Thunderstorm
-            )
-        });
+        let is_weather_active = self.state.config.weather.enabled
+            && !self.state.config.weather.hide_effects
+            && self.state.weather.as_ref().is_some_and(|w| {
+                matches!(
+                    w.condition,
+                    WeatherCondition::Rain | WeatherCondition::Snow | WeatherCondition::Thunderstorm
+                )
+            });
 
-        let active_particles = if let Some(weather) = &self.state.weather {
-            match weather.condition {
-                WeatherCondition::Rain => 800,
-                WeatherCondition::Thunderstorm => 1500,
-                WeatherCondition::Snow => 2500,
-                _ => 0,
+        let active_particles = if is_weather_active {
+            if let Some(weather) = &self.state.weather {
+                match weather.condition {
+                    WeatherCondition::Rain => 800,
+                    WeatherCondition::Thunderstorm => 1500,
+                    WeatherCondition::Snow => 2500,
+                    _ => 0,
+                }
+            } else {
+                0
             }
         } else {
             0
@@ -1387,18 +1406,22 @@ impl Renderer {
             let mut weather_type = 0u32;
             let sky = time_to_sky_colour(self.state.time_of_day);
             let final_sky = if let Some(weather) = &self.state.weather {
-                weather_type = match weather.condition {
-                    WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
-                    WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
-                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
-                    WeatherCondition::Snow => 3,
-                };
-                match weather.condition {
-                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
-                        lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
+                if self.state.config.weather.enabled {
+                    weather_type = match weather.condition {
+                        WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
+                        WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
+                        WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
+                        WeatherCondition::Snow => 3,
+                    };
+                    match weather.condition {
+                        WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
+                            lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
+                        }
+                        WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
+                        _ => sky,
                     }
-                    WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
-                    _ => sky,
+                } else {
+                    sky
                 }
             } else {
                 sky
@@ -1816,9 +1839,10 @@ impl Renderer {
                                 if final_color[3] > 0.01 {
                                     let metrics =
                                         Metrics::new(active_font_size, active_font_size * 1.2);
+                                    let text_key = format!("{i}_{}", lyric_line.text);
                                     let mut buffer = self
                                         .text_buffer_cache
-                                        .remove(lyric_line.text.as_ref())
+                                        .remove(&text_key)
                                         .unwrap_or_else(|| {
                                             let mut b = Buffer::new(&mut self.font_system, metrics);
                                             b.set_metrics(&mut self.font_system, metrics);
@@ -1846,7 +1870,7 @@ impl Renderer {
 
                                     self.text_buffers.push(PositionedBuffer {
                                         buffer,
-                                        text_key: lyric_line.text.to_string(),
+                                        text_key,
                                         pos,
                                         color: final_color,
                                         scale: render_scale,
@@ -1861,9 +1885,10 @@ impl Renderer {
                 if self.state.current_track.is_some() && !self.cached_track_str.is_empty() {
                     let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
                     let metrics = Metrics::new(info_scale, info_scale * 1.2);
+                    let text_key = format!("{i}_{}", self.cached_track_str);
                     let mut buffer = self
                         .text_buffer_cache
-                        .remove(&self.cached_track_str)
+                        .remove(&text_key)
                         .unwrap_or_else(|| {
                             let mut b = Buffer::new(&mut self.font_system, metrics);
                             b.set_metrics(&mut self.font_system, metrics);
@@ -1894,7 +1919,7 @@ impl Renderer {
                     ];
                     self.text_buffers.push(PositionedBuffer {
                         buffer,
-                        text_key: self.cached_track_str.clone(),
+                        text_key,
                         pos,
                         color: final_color,
                         scale: 1.0,
@@ -1902,12 +1927,13 @@ impl Renderer {
                     });
                 }
 
-                if self.state.weather.is_some() && !self.cached_weather_str.is_empty() {
+                if self.state.config.weather.enabled && self.state.weather.is_some() && !self.cached_weather_str.is_empty() {
                     let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
                     let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
+                    let text_key = format!("{i}_{}", self.cached_weather_str);
                     let mut buffer = self
                         .text_buffer_cache
-                        .remove(&self.cached_weather_str)
+                        .remove(&text_key)
                         .unwrap_or_else(|| {
                             let mut b = Buffer::new(&mut self.font_system, metrics);
                             b.set_metrics(&mut self.font_system, metrics);
@@ -1938,7 +1964,7 @@ impl Renderer {
                     ];
                     self.text_buffers.push(PositionedBuffer {
                         buffer,
-                        text_key: self.cached_weather_str.clone(),
+                        text_key,
                         pos,
                         color: final_color,
                         scale: 1.0,
@@ -2117,12 +2143,16 @@ impl Renderer {
             SceneHint::Ambient => {
                 let sky = time_to_sky_colour(self.state.time_of_day);
                 let final_sky = if let Some(weather) = &self.state.weather {
-                    match weather.condition {
-                        WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
-                            lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
+                    if self.state.config.weather.enabled {
+                        match weather.condition {
+                            WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
+                                lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
+                            }
+                            WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
+                            _ => sky,
                         }
-                        WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
-                        _ => sky,
+                    } else {
+                        sky
                     }
                 } else {
                     sky
@@ -2615,6 +2645,7 @@ impl Renderer {
                             if text_renderer.cache_y + img_h > GLYPH_CACHE_HEIGHT {
                                 tracing::warn!("Glyph cache full! Clearing and starting fresh.");
                                 text_renderer.glyph_cache.clear();
+                                text_renderer.glyph_cache.shrink_to_fit();
                                 text_renderer.cache_x = 0;
                                 text_renderer.cache_y = 0;
                                 text_renderer.cache_row_height = 0;

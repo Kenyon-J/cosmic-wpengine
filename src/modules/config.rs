@@ -39,6 +39,8 @@ pub struct WeatherConfig {
     pub longitude: f64,
     pub poll_interval_minutes: u64,
     pub temperature_unit: TemperatureUnit,
+    #[serde(default)]
+    pub hide_effects: bool,
 }
 
 impl Default for WeatherConfig {
@@ -49,6 +51,7 @@ impl Default for WeatherConfig {
             longitude: -0.1,
             poll_interval_minutes: 15,
             temperature_unit: TemperatureUnit::Celsius,
+            hide_effects: false,
         }
     }
 }
@@ -1360,6 +1363,7 @@ impl Default for Config {
                 longitude: -0.1,
                 poll_interval_minutes: 15,
                 temperature_unit: TemperatureUnit::Celsius,
+                hide_effects: false,
             },
             audio: AudioConfig {
                 style: "monstercat".to_string(),

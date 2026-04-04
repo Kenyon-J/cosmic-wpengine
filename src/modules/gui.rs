@@ -239,6 +239,8 @@ enum Message {
     BlurOpacityChanged(f32),
     ToggleShowLyrics(bool),
     ToggleAutostart(bool),
+    ToggleWeatherEnabled(bool),
+    ToggleHideWeatherEffects(bool),
     NewThemeNameChanged(String),
     CreateTheme,
     ShowPatchNotes,
@@ -412,6 +414,16 @@ impl Application for SettingsApp {
                 self.autostart = state;
                 set_autostart(state);
             }
+            Message::ToggleWeatherEnabled(state) => {
+                self.wp_config.weather.enabled = state;
+                let _ = self.wp_config.save();
+                self.refresh_editor();
+            }
+            Message::ToggleHideWeatherEffects(state) => {
+                self.wp_config.weather.hide_effects = state;
+                let _ = self.wp_config.save();
+                self.refresh_editor();
+            }
             Message::NewThemeNameChanged(name) => {
                 self.new_theme_name = name;
             }
@@ -540,6 +552,28 @@ amplitude = 1.5"#;
                         row()
                             .push(checkbox(self.autostart).on_toggle(Message::ToggleAutostart))
                             .push(text("Autostart on Login").font(font))
+                            .spacing(8),
+                    )
+                    .spacing(20),
+            )
+            .push(
+                row()
+                    .push(
+                        row()
+                            .push(
+                                checkbox(self.wp_config.weather.enabled)
+                                    .on_toggle(Message::ToggleWeatherEnabled),
+                            )
+                            .push(text("Enable Weather").font(font))
+                            .spacing(8),
+                    )
+                    .push(
+                        row()
+                            .push(
+                                checkbox(self.wp_config.weather.hide_effects)
+                                    .on_toggle(Message::ToggleHideWeatherEffects),
+                            )
+                            .push(text("Hide Weather Effects").font(font))
                             .spacing(8),
                     )
                     .spacing(20),
