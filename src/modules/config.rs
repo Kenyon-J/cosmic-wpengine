@@ -1227,9 +1227,8 @@ impl Config {
         // Extract default themes so users can find and edit them!
         let _ = ThemeLayout::write_defaults();
 
-        if path.exists() {
-            let text = std::fs::read_to_string(&path)?;
-            match toml::from_str(&text) {
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match toml::from_str(&text) {
                 Ok(config) => Ok(config),
                 Err(e) => {
                     tracing::error!(
@@ -1241,15 +1240,26 @@ impl Config {
                     let _ = std::fs::write(&path, toml::to_string_pretty(&default_config)?);
                     Ok(default_config)
                 }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let config = Config::default();
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&path)
+                {
+                    use std::io::Write;
+                    let _ = file.write_all(toml::to_string_pretty(&config)?.as_bytes());
+                    tracing::info!("Created default config at {:?}", path);
+                } else {
+                    tracing::warn!("Config file may have been created concurrently at {:?}", path);
+                }
+                Ok(config)
             }
-        } else {
-            let config = Config::default();
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&path, toml::to_string_pretty(&config)?)?;
-            tracing::info!("Created default config at {:?}", path);
-            Ok(config)
+            Err(e) => Err(e.into()),
         }
     }
 
