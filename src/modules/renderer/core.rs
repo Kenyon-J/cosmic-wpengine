@@ -60,7 +60,7 @@ pub struct Renderer {
     state: AppState,
     frame_duration: Duration,
     current_fps: u32,
-    show_lyrics_atomic: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    show_lyrics_tx: tokio::sync::watch::Sender<bool>,
     bass_moving_average: f32,
     beat_pulse: f32,
     last_beat_time: Instant,
@@ -528,7 +528,7 @@ impl Renderer {
     pub async fn new(
         wayland_manager: &WaylandManager,
         state: AppState,
-        show_lyrics_atomic: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        show_lyrics_tx: tokio::sync::watch::Sender<bool>,
     ) -> Result<Self> {
         let fps = state.config.fps;
         let current_fps = fps;
@@ -700,7 +700,7 @@ impl Renderer {
             state,
             frame_duration: Duration::from_secs_f64(1.0 / fps as f64),
             current_fps,
-            show_lyrics_atomic,
+            show_lyrics_tx,
             bass_moving_average: 0.0,
             beat_pulse: 0.0,
             last_beat_time: Instant::now(),
@@ -738,7 +738,7 @@ impl Renderer {
         &mut self,
         mut event_rx: Receiver<Event>,
         mut wayland_manager: WaylandManager,
-        is_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        is_visible_tx: tokio::sync::watch::Sender<bool>,
     ) -> Result<()> {
         let mut last_frame = Instant::now();
         let mut last_config_serial = wayland_manager.app_data.configuration_serial;
@@ -763,7 +763,7 @@ impl Renderer {
             interval.tick().await;
 
             let occluded = wayland_manager.is_occluded();
-            is_visible.store(!occluded, std::sync::atomic::Ordering::Relaxed);
+            let _ = is_visible_tx.send(!occluded);
 
             wayland_manager.dispatch_events()?;
 
@@ -928,10 +928,7 @@ impl Renderer {
     async fn handle_event(&mut self, event: Event) {
         match event {
             Event::ConfigUpdated(config) => {
-                self.show_lyrics_atomic.store(
-                    config.audio.show_lyrics,
-                    std::sync::atomic::Ordering::Relaxed,
-                );
+                let _ = self.show_lyrics_tx.send(config.audio.show_lyrics);
 
                 let new_bg = config.appearance.resolved_background_path().await;
                 if new_bg != self.current_bg_path {
@@ -1009,12 +1006,6 @@ impl Renderer {
 
             Event::VideoFrame(frame) => {
                 self.update_video_frame(&frame);
-                let buffer = frame.into_raw();
-                if let Ok(mut pool) = crate::modules::video::get_frame_pool().lock() {
-                    if pool.len() < 3 {
-                        pool.push(buffer);
-                    }
-                }
             }
 
             Event::PlayerShutDown => {
@@ -1041,11 +1032,6 @@ impl Renderer {
                 self.video_frame_buffer.shrink_to_fit();
                 self.album_art_pad_buffer.clear();
                 self.album_art_pad_buffer.shrink_to_fit();
-
-                if let Ok(mut pool) = crate::modules::video::get_frame_pool().lock() {
-                    pool.clear();
-                    pool.shrink_to_fit();
-                }
             }
 
             Event::PlaybackPosition(pos) => {

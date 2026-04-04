@@ -61,8 +61,8 @@ pub struct MprisWatcher;
 impl MprisWatcher {
     pub async fn run(
         tx: Sender<Event>,
-        is_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
-        show_lyrics: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        mut visible_rx: tokio::sync::watch::Receiver<bool>,
+        mut show_lyrics_rx: tokio::sync::watch::Receiver<bool>,
     ) -> Result<()> {
         info!("MPRIS watcher started");
 
@@ -79,7 +79,7 @@ impl MprisWatcher {
         let (update_tx, mut update_rx) = tokio::sync::mpsc::channel(16);
         let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel::<()>();
 
-        let poll_visible = is_visible.clone();
+        let poll_visible = visible_rx.clone();
         std::thread::spawn(move || {
             let mut finder = mpris::PlayerFinder::new();
             let mut last_status = mpris::PlaybackStatus::Stopped;
@@ -93,7 +93,7 @@ impl MprisWatcher {
                 }
 
                 // Suspend D-Bus heavy polling when wallpaper is out of view
-                if !poll_visible.load(std::sync::atomic::Ordering::Relaxed) {
+                if !*poll_visible.borrow() {
                     continue;
                 }
 
@@ -144,7 +144,12 @@ impl MprisWatcher {
 
                     if current_status == mpris::PlaybackStatus::Playing {
                         if let Ok(pos) = player.get_position() {
-                            let _ = update_tx.blocking_send(MprisUpdate::Position(pos));
+                            // Use try_send for high-frequency, non-critical updates to avoid backpressure
+                            match update_tx.try_send(MprisUpdate::Position(pos)) {
+                                Ok(_) => {}
+                                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {}
+                                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
+                            }
                         }
                     }
                 } else if last_status != mpris::PlaybackStatus::Stopped {
@@ -175,31 +180,32 @@ impl MprisWatcher {
         let mut video_cache: lru::LruCache<String, Option<String>> = lru::LruCache::new(cache_cap);
         let mut video_cancel_tx: Option<tokio::sync::watch::Sender<bool>> = None;
 
-        let mut last_show_lyrics = show_lyrics.load(std::sync::atomic::Ordering::Relaxed);
+        let mut last_show_lyrics = *show_lyrics_rx.borrow();
 
         loop {
-            // Wake up every 250ms to check visibility state even if no MPRIS events fire
-            let update_opt = match tokio::time::timeout(
-                tokio::time::Duration::from_millis(250),
-                update_rx.recv(),
-            )
-            .await
-            {
-                Ok(Some(u)) => Some(u),
-                Ok(None) => break,
-                Err(_) => None,
+            let update_opt = tokio::select! {
+                Ok(_) = visible_rx.changed() => { None }
+                Ok(_) = show_lyrics_rx.changed() => {
+                    let current_show_lyrics = *show_lyrics_rx.borrow();
+                    if current_show_lyrics != last_show_lyrics {
+                        last_show_lyrics = current_show_lyrics;
+                        if current_show_lyrics {
+                            last_processed_metadata = None;
+                        }
+                    }
+                    None
+                }
+                res = tokio::time::timeout(tokio::time::Duration::from_millis(250), update_rx.recv()) => {
+                    match res {
+                        Ok(Some(u)) => Some(u),
+                        Ok(None) => break,
+                        Err(_) => None,
+                    }
+                }
             };
 
-            let visible = is_visible.load(std::sync::atomic::Ordering::Relaxed);
-            let current_show_lyrics = show_lyrics.load(std::sync::atomic::Ordering::Relaxed);
-
-            if current_show_lyrics != last_show_lyrics {
-                last_show_lyrics = current_show_lyrics;
-                if current_show_lyrics {
-                    // Force a rebuild to fetch the lyrics immediately if toggled back on
-                    last_processed_metadata = None;
-                }
-            }
+            let visible = *visible_rx.borrow();
+            let current_show_lyrics = *show_lyrics_rx.borrow();
 
             if let Some(update) = update_opt {
                 // If we receive any event at all, it means a player is active, so we are no longer timed out.
@@ -279,6 +285,7 @@ impl MprisWatcher {
                     // Spin up the new FFmpeg background decoder pipeline!
                     if let Some(url) = &track_info.video_url {
                         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+                        let (recycle_tx, recycle_rx) = tokio::sync::mpsc::channel(3);
                         video_cancel_tx = Some(cancel_tx);
                         let tx_clone = tx.clone();
                         let url_clone = url.clone();
@@ -287,6 +294,8 @@ impl MprisWatcher {
                                 url_clone.to_string(),
                                 tx_clone,
                                 cancel_rx,
+                                recycle_rx,
+                                recycle_tx,
                             )
                             .await;
                         });

@@ -17,7 +17,7 @@ pub struct AudioCapture;
 impl AudioCapture {
     pub async fn run(
         tx: Sender<Event>,
-        is_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        mut visible_rx: tokio::sync::watch::Receiver<bool>,
     ) -> Result<()> {
         info!("Audio capture started");
 
@@ -43,54 +43,61 @@ impl AudioCapture {
             })
             .collect();
 
-        let mut buffer: Vec<Complex<f32>> = Vec::with_capacity(FFT_SIZE);
-
         loop {
-            match tokio::time::timeout(tokio::time::Duration::from_millis(250), audio_rx.recv())
-                .await
-            {
-                Ok(Some(samples)) => {
-                    if !is_visible.load(std::sync::atomic::Ordering::Relaxed) {
-                        continue;
-                    }
-
-                    buffer.clear();
-                    for (i, &s) in samples.iter().enumerate() {
-                        let window = hann_window[i];
-                        buffer.push(Complex {
-                            re: s * window,
-                            im: 0.0,
-                        });
-                    }
-
-                    fft.process(&mut buffer);
-
-                    let half = FFT_SIZE / 2;
-
-                    let normalised: Vec<f32> = buffer[0..half]
-                        .iter()
-                        .map(|c| (c.norm() / SCALE_FACTOR).clamp(0.0, 1.0))
-                        .collect();
-
-                    let _ = tx
-                        .send(Event::AudioFrame {
-                            bands: normalised.into_boxed_slice(),
-                            waveform: samples.into_boxed_slice(),
-                        })
-                        .await;
+            tokio::select! {
+                Ok(_) = visible_rx.changed() => {
+                    // Wake up and re-evaluate visibility without waiting
                 }
-                Ok(None) => break,
-                Err(_) => {
-                    if last_warn.elapsed() >= std::time::Duration::from_secs(5) {
-                        warn!("PipeWire audio receive timeout - no data arriving. (Is stream paused/empty?)");
-                        last_warn = std::time::Instant::now();
+                res = tokio::time::timeout(tokio::time::Duration::from_millis(250), audio_rx.recv()) => {
+                    match res {
+                        Ok(Some(samples)) => {
+                            if !*visible_rx.borrow() {
+                                continue;
+                            }
+
+                            let mut process_buffer = Vec::with_capacity(FFT_SIZE);
+                            for (i, &s) in samples.iter().enumerate() {
+                                let window = hann_window[i];
+                                process_buffer.push(Complex {
+                                    re: s * window,
+                                    im: 0.0,
+                                });
+                            }
+
+                            let fft_clone = std::sync::Arc::clone(&fft);
+
+                            // Optimization: Offload heavy CPU bound math to the dedicated blocking thread pool
+                            let (normalised, original_waveform) = tokio::task::spawn_blocking(move || {
+                                fft_clone.process(&mut process_buffer);
+                                let half = FFT_SIZE / 2;
+                                let norm: Vec<f32> = process_buffer[0..half]
+                                    .iter()
+                                    .map(|c| (c.norm() / SCALE_FACTOR).clamp(0.0, 1.0))
+                                    .collect();
+                                (norm, samples) // Return the processed data
+                            }).await.unwrap();
+
+                            let _ = tx
+                                .send(Event::AudioFrame {
+                                    bands: normalised.into_boxed_slice(),
+                                    waveform: original_waveform.into_boxed_slice(),
+                                })
+                                .await;
+                        }
+                        Ok(None) => break,
+                        Err(_) => {
+                            if last_warn.elapsed() >= std::time::Duration::from_secs(5) {
+                                warn!("PipeWire audio receive timeout - no data arriving. (Is stream paused/empty?)");
+                                last_warn = std::time::Instant::now();
+                            }
+                            let _ = tx
+                                .send(Event::AudioFrame {
+                                    bands: vec![0.0; FFT_SIZE / 2].into_boxed_slice(),
+                                    waveform: vec![0.0; FFT_SIZE].into_boxed_slice(),
+                                })
+                                .await;
+                        }
                     }
-                    let _ = tx
-                        .send(Event::AudioFrame {
-                            bands: vec![0.0; FFT_SIZE / 2].into_boxed_slice(),
-                            waveform: vec![0.0; FFT_SIZE].into_boxed_slice(),
-                        })
-                        .await;
                 }
             }
         }
@@ -217,7 +224,18 @@ impl AudioCapture {
                     while sample_buffer.len() >= FFT_SIZE {
                         let frame = sample_buffer[..FFT_SIZE].to_vec();
                         sample_buffer.drain(..FFT_SIZE);
-                        let _ = tx.try_send(frame);
+                        match tx.try_send(frame) {
+                            Ok(_) => {}
+                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                tracing::warn!(
+                                    "Audio channel closed, shutting down PipeWire callback."
+                                );
+                                return; // Safely halts further processing if channel dies
+                            }
+                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                                // Drop frames to handle backpressure safely
+                            }
+                        }
                     }
                 } else if frame_counter.is_multiple_of(50) {
                     warn!("PipeWire process callback fired, but dequeue_buffer() returned None.");

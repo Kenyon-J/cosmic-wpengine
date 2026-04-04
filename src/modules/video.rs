@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::sync::{Mutex, OnceLock};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
@@ -7,41 +6,36 @@ use tracing::{info, warn};
 
 use super::event::Event;
 
-static FRAME_POOL: OnceLock<Mutex<Vec<Vec<u8>>>> = OnceLock::new();
-
-pub fn get_frame_pool() -> &'static Mutex<Vec<Vec<u8>>> {
-    FRAME_POOL.get_or_init(|| Mutex::new(Vec::with_capacity(3)))
+pub struct PooledImage {
+    img: Option<image::RgbaImage>,
+    recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
 }
 
-#[repr(transparent)]
-pub struct PooledImage(Option<image::RgbaImage>);
-
 impl PooledImage {
-    pub fn new(img: image::RgbaImage) -> Self {
-        Self(Some(img))
+    pub fn new(img: image::RgbaImage, recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>) -> Self {
+        Self {
+            img: Some(img),
+            recycle_tx,
+        }
     }
 
     // Keeps backwards compatibility if the renderer manually consumes the raw buffer
     pub fn into_raw(mut self) -> Vec<u8> {
-        self.0.take().unwrap().into_raw()
+        self.img.take().unwrap().into_raw()
     }
 }
 
 impl std::ops::Deref for PooledImage {
     type Target = image::RgbaImage;
     fn deref(&self) -> &Self::Target {
-        self.0.as_ref().unwrap()
+        self.img.as_ref().unwrap()
     }
 }
 
 impl Drop for PooledImage {
     fn drop(&mut self) {
-        if let Some(img) = self.0.take() {
-            if let Ok(mut pool) = get_frame_pool().lock() {
-                if pool.len() < 3 {
-                    pool.push(img.into_raw());
-                }
-            }
+        if let Some(img) = self.img.take() {
+            let _ = self.recycle_tx.try_send(img.into_raw());
         }
     }
 }
@@ -59,6 +53,8 @@ impl VideoDecoder {
         url: String,
         tx: Sender<Event>,
         mut cancel_rx: tokio::sync::watch::Receiver<bool>,
+        mut recycle_rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+        recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
     ) -> Result<()> {
         // Validate URL before passing to FFmpeg to prevent command injection/arbitrary file reads
         let parsed_url = match url::Url::parse(&url) {
@@ -125,11 +121,10 @@ impl VideoDecoder {
         let mut stdout = child.stdout.take().expect("Failed to open stdout");
 
         loop {
-            let mut buffer = get_frame_pool()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .pop()
-                .unwrap_or_else(|| vec![0u8; frame_size]);
+            let mut buffer = recycle_rx
+                .try_recv()
+                .unwrap_or_else(|_| vec![0u8; frame_size]);
+
             if buffer.len() != frame_size {
                 buffer.resize(frame_size, 0);
             }
@@ -144,13 +139,15 @@ impl VideoDecoder {
                     match result {
                         Ok(_) => {
                             if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, buffer) {
-                                let pooled_img = PooledImage::new(img);
+                                let pooled_img = PooledImage::new(img, recycle_tx.clone());
                                 match tx.try_send(Event::VideoFrame(pooled_img)) {
                                     Ok(_) => {}
-                                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                                    Err(tokio::sync::mpsc::error::TrySendError::Full(Event::VideoFrame(dropped))) => {
                                         warn!("Renderer busy, dropping video frame to prevent memory bloat");
+                                        let _ = recycle_tx.try_send(dropped.into_raw());
                                     }
                                     Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
+                                    _ => {}
                                 }
                             }
                         }
