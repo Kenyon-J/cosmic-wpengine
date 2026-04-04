@@ -13,3 +13,7 @@
 ## 02-04-2026- Optimize Bounded Histograms with Fixed-Size Arrays
 **Learning:** For bounded counting tasks with a small key space (e.g., color histograms with 512 buckets), `HashMap` introduces unnecessary hashing overhead and heap allocations.
 **Action:** Prefer fixed-size arrays over `HashMap` for performance-critical loops when the key space is small and can be mapped to indices efficiently.
+
+## 05-02-2025- Optimize Multi-Monitor Rendering by Caching Monitor-Specific State
+**Learning:** In multi-monitor environments, monitors often share identical resolutions and scale factors. Redundantly performing text shaping, vertex generation, and GPU uniform updates for every monitor consumes significant CPU/GPU time.
+**Action:** Move display-invariant calculations (like font attributes and sky gradients) outside the per-monitor loop. Cache the resolution and scale factor of the previous monitor to skip redundant text preparation and GPU buffer writes if the current monitor configuration matches. Ensure all resources (e.g. text buffers) are correctly returned to their pools after the entire multi-monitor loop completes.
