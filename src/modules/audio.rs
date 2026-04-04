@@ -62,13 +62,12 @@ impl AudioCapture {
 
                             let mut process_buffer = recycle_complex_rx.try_recv().unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE));
                             process_buffer.clear();
-                            for (i, &s) in samples.iter().enumerate() {
-                                let window = hann_window[i];
-                                process_buffer.push(Complex {
-                                    re: s * window,
-                                    im: 0.0,
-                                });
-                            }
+                            // Optimization: Use zipped iterators and `.extend()` instead of manual `.push()`
+                            // to enable LLVM auto-vectorization and eliminate bounds checking overhead
+                            process_buffer.extend(samples.iter().zip(hann_window.iter()).map(|(&s, &w)| Complex {
+                                re: s * w,
+                                im: 0.0,
+                            }));
 
                             let fft_clone = std::sync::Arc::clone(&fft);
 
@@ -203,9 +202,14 @@ impl AudioCapture {
                                         valid,
                                     )
                                 };
-                                for i in 0..valid {
-                                    sample_buffer.push((left_f32[i] + right_f32[i]) * 0.5);
-                                }
+                                // Optimization: Use zipped iterators and `.extend()` instead of manual `.push()`
+                                // to enable LLVM auto-vectorization and eliminate bounds checking overhead
+                                sample_buffer.extend(
+                                    left_f32[..valid]
+                                        .iter()
+                                        .zip(right_f32[..valid].iter())
+                                        .map(|(&l, &r)| (l + r) * 0.5),
+                                );
                             }
                         }
                     } else if datas.len() == 1 {
