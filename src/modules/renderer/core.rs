@@ -1380,9 +1380,10 @@ impl Renderer {
             [0.1, 0.1, 0.1]
         };
 
+        let elapsed = self.start_time.elapsed().as_secs_f32();
+
         // 3. Pre-calculate Sky colors
         let sky_color_data = if self.custom_bg_bind_group.is_none() {
-            let elapsed = self.start_time.elapsed().as_secs_f32();
             let mut weather_type = 0u32;
             let sky = time_to_sky_colour(self.state.time_of_day);
             let final_sky = if let Some(weather) = &self.state.weather {
@@ -1406,6 +1407,9 @@ impl Renderer {
         } else {
             None
         };
+
+        let mut last_text_params = None;
+        let mut last_uniform_res = None;
 
         // 4. Pre-calculate Text colors (luminance and tinting)
         let (primary_text, secondary_text) = {
@@ -1453,6 +1457,29 @@ impl Renderer {
             }
         };
 
+        let map_align = |a: &TextAlign| -> cosmic_text::Align {
+            match a {
+                TextAlign::Left => cosmic_text::Align::Left,
+                TextAlign::Center => cosmic_text::Align::Center,
+                TextAlign::Right => cosmic_text::Align::Right,
+            }
+        };
+
+        let family = self
+            .state
+            .config
+            .appearance
+            .font_family
+            .as_deref()
+            .map_or(Family::SansSerif, Family::Name);
+        let attrs = Attrs::new().family(family);
+
+        // Prevent unbound memory growth for weather/ambient setups left running for days
+        if self.text_buffer_cache.len() > 100 {
+            self.text_buffer_cache.clear();
+            self.text_buffer_cache.shrink_to_fit();
+        }
+
         for (i, gpu_out) in self.outputs.iter_mut().enumerate() {
             if wayland_manager.is_frame_pending(i) {
                 continue; // The compositor hasn't shown the last frame yet (e.g., hidden behind a window)
@@ -1474,8 +1501,10 @@ impl Renderer {
 
             wayland_manager.mark_frame_rendered(i); // Request the next frame callback
 
+            let current_res = (gpu_out.config.width, gpu_out.config.height);
+
             // 1. Process visualizer uniforms
-            if has_audio {
+            if has_audio && last_uniform_res != Some(current_res) {
                 #[repr(C, align(16))]
                 struct VisUniforms {
                     res: [f32; 2],
@@ -1531,7 +1560,9 @@ impl Renderer {
             }
 
             // 2. Process album art uniforms
-            if show_art_fg || show_art_bg || show_color_bg {
+            if (show_art_fg || show_art_bg || show_color_bg)
+                && last_uniform_res != Some(current_res)
+            {
                 if let Some(_track) = &self.state.current_track {
                     let color = art_tint_color;
                     let bg_mode = if show_color_bg {
@@ -1632,73 +1663,77 @@ impl Renderer {
                 }
             }
 
-            if self.custom_bg_bind_group.is_some() {
-                // 4. Process custom background uniforms
-                let bg_mode = if self.state.config.appearance.disable_blur {
-                    2
-                } else {
-                    0
-                };
-                let bg_alpha_val = 1.0 - self.state.transparent_fade;
+            if last_uniform_res != Some(current_res) {
+                if self.custom_bg_bind_group.is_some() {
+                    // 4. Process custom background uniforms
+                    let bg_mode = if self.state.config.appearance.disable_blur {
+                        2
+                    } else {
+                        0
+                    };
+                    let bg_alpha_val = 1.0 - self.state.transparent_fade;
 
-                let custom_bg_uniforms = ArtUniforms {
-                    color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    art_position: [0.5, 0.5],
-                    audio_energy,
-                    mode: bg_mode,
-                    bg_alpha: bg_alpha_val,
-                    art_size: 1.0,
-                    shape: 0,
-                    blur_opacity: self.state.config.appearance.blur_opacity,
-                    image_res: [
-                        self.current_custom_bg_size
-                            .map(|s| s.0 as f32)
-                            .unwrap_or(1.0),
-                        self.current_custom_bg_size
-                            .map(|s| s.1 as f32)
-                            .unwrap_or(1.0),
-                    ],
-                };
-                let cbg_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &custom_bg_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<ArtUniforms>(),
-                    )
-                };
-                self.queue
-                    .write_buffer(&self.custom_bg_uniform_buffer, 0, cbg_bytes);
-            } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
-                // 3. Process ambient uniforms
-                let bg_alpha_val = 1.0 - self.state.transparent_fade;
+                    let custom_bg_uniforms = ArtUniforms {
+                        color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
+                        res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                        art_position: [0.5, 0.5],
+                        audio_energy,
+                        mode: bg_mode,
+                        bg_alpha: bg_alpha_val,
+                        art_size: 1.0,
+                        shape: 0,
+                        blur_opacity: self.state.config.appearance.blur_opacity,
+                        image_res: [
+                            self.current_custom_bg_size
+                                .map(|s| s.0 as f32)
+                                .unwrap_or(1.0),
+                            self.current_custom_bg_size
+                                .map(|s| s.1 as f32)
+                                .unwrap_or(1.0),
+                        ],
+                    };
+                    let cbg_bytes = unsafe {
+                        std::slice::from_raw_parts(
+                            &custom_bg_uniforms as *const _ as *const u8,
+                            std::mem::size_of::<ArtUniforms>(),
+                        )
+                    };
+                    self.queue
+                        .write_buffer(&self.custom_bg_uniform_buffer, 0, cbg_bytes);
+                } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
+                    // 3. Process ambient uniforms
+                    let bg_alpha_val = 1.0 - self.state.transparent_fade;
 
-                #[repr(C, align(16))]
-                struct AmbUniforms {
-                    res: [f32; 2],
-                    time: f32,
-                    weather: u32,
-                    sky: [f32; 4],
-                    bg_alpha: f32,
-                    // Padding to match std140 layout alignment rules for vec4/arrays
-                    _padding: [f32; 3],
+                    #[repr(C, align(16))]
+                    struct AmbUniforms {
+                        res: [f32; 2],
+                        time: f32,
+                        weather: u32,
+                        sky: [f32; 4],
+                        bg_alpha: f32,
+                        // Padding to match std140 layout alignment rules for vec4/arrays
+                        _padding: [f32; 3],
+                    }
+                    let amb_uniforms = AmbUniforms {
+                        res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                        time: elapsed,
+                        weather: weather_type,
+                        sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
+                        bg_alpha: bg_alpha_val,
+                        _padding: [0.0; 3],
+                    };
+                    let amb_bytes = unsafe {
+                        std::slice::from_raw_parts(
+                            &amb_uniforms as *const _ as *const u8,
+                            std::mem::size_of::<AmbUniforms>(),
+                        )
+                    };
+                    self.queue
+                        .write_buffer(&self.ambient_uniform_buffer, 0, amb_bytes);
                 }
-                let amb_uniforms = AmbUniforms {
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    time: elapsed,
-                    weather: weather_type,
-                    sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
-                    bg_alpha: bg_alpha_val,
-                    _padding: [0.0; 3],
-                };
-                let amb_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &amb_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<AmbUniforms>(),
-                    )
-                };
-                self.queue
-                    .write_buffer(&self.ambient_uniform_buffer, 0, amb_bytes);
             }
+
+            last_uniform_res = Some(current_res);
 
             // --- Prepare Text for Rendering ---
             let width_f = gpu_out.config.width as f32;
@@ -1711,273 +1746,265 @@ impl Renderer {
                 .unwrap_or(1.0);
             let logical_height = height_f / scale_factor;
 
-            let map_align = |a: &TextAlign| -> cosmic_text::Align {
-                match a {
-                    TextAlign::Left => cosmic_text::Align::Left,
-                    TextAlign::Center => cosmic_text::Align::Center,
-                    TextAlign::Right => cosmic_text::Align::Right,
+            let current_text_params = (
+                gpu_out.config.width,
+                gpu_out.config.height,
+                scale_factor as u32,
+            );
+
+            if last_text_params != Some(current_text_params) {
+                for p_buf in self.text_buffers.drain(..) {
+                    self.text_buffer_cache.insert(p_buf.text_key, p_buf.buffer);
                 }
-            };
 
-            let family = self
-                .state
-                .config
-                .appearance
-                .font_family
-                .as_deref()
-                .map_or(Family::SansSerif, Family::Name);
-            let attrs = Attrs::new().family(family);
+                if self.state.config.audio.show_lyrics {
+                    if let Some(track) = &self.state.current_track {
+                        if let Some(lyrics) = &track.lyrics {
+                            let base_font_size =
+                                (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
+                            let active_font_size = base_font_size * 1.5;
+                            let line_spacing = active_font_size * 1.2;
 
-            self.text_buffers.clear();
+                            let start_idx = self.current_lyric_idx.saturating_sub(2);
+                            let end_idx = (self.current_lyric_idx + 2).min(lyrics.len());
 
-            if self.state.config.audio.show_lyrics {
-                if let Some(track) = &self.state.current_track {
-                    if let Some(lyrics) = &track.lyrics {
-                        let base_font_size =
-                            (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
-                        let active_font_size = base_font_size * 1.5;
-                        let line_spacing = active_font_size * 1.2;
+                            for i in start_idx..=end_idx {
+                                if i == 0 || i > lyrics.len() {
+                                    continue;
+                                }
 
-                        let start_idx = self.current_lyric_idx.saturating_sub(2);
-                        let end_idx = (self.current_lyric_idx + 2).min(lyrics.len());
+                                let lyric_line = &lyrics[i - 1];
+                                // Compute exactly how far this string is from the "current active string"
+                                let dist = (i as f32)
+                                    - (self.current_lyric_idx as f32)
+                                    - self.lyric_scroll_offset;
+                                let abs_dist = dist.abs();
 
-                        for i in start_idx..=end_idx {
-                            if i == 0 || i > lyrics.len() {
-                                continue;
-                            }
+                                if abs_dist > 2.0 {
+                                    continue;
+                                }
 
-                            let lyric_line = &lyrics[i - 1];
-                            // Compute exactly how far this string is from the "current active string"
-                            let dist = (i as f32)
-                                - (self.current_lyric_idx as f32)
-                                - self.lyric_scroll_offset;
-                            let abs_dist = dist.abs();
+                                let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
 
-                            if abs_dist > 2.0 {
-                                continue;
-                            }
+                                let scale = base_font_size
+                                    + (active_font_size - base_font_size) * center_weight;
+                                let final_scale = scale
+                                    + (self.lyric_bounce_value * 8.0 * scale_factor)
+                                        * center_weight;
 
-                            let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
+                                let render_scale = final_scale / active_font_size;
+                                let bounce_y =
+                                    (self.lyric_bounce_value * 12.0 * scale_factor) * center_weight;
+                                let y_pos = (dist * line_spacing) - bounce_y;
 
-                            let scale = base_font_size
-                                + (active_font_size - base_font_size) * center_weight;
-                            let final_scale = scale
-                                + (self.lyric_bounce_value * 8.0 * scale_factor) * center_weight;
-
-                            let render_scale = final_scale / active_font_size;
-                            let bounce_y =
-                                (self.lyric_bounce_value * 12.0 * scale_factor) * center_weight;
-                            let y_pos = (dist * line_spacing) - bounce_y;
-
-                            let color = [
-                                secondary_text[0]
-                                    + (primary_text[0] - secondary_text[0]) * center_weight,
-                                secondary_text[1]
-                                    + (primary_text[1] - secondary_text[1]) * center_weight,
-                                secondary_text[2]
-                                    + (primary_text[2] - secondary_text[2]) * center_weight,
-                                secondary_text[3]
-                                    + (primary_text[3] - secondary_text[3]) * center_weight,
-                            ];
-
-                            // Fade out gracefully to prevent popping strings at top/bottom
-                            let alpha_fade = (1.5 - abs_dist).clamp(0.0, 1.0);
-                            let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
-
-                            if final_color[3] > 0.01 {
-                                let metrics =
-                                    Metrics::new(active_font_size, active_font_size * 1.2);
-                                let mut buffer = self
-                                    .text_buffer_cache
-                                    .remove(lyric_line.text.as_ref())
-                                    .unwrap_or_else(|| {
-                                        let mut b = Buffer::new(&mut self.font_system, metrics);
-                                        b.set_metrics(&mut self.font_system, metrics);
-                                        b.set_size(&mut self.font_system, width_f, height_f);
-                                        b.set_text(
-                                            &mut self.font_system,
-                                            &lyric_line.text,
-                                            attrs,
-                                            Shaping::Advanced,
-                                        );
-                                        b
-                                    });
-                                buffer.set_metrics(&mut self.font_system, metrics);
-                                buffer.set_size(&mut self.font_system, width_f, height_f);
-
-                                let align = map_align(&self.theme.lyrics.align);
-                                buffer.lines.iter_mut().for_each(|line| {
-                                    line.set_align(Some(align));
-                                });
-
-                                let pos = [
-                                    self.theme.lyrics.position[0] * width_f,
-                                    self.theme.lyrics.position[1] * height_f + y_pos,
+                                let color = [
+                                    secondary_text[0]
+                                        + (primary_text[0] - secondary_text[0]) * center_weight,
+                                    secondary_text[1]
+                                        + (primary_text[1] - secondary_text[1]) * center_weight,
+                                    secondary_text[2]
+                                        + (primary_text[2] - secondary_text[2]) * center_weight,
+                                    secondary_text[3]
+                                        + (primary_text[3] - secondary_text[3]) * center_weight,
                                 ];
 
-                                self.text_buffers.push(PositionedBuffer {
-                                    buffer,
-                                    text_key: lyric_line.text.to_string(),
-                                    pos,
-                                    color: final_color,
-                                    scale: render_scale,
-                                    align,
-                                });
+                                // Fade out gracefully to prevent popping strings at top/bottom
+                                let alpha_fade = (1.5 - abs_dist).clamp(0.0, 1.0);
+                                let final_color =
+                                    [color[0], color[1], color[2], color[3] * alpha_fade];
+
+                                if final_color[3] > 0.01 {
+                                    let metrics =
+                                        Metrics::new(active_font_size, active_font_size * 1.2);
+                                    let mut buffer = self
+                                        .text_buffer_cache
+                                        .remove(lyric_line.text.as_ref())
+                                        .unwrap_or_else(|| {
+                                            let mut b = Buffer::new(&mut self.font_system, metrics);
+                                            b.set_metrics(&mut self.font_system, metrics);
+                                            b.set_size(&mut self.font_system, width_f, height_f);
+                                            b.set_text(
+                                                &mut self.font_system,
+                                                &lyric_line.text,
+                                                attrs,
+                                                Shaping::Advanced,
+                                            );
+                                            b
+                                        });
+                                    buffer.set_metrics(&mut self.font_system, metrics);
+                                    buffer.set_size(&mut self.font_system, width_f, height_f);
+
+                                    let align = map_align(&self.theme.lyrics.align);
+                                    buffer.lines.iter_mut().for_each(|line| {
+                                        line.set_align(Some(align));
+                                    });
+
+                                    let pos = [
+                                        self.theme.lyrics.position[0] * width_f,
+                                        self.theme.lyrics.position[1] * height_f + y_pos,
+                                    ];
+
+                                    self.text_buffers.push(PositionedBuffer {
+                                        buffer,
+                                        text_key: lyric_line.text.to_string(),
+                                        pos,
+                                        color: final_color,
+                                        scale: render_scale,
+                                        align,
+                                    });
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            if self.state.current_track.is_some() && !self.cached_track_str.is_empty() {
-                let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
-                let metrics = Metrics::new(info_scale, info_scale * 1.2);
-                let mut buffer = self
-                    .text_buffer_cache
-                    .remove(&self.cached_track_str)
-                    .unwrap_or_else(|| {
-                        let mut b = Buffer::new(&mut self.font_system, metrics);
-                        b.set_metrics(&mut self.font_system, metrics);
-                        b.set_size(&mut self.font_system, width_f, height_f);
-                        b.set_text(
-                            &mut self.font_system,
-                            &self.cached_track_str,
-                            attrs,
-                            Shaping::Advanced,
-                        );
-                        b
+                if self.state.current_track.is_some() && !self.cached_track_str.is_empty() {
+                    let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
+                    let metrics = Metrics::new(info_scale, info_scale * 1.2);
+                    let mut buffer = self
+                        .text_buffer_cache
+                        .remove(&self.cached_track_str)
+                        .unwrap_or_else(|| {
+                            let mut b = Buffer::new(&mut self.font_system, metrics);
+                            b.set_metrics(&mut self.font_system, metrics);
+                            b.set_size(&mut self.font_system, width_f, height_f);
+                            b.set_text(
+                                &mut self.font_system,
+                                &self.cached_track_str,
+                                attrs,
+                                Shaping::Advanced,
+                            );
+                            b
+                        });
+                    buffer.set_metrics(&mut self.font_system, metrics);
+                    buffer.set_size(&mut self.font_system, width_f, height_f);
+                    let final_color = [
+                        secondary_text[0],
+                        secondary_text[1],
+                        secondary_text[2],
+                        secondary_text[3],
+                    ];
+                    let align = map_align(&self.theme.track_info.align);
+                    buffer.lines.iter_mut().for_each(|line| {
+                        line.set_align(Some(align));
                     });
-                buffer.set_metrics(&mut self.font_system, metrics);
-                buffer.set_size(&mut self.font_system, width_f, height_f);
-                let final_color = [
-                    secondary_text[0],
-                    secondary_text[1],
-                    secondary_text[2],
-                    secondary_text[3],
-                ];
-                let align = map_align(&self.theme.track_info.align);
-                buffer.lines.iter_mut().for_each(|line| {
-                    line.set_align(Some(align));
-                });
-                let pos = [
-                    self.theme.track_info.position[0] * width_f,
-                    self.theme.track_info.position[1] * height_f,
-                ];
-                self.text_buffers.push(PositionedBuffer {
-                    buffer,
-                    text_key: self.cached_track_str.clone(),
-                    pos,
-                    color: final_color,
-                    scale: 1.0,
-                    align,
-                });
-            }
-
-            if self.state.weather.is_some() && !self.cached_weather_str.is_empty() {
-                let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
-                let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
-                let mut buffer = self
-                    .text_buffer_cache
-                    .remove(&self.cached_weather_str)
-                    .unwrap_or_else(|| {
-                        let mut b = Buffer::new(&mut self.font_system, metrics);
-                        b.set_metrics(&mut self.font_system, metrics);
-                        b.set_size(&mut self.font_system, width_f, height_f);
-                        b.set_text(
-                            &mut self.font_system,
-                            &self.cached_weather_str,
-                            attrs,
-                            Shaping::Advanced,
-                        );
-                        b
+                    let pos = [
+                        self.theme.track_info.position[0] * width_f,
+                        self.theme.track_info.position[1] * height_f,
+                    ];
+                    self.text_buffers.push(PositionedBuffer {
+                        buffer,
+                        text_key: self.cached_track_str.clone(),
+                        pos,
+                        color: final_color,
+                        scale: 1.0,
+                        align,
                     });
-                buffer.set_metrics(&mut self.font_system, metrics);
-                buffer.set_size(&mut self.font_system, width_f, height_f);
-                let final_color = [
-                    secondary_text[0],
-                    secondary_text[1],
-                    secondary_text[2],
-                    secondary_text[3],
-                ];
-                let align = map_align(&self.theme.weather.align);
-                buffer.lines.iter_mut().for_each(|line| {
-                    line.set_align(Some(align));
-                });
-                let pos = [
-                    self.theme.weather.position[0] * width_f,
-                    self.theme.weather.position[1] * height_f,
-                ];
-                self.text_buffers.push(PositionedBuffer {
-                    buffer,
-                    text_key: self.cached_weather_str.clone(),
-                    pos,
-                    color: final_color,
-                    scale: 1.0,
-                    align,
-                });
+                }
+
+                if self.state.weather.is_some() && !self.cached_weather_str.is_empty() {
+                    let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
+                    let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
+                    let mut buffer = self
+                        .text_buffer_cache
+                        .remove(&self.cached_weather_str)
+                        .unwrap_or_else(|| {
+                            let mut b = Buffer::new(&mut self.font_system, metrics);
+                            b.set_metrics(&mut self.font_system, metrics);
+                            b.set_size(&mut self.font_system, width_f, height_f);
+                            b.set_text(
+                                &mut self.font_system,
+                                &self.cached_weather_str,
+                                attrs,
+                                Shaping::Advanced,
+                            );
+                            b
+                        });
+                    buffer.set_metrics(&mut self.font_system, metrics);
+                    buffer.set_size(&mut self.font_system, width_f, height_f);
+                    let final_color = [
+                        secondary_text[0],
+                        secondary_text[1],
+                        secondary_text[2],
+                        secondary_text[3],
+                    ];
+                    let align = map_align(&self.theme.weather.align);
+                    buffer.lines.iter_mut().for_each(|line| {
+                        line.set_align(Some(align));
+                    });
+                    let pos = [
+                        self.theme.weather.position[0] * width_f,
+                        self.theme.weather.position[1] * height_f,
+                    ];
+                    self.text_buffers.push(PositionedBuffer {
+                        buffer,
+                        text_key: self.cached_weather_str.clone(),
+                        pos,
+                        color: final_color,
+                        scale: 1.0,
+                        align,
+                    });
+                }
+
+                // Prepare text vertices
+                Self::prepare_text(
+                    &mut self.text_renderer,
+                    &self.queue,
+                    &mut self.font_system,
+                    &mut self.swash_cache,
+                    self.text_buffers.as_mut(),
+                    width_f,
+                    height_f,
+                );
+
+                let vertices_bytes = unsafe {
+                    std::slice::from_raw_parts(
+                        self.text_renderer.cpu_vertices.as_ptr() as *const u8,
+                        self.text_renderer.cpu_vertices.len() * std::mem::size_of::<TextVertex>(),
+                    )
+                };
+                let indices_bytes = unsafe {
+                    std::slice::from_raw_parts(
+                        self.text_renderer.cpu_indices.as_ptr() as *const u8,
+                        self.text_renderer.cpu_indices.len() * std::mem::size_of::<u32>(),
+                    )
+                };
+
+                if self.text_renderer.vertex_capacity < self.text_renderer.cpu_vertices.len() {
+                    self.text_renderer.vertex_capacity =
+                        self.text_renderer.cpu_vertices.len().next_power_of_two();
+                    self.text_renderer.vertices =
+                        self.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("Text Vertex Buffer"),
+                            size: (self.text_renderer.vertex_capacity
+                                * std::mem::size_of::<TextVertex>())
+                                as u64,
+                            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        });
+                }
+                if self.text_renderer.index_capacity < self.text_renderer.cpu_indices.len() {
+                    self.text_renderer.index_capacity =
+                        self.text_renderer.cpu_indices.len().next_power_of_two();
+                    self.text_renderer.indices =
+                        self.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("Text Index Buffer"),
+                            size: (self.text_renderer.index_capacity * std::mem::size_of::<u32>())
+                                as u64,
+                            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        });
+                }
+
+                self.queue
+                    .write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
+
+                self.queue
+                    .write_buffer(&self.text_renderer.indices, 0, indices_bytes);
+                self.text_renderer.num_indices = self.text_renderer.cpu_indices.len() as u32;
             }
 
-            // Prepare text vertices
-            Self::prepare_text(
-                &mut self.text_renderer,
-                &self.queue,
-                &mut self.font_system,
-                &mut self.swash_cache,
-                self.text_buffers.as_mut(),
-                width_f,
-                height_f,
-            );
-
-            // Prevent unbound memory growth for weather/ambient setups left running for days
-            if self.text_buffer_cache.len() > 100 {
-                self.text_buffer_cache.clear();
-                self.text_buffer_cache.shrink_to_fit();
-            }
-
-            for p_buf in self.text_buffers.drain(..) {
-                self.text_buffer_cache.insert(p_buf.text_key, p_buf.buffer);
-            }
-
-            if self.text_renderer.vertex_capacity < self.text_renderer.cpu_vertices.len() {
-                self.text_renderer.vertex_capacity =
-                    self.text_renderer.cpu_vertices.len().next_power_of_two();
-                self.text_renderer.vertices = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Text Vertex Buffer"),
-                    size: (self.text_renderer.vertex_capacity * std::mem::size_of::<TextVertex>())
-                        as u64,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-            }
-            if self.text_renderer.index_capacity < self.text_renderer.cpu_indices.len() {
-                self.text_renderer.index_capacity =
-                    self.text_renderer.cpu_indices.len().next_power_of_two();
-                self.text_renderer.indices = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Text Index Buffer"),
-                    size: (self.text_renderer.index_capacity * std::mem::size_of::<u32>()) as u64,
-                    usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-            }
-
-            let vertices_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    self.text_renderer.cpu_vertices.as_ptr() as *const u8,
-                    self.text_renderer.cpu_vertices.len() * std::mem::size_of::<TextVertex>(),
-                )
-            };
-            self.queue
-                .write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
-
-            let indices_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    self.text_renderer.cpu_indices.as_ptr() as *const u8,
-                    self.text_renderer.cpu_indices.len() * std::mem::size_of::<u32>(),
-                )
-            };
-            self.queue
-                .write_buffer(&self.text_renderer.indices, 0, indices_bytes);
-            self.text_renderer.num_indices = self.text_renderer.cpu_indices.len() as u32;
+            last_text_params = Some(current_text_params);
 
             let view = output
                 .texture
@@ -2065,6 +2092,10 @@ impl Renderer {
 
             self.queue.submit(std::iter::once(encoder.finish()));
             output.present();
+        }
+
+        for p_buf in self.text_buffers.drain(..) {
+            self.text_buffer_cache.insert(p_buf.text_key, p_buf.buffer);
         }
 
         Ok(())
