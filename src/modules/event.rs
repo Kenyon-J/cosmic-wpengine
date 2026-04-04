@@ -35,7 +35,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for PooledAudioBuffer<T> {
 
 #[derive(Debug)]
 pub enum Event {
-    ConfigUpdated(Box<super::config::Config>),
+    ConfigUpdated(Box<super::config::Config>, Box<super::config::ThemeLayout>),
     TrackChanged(Box<TrackInfo>),
     PlaybackStopped,
     PlaybackResumed,
