@@ -15,7 +15,7 @@ impl<T> PooledAudioBuffer<T> {
 impl<T> std::ops::Deref for PooledAudioBuffer<T> {
     type Target = [T];
     fn deref(&self) -> &Self::Target {
-        self.buf.as_ref().unwrap()
+        self.buf.as_deref().unwrap_or(&[])
     }
 }
 
@@ -45,7 +45,7 @@ pub enum Event {
         bands: PooledAudioBuffer<f32>,
         waveform: PooledAudioBuffer<f32>,
     },
-    VideoFrame(super::video::PooledImage),
+    VideoFrame(Box<super::video::PooledImage>),
     WeatherUpdated(Box<WeatherData>),
 }
 

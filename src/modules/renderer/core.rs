@@ -563,7 +563,7 @@ impl Renderer {
                 force_fallback_adapter: false,
             })
             .await
-            .expect("No suitable GPU adapter found");
+            .ok_or_else(|| anyhow::anyhow!("No suitable GPU adapter found"))?;
 
         let (device, queue) = adapter
             .request_device(
@@ -790,7 +790,7 @@ impl Renderer {
                         raw_window_handle: info.raw_window_handle(),
                     };
                     let surface = unsafe { self.instance.create_surface_unsafe(target) }
-                        .expect("Failed to recreate surface");
+                        .map_err(|e| anyhow::anyhow!("Failed to recreate surface: {}", e))?;
 
                     let caps = surface.get_capabilities(&self.adapter);
                     let format = caps
@@ -2224,6 +2224,7 @@ impl Renderer {
                 },
                 texture_size,
             );
+            self.album_art_pad_buffer.clear();
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -2328,6 +2329,7 @@ impl Renderer {
                         },
                         texture.size(),
                     );
+                    self.video_frame_buffer.clear();
                 }
                 return;
             }
@@ -2424,6 +2426,7 @@ impl Renderer {
                 },
                 texture_size,
             );
+            self.album_art_pad_buffer.clear();
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());

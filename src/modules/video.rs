@@ -21,14 +21,17 @@ impl PooledImage {
 
     // Keeps backwards compatibility if the renderer manually consumes the raw buffer
     pub fn into_raw(mut self) -> Vec<u8> {
-        self.img.take().unwrap().into_raw()
+        self.img.take().map(|i| i.into_raw()).unwrap_or_default()
     }
 }
 
 impl std::ops::Deref for PooledImage {
     type Target = image::RgbaImage;
     fn deref(&self) -> &Self::Target {
-        self.img.as_ref().unwrap()
+        // Using a static default image guarantees no panic if dereferenced after drop
+        static DEFAULT_IMG: std::sync::LazyLock<image::RgbaImage> =
+            std::sync::LazyLock::new(|| image::RgbaImage::new(1, 1));
+        self.img.as_ref().unwrap_or(&DEFAULT_IMG)
     }
 }
 
@@ -118,7 +121,10 @@ impl VideoDecoder {
             .kill_on_drop(true) // Ensure the FFmpeg process dies instantly if the task is dropped
             .spawn()?;
 
-        let mut stdout = child.stdout.take().expect("Failed to open stdout");
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Failed to open ffmpeg stdout"))?;
 
         loop {
             let mut buffer = recycle_rx
@@ -139,7 +145,7 @@ impl VideoDecoder {
                     match result {
                         Ok(_) => {
                             if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, buffer) {
-                                let pooled_img = PooledImage::new(img, recycle_tx.clone());
+                                let pooled_img = Box::new(PooledImage::new(img, recycle_tx.clone()));
                                 match tx.try_send(Event::VideoFrame(pooled_img)) {
                                     Ok(_) => {}
                                     Err(tokio::sync::mpsc::error::TrySendError::Full(Event::VideoFrame(dropped))) => {
