@@ -1560,7 +1560,9 @@ impl Renderer {
             }
 
             // 2. Process album art uniforms
-            if (show_art_fg || show_art_bg || show_color_bg) && last_uniform_res != Some(current_res) {
+            if (show_art_fg || show_art_bg || show_color_bg)
+                && last_uniform_res != Some(current_res)
+            {
                 if let Some(_track) = &self.state.current_track {
                     let color = art_tint_color;
                     let bg_mode = if show_color_bg {
@@ -1744,7 +1746,11 @@ impl Renderer {
                 .unwrap_or(1.0);
             let logical_height = height_f / scale_factor;
 
-            let current_text_params = (gpu_out.config.width, gpu_out.config.height, scale_factor as u32);
+            let current_text_params = (
+                gpu_out.config.width,
+                gpu_out.config.height,
+                scale_factor as u32,
+            );
 
             if last_text_params != Some(current_text_params) {
                 for p_buf in self.text_buffers.drain(..) {
@@ -1752,182 +1758,184 @@ impl Renderer {
                 }
 
                 if self.state.config.audio.show_lyrics {
-                if let Some(track) = &self.state.current_track {
-                    if let Some(lyrics) = &track.lyrics {
-                        let base_font_size =
-                            (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
-                        let active_font_size = base_font_size * 1.5;
-                        let line_spacing = active_font_size * 1.2;
+                    if let Some(track) = &self.state.current_track {
+                        if let Some(lyrics) = &track.lyrics {
+                            let base_font_size =
+                                (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
+                            let active_font_size = base_font_size * 1.5;
+                            let line_spacing = active_font_size * 1.2;
 
-                        let start_idx = self.current_lyric_idx.saturating_sub(2);
-                        let end_idx = (self.current_lyric_idx + 2).min(lyrics.len());
+                            let start_idx = self.current_lyric_idx.saturating_sub(2);
+                            let end_idx = (self.current_lyric_idx + 2).min(lyrics.len());
 
-                        for i in start_idx..=end_idx {
-                            if i == 0 || i > lyrics.len() {
-                                continue;
-                            }
+                            for i in start_idx..=end_idx {
+                                if i == 0 || i > lyrics.len() {
+                                    continue;
+                                }
 
-                            let lyric_line = &lyrics[i - 1];
-                            // Compute exactly how far this string is from the "current active string"
-                            let dist = (i as f32)
-                                - (self.current_lyric_idx as f32)
-                                - self.lyric_scroll_offset;
-                            let abs_dist = dist.abs();
+                                let lyric_line = &lyrics[i - 1];
+                                // Compute exactly how far this string is from the "current active string"
+                                let dist = (i as f32)
+                                    - (self.current_lyric_idx as f32)
+                                    - self.lyric_scroll_offset;
+                                let abs_dist = dist.abs();
 
-                            if abs_dist > 2.0 {
-                                continue;
-                            }
+                                if abs_dist > 2.0 {
+                                    continue;
+                                }
 
-                            let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
+                                let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
 
-                            let scale = base_font_size
-                                + (active_font_size - base_font_size) * center_weight;
-                            let final_scale = scale
-                                + (self.lyric_bounce_value * 8.0 * scale_factor) * center_weight;
+                                let scale = base_font_size
+                                    + (active_font_size - base_font_size) * center_weight;
+                                let final_scale = scale
+                                    + (self.lyric_bounce_value * 8.0 * scale_factor)
+                                        * center_weight;
 
-                            let render_scale = final_scale / active_font_size;
-                            let bounce_y =
-                                (self.lyric_bounce_value * 12.0 * scale_factor) * center_weight;
-                            let y_pos = (dist * line_spacing) - bounce_y;
+                                let render_scale = final_scale / active_font_size;
+                                let bounce_y =
+                                    (self.lyric_bounce_value * 12.0 * scale_factor) * center_weight;
+                                let y_pos = (dist * line_spacing) - bounce_y;
 
-                            let color = [
-                                secondary_text[0]
-                                    + (primary_text[0] - secondary_text[0]) * center_weight,
-                                secondary_text[1]
-                                    + (primary_text[1] - secondary_text[1]) * center_weight,
-                                secondary_text[2]
-                                    + (primary_text[2] - secondary_text[2]) * center_weight,
-                                secondary_text[3]
-                                    + (primary_text[3] - secondary_text[3]) * center_weight,
-                            ];
-
-                            // Fade out gracefully to prevent popping strings at top/bottom
-                            let alpha_fade = (1.5 - abs_dist).clamp(0.0, 1.0);
-                            let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
-
-                            if final_color[3] > 0.01 {
-                                let metrics =
-                                    Metrics::new(active_font_size, active_font_size * 1.2);
-                                let mut buffer = self
-                                    .text_buffer_cache
-                                    .remove(lyric_line.text.as_ref())
-                                    .unwrap_or_else(|| {
-                                        let mut b = Buffer::new(&mut self.font_system, metrics);
-                                        b.set_metrics(&mut self.font_system, metrics);
-                                        b.set_size(&mut self.font_system, width_f, height_f);
-                                        b.set_text(
-                                            &mut self.font_system,
-                                            &lyric_line.text,
-                                            attrs,
-                                            Shaping::Advanced,
-                                        );
-                                        b
-                                    });
-                                buffer.set_metrics(&mut self.font_system, metrics);
-                                buffer.set_size(&mut self.font_system, width_f, height_f);
-
-                                let align = map_align(&self.theme.lyrics.align);
-                                buffer.lines.iter_mut().for_each(|line| {
-                                    line.set_align(Some(align));
-                                });
-
-                                let pos = [
-                                    self.theme.lyrics.position[0] * width_f,
-                                    self.theme.lyrics.position[1] * height_f + y_pos,
+                                let color = [
+                                    secondary_text[0]
+                                        + (primary_text[0] - secondary_text[0]) * center_weight,
+                                    secondary_text[1]
+                                        + (primary_text[1] - secondary_text[1]) * center_weight,
+                                    secondary_text[2]
+                                        + (primary_text[2] - secondary_text[2]) * center_weight,
+                                    secondary_text[3]
+                                        + (primary_text[3] - secondary_text[3]) * center_weight,
                                 ];
 
-                                self.text_buffers.push(PositionedBuffer {
-                                    buffer,
-                                    text_key: lyric_line.text.to_string(),
-                                    pos,
-                                    color: final_color,
-                                    scale: render_scale,
-                                    align,
-                                });
+                                // Fade out gracefully to prevent popping strings at top/bottom
+                                let alpha_fade = (1.5 - abs_dist).clamp(0.0, 1.0);
+                                let final_color =
+                                    [color[0], color[1], color[2], color[3] * alpha_fade];
+
+                                if final_color[3] > 0.01 {
+                                    let metrics =
+                                        Metrics::new(active_font_size, active_font_size * 1.2);
+                                    let mut buffer = self
+                                        .text_buffer_cache
+                                        .remove(lyric_line.text.as_ref())
+                                        .unwrap_or_else(|| {
+                                            let mut b = Buffer::new(&mut self.font_system, metrics);
+                                            b.set_metrics(&mut self.font_system, metrics);
+                                            b.set_size(&mut self.font_system, width_f, height_f);
+                                            b.set_text(
+                                                &mut self.font_system,
+                                                &lyric_line.text,
+                                                attrs,
+                                                Shaping::Advanced,
+                                            );
+                                            b
+                                        });
+                                    buffer.set_metrics(&mut self.font_system, metrics);
+                                    buffer.set_size(&mut self.font_system, width_f, height_f);
+
+                                    let align = map_align(&self.theme.lyrics.align);
+                                    buffer.lines.iter_mut().for_each(|line| {
+                                        line.set_align(Some(align));
+                                    });
+
+                                    let pos = [
+                                        self.theme.lyrics.position[0] * width_f,
+                                        self.theme.lyrics.position[1] * height_f + y_pos,
+                                    ];
+
+                                    self.text_buffers.push(PositionedBuffer {
+                                        buffer,
+                                        text_key: lyric_line.text.to_string(),
+                                        pos,
+                                        color: final_color,
+                                        scale: render_scale,
+                                        align,
+                                    });
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            if self.state.current_track.is_some() && !self.cached_track_str.is_empty() {
-                let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
-                let metrics = Metrics::new(info_scale, info_scale * 1.2);
-                let mut buffer = self
-                    .text_buffer_cache
-                    .remove(&self.cached_track_str)
-                    .unwrap_or_else(|| {
-                        let mut b = Buffer::new(&mut self.font_system, metrics);
-                        b.set_metrics(&mut self.font_system, metrics);
-                        b.set_size(&mut self.font_system, width_f, height_f);
-                        b.set_text(
-                            &mut self.font_system,
-                            &self.cached_track_str,
-                            attrs,
-                            Shaping::Advanced,
-                        );
-                        b
+                if self.state.current_track.is_some() && !self.cached_track_str.is_empty() {
+                    let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
+                    let metrics = Metrics::new(info_scale, info_scale * 1.2);
+                    let mut buffer = self
+                        .text_buffer_cache
+                        .remove(&self.cached_track_str)
+                        .unwrap_or_else(|| {
+                            let mut b = Buffer::new(&mut self.font_system, metrics);
+                            b.set_metrics(&mut self.font_system, metrics);
+                            b.set_size(&mut self.font_system, width_f, height_f);
+                            b.set_text(
+                                &mut self.font_system,
+                                &self.cached_track_str,
+                                attrs,
+                                Shaping::Advanced,
+                            );
+                            b
+                        });
+                    buffer.set_metrics(&mut self.font_system, metrics);
+                    buffer.set_size(&mut self.font_system, width_f, height_f);
+                    let final_color = [
+                        secondary_text[0],
+                        secondary_text[1],
+                        secondary_text[2],
+                        secondary_text[3],
+                    ];
+                    let align = map_align(&self.theme.track_info.align);
+                    buffer.lines.iter_mut().for_each(|line| {
+                        line.set_align(Some(align));
                     });
-                buffer.set_metrics(&mut self.font_system, metrics);
-                buffer.set_size(&mut self.font_system, width_f, height_f);
-                let final_color = [
-                    secondary_text[0],
-                    secondary_text[1],
-                    secondary_text[2],
-                    secondary_text[3],
-                ];
-                let align = map_align(&self.theme.track_info.align);
-                buffer.lines.iter_mut().for_each(|line| {
-                    line.set_align(Some(align));
-                });
-                let pos = [
-                    self.theme.track_info.position[0] * width_f,
-                    self.theme.track_info.position[1] * height_f,
-                ];
-                self.text_buffers.push(PositionedBuffer {
-                    buffer,
-                    text_key: self.cached_track_str.clone(),
-                    pos,
-                    color: final_color,
-                    scale: 1.0,
-                    align,
-                });
-            }
+                    let pos = [
+                        self.theme.track_info.position[0] * width_f,
+                        self.theme.track_info.position[1] * height_f,
+                    ];
+                    self.text_buffers.push(PositionedBuffer {
+                        buffer,
+                        text_key: self.cached_track_str.clone(),
+                        pos,
+                        color: final_color,
+                        scale: 1.0,
+                        align,
+                    });
+                }
 
-            if self.state.weather.is_some() && !self.cached_weather_str.is_empty() {
-                let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
-                let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
-                let mut buffer = self
-                    .text_buffer_cache
-                    .remove(&self.cached_weather_str)
-                    .unwrap_or_else(|| {
-                        let mut b = Buffer::new(&mut self.font_system, metrics);
-                        b.set_metrics(&mut self.font_system, metrics);
-                        b.set_size(&mut self.font_system, width_f, height_f);
-                        b.set_text(
-                            &mut self.font_system,
-                            &self.cached_weather_str,
-                            attrs,
-                            Shaping::Advanced,
-                        );
-                        b
+                if self.state.weather.is_some() && !self.cached_weather_str.is_empty() {
+                    let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
+                    let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
+                    let mut buffer = self
+                        .text_buffer_cache
+                        .remove(&self.cached_weather_str)
+                        .unwrap_or_else(|| {
+                            let mut b = Buffer::new(&mut self.font_system, metrics);
+                            b.set_metrics(&mut self.font_system, metrics);
+                            b.set_size(&mut self.font_system, width_f, height_f);
+                            b.set_text(
+                                &mut self.font_system,
+                                &self.cached_weather_str,
+                                attrs,
+                                Shaping::Advanced,
+                            );
+                            b
+                        });
+                    buffer.set_metrics(&mut self.font_system, metrics);
+                    buffer.set_size(&mut self.font_system, width_f, height_f);
+                    let final_color = [
+                        secondary_text[0],
+                        secondary_text[1],
+                        secondary_text[2],
+                        secondary_text[3],
+                    ];
+                    let align = map_align(&self.theme.weather.align);
+                    buffer.lines.iter_mut().for_each(|line| {
+                        line.set_align(Some(align));
                     });
-                buffer.set_metrics(&mut self.font_system, metrics);
-                buffer.set_size(&mut self.font_system, width_f, height_f);
-                let final_color = [
-                    secondary_text[0],
-                    secondary_text[1],
-                    secondary_text[2],
-                    secondary_text[3],
-                ];
-                let align = map_align(&self.theme.weather.align);
-                buffer.lines.iter_mut().for_each(|line| {
-                    line.set_align(Some(align));
-                });
-                let pos = [
-                    self.theme.weather.position[0] * width_f,
-                    self.theme.weather.position[1] * height_f,
-                ];
+                    let pos = [
+                        self.theme.weather.position[0] * width_f,
+                        self.theme.weather.position[1] * height_f,
+                    ];
                     self.text_buffers.push(PositionedBuffer {
                         buffer,
                         text_key: self.cached_weather_str.clone(),
@@ -1963,25 +1971,29 @@ impl Renderer {
                 };
 
                 if self.text_renderer.vertex_capacity < self.text_renderer.cpu_vertices.len() {
-                self.text_renderer.vertex_capacity =
-                    self.text_renderer.cpu_vertices.len().next_power_of_two();
-                self.text_renderer.vertices = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Text Vertex Buffer"),
-                    size: (self.text_renderer.vertex_capacity * std::mem::size_of::<TextVertex>())
-                        as u64,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-            }
+                    self.text_renderer.vertex_capacity =
+                        self.text_renderer.cpu_vertices.len().next_power_of_two();
+                    self.text_renderer.vertices =
+                        self.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("Text Vertex Buffer"),
+                            size: (self.text_renderer.vertex_capacity
+                                * std::mem::size_of::<TextVertex>())
+                                as u64,
+                            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        });
+                }
                 if self.text_renderer.index_capacity < self.text_renderer.cpu_indices.len() {
                     self.text_renderer.index_capacity =
                         self.text_renderer.cpu_indices.len().next_power_of_two();
-                    self.text_renderer.indices = self.device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("Text Index Buffer"),
-                        size: (self.text_renderer.index_capacity * std::mem::size_of::<u32>()) as u64,
-                        usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    });
+                    self.text_renderer.indices =
+                        self.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("Text Index Buffer"),
+                            size: (self.text_renderer.index_capacity * std::mem::size_of::<u32>())
+                                as u64,
+                            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        });
                 }
 
                 self.queue
