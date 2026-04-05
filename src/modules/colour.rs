@@ -165,23 +165,44 @@ mod tests {
     #[test]
     fn test_relative_luminance() {
         // Black
-        assert!(approx_eq_f32(super::relative_luminance([0.0, 0.0, 0.0]), 0.0));
+        assert!(approx_eq_f32(
+            super::relative_luminance([0.0, 0.0, 0.0]),
+            0.0
+        ));
         // White
-        assert!(approx_eq_f32(super::relative_luminance([1.0, 1.0, 1.0]), 1.0));
+        assert!(approx_eq_f32(
+            super::relative_luminance([1.0, 1.0, 1.0]),
+            1.0
+        ));
 
         // Pure colors
-        assert!(approx_eq_f32(super::relative_luminance([1.0, 0.0, 0.0]), 0.2126));
-        assert!(approx_eq_f32(super::relative_luminance([0.0, 1.0, 0.0]), 0.7152));
-        assert!(approx_eq_f32(super::relative_luminance([0.0, 0.0, 1.0]), 0.0722));
+        assert!(approx_eq_f32(
+            super::relative_luminance([1.0, 0.0, 0.0]),
+            0.2126
+        ));
+        assert!(approx_eq_f32(
+            super::relative_luminance([0.0, 1.0, 0.0]),
+            0.7152
+        ));
+        assert!(approx_eq_f32(
+            super::relative_luminance([0.0, 0.0, 1.0]),
+            0.0722
+        ));
 
         // Low threshold (< 0.03928)
         let low = 0.03;
-        assert!(approx_eq_f32(super::relative_luminance([low, low, low]), low / 12.92));
+        assert!(approx_eq_f32(
+            super::relative_luminance([low, low, low]),
+            low / 12.92
+        ));
 
         // High threshold (>= 0.03928)
         let high = 0.5;
         let expected_high = ((high + 0.055) / 1.055_f32).powf(2.4);
-        assert!(approx_eq_f32(super::relative_luminance([high, high, high]), expected_high));
+        assert!(approx_eq_f32(
+            super::relative_luminance([high, high, high]),
+            expected_high
+        ));
     }
 
     #[test]
