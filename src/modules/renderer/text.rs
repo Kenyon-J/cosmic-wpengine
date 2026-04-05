@@ -337,33 +337,37 @@ impl TextRenderer {
                         let base_index = text_renderer.cpu_vertices.len() as u32;
                         let [u_min, v_min, u_max, v_max] = cached.uv;
 
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [x, y],
-                            tex_pos: [u_min, v_min],
-                            color,
-                        });
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [x + w, y],
-                            tex_pos: [u_max, v_min],
-                            color,
-                        });
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [x, y - h],
-                            tex_pos: [u_min, v_max],
-                            color,
-                        });
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [x + w, y - h],
-                            tex_pos: [u_max, v_max],
-                            color,
-                        });
+                        text_renderer.cpu_vertices.extend([
+                            TextVertex {
+                                pos: [x, y],
+                                tex_pos: [u_min, v_min],
+                                color,
+                            },
+                            TextVertex {
+                                pos: [x + w, y],
+                                tex_pos: [u_max, v_min],
+                                color,
+                            },
+                            TextVertex {
+                                pos: [x, y - h],
+                                tex_pos: [u_min, v_max],
+                                color,
+                            },
+                            TextVertex {
+                                pos: [x + w, y - h],
+                                tex_pos: [u_max, v_max],
+                                color,
+                            },
+                        ]);
 
-                        text_renderer.cpu_indices.push(base_index);
-                        text_renderer.cpu_indices.push(base_index + 1);
-                        text_renderer.cpu_indices.push(base_index + 2);
-                        text_renderer.cpu_indices.push(base_index + 1);
-                        text_renderer.cpu_indices.push(base_index + 3);
-                        text_renderer.cpu_indices.push(base_index + 2);
+                        text_renderer.cpu_indices.extend([
+                            base_index,
+                            base_index + 1,
+                            base_index + 2,
+                            base_index + 1,
+                            base_index + 3,
+                            base_index + 2,
+                        ]);
                     }
                 }
             }
