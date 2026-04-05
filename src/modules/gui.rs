@@ -562,50 +562,38 @@ amplitude = 1.5"#
             .push(
                 row()
                     .push(
-                        row()
-                            .push(
-                                checkbox(self.wp_config.appearance.show_album_art)
-                                    .on_toggle(Message::ToggleShowAlbumArt),
-                            )
-                            .push(text("Show Album Art Foreground").font(font))
-                            .spacing(8),
+                        checkbox(self.wp_config.appearance.show_album_art)
+                            .label("Show Album Art Foreground")
+                            .font(font)
+                            .on_toggle(Message::ToggleShowAlbumArt),
                     )
                     .push(
-                        row()
-                            .push(
-                                checkbox(self.wp_config.audio.show_lyrics)
-                                    .on_toggle(Message::ToggleShowLyrics),
-                            )
-                            .push(text("Show Lyrics").font(font))
-                            .spacing(8),
+                        checkbox(self.wp_config.audio.show_lyrics)
+                            .label("Show Lyrics")
+                            .font(font)
+                            .on_toggle(Message::ToggleShowLyrics),
                     )
                     .push(
-                        row()
-                            .push(checkbox(self.autostart).on_toggle(Message::ToggleAutostart))
-                            .push(text("Autostart on Login").font(font))
-                            .spacing(8),
+                        checkbox(self.autostart)
+                            .label("Autostart on Login")
+                            .font(font)
+                            .on_toggle(Message::ToggleAutostart),
                     )
                     .spacing(20),
             )
             .push(
                 row()
                     .push(
-                        row()
-                            .push(
-                                checkbox(self.wp_config.weather.enabled)
-                                    .on_toggle(Message::ToggleWeatherEnabled),
-                            )
-                            .push(text("Enable Weather").font(font))
-                            .spacing(8),
+                        checkbox(self.wp_config.weather.enabled)
+                            .label("Enable Weather")
+                            .font(font)
+                            .on_toggle(Message::ToggleWeatherEnabled),
                     )
                     .push(
-                        row()
-                            .push(
-                                checkbox(self.wp_config.weather.hide_effects)
-                                    .on_toggle(Message::ToggleHideWeatherEffects),
-                            )
-                            .push(text("Hide Weather Effects").font(font))
-                            .spacing(8),
+                        checkbox(self.wp_config.weather.hide_effects)
+                            .label("Hide Weather Effects")
+                            .font(font)
+                            .on_toggle(Message::ToggleHideWeatherEffects),
                     )
                     .spacing(20),
             )
