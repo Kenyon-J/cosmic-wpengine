@@ -343,7 +343,7 @@ impl TextRenderer {
                         let sy = y - (shadow_offset / height * 2.0);
 
                         let shadow_index = text_renderer.cpu_vertices.len() as u32;
-                        
+
                         text_renderer.cpu_vertices.push(TextVertex {
                             pos: [sx, sy],
                             tex_pos: [u_min, v_min],

@@ -531,12 +531,12 @@ impl Renderer {
                 info!("Live settings applied!");
             }
             Event::TrackChanged(mut track) => {
-            // Free old shaped lyrics from cache, but recycle their internal memory buffers!
-            while let Some((_, b)) = self.text_buffer_cache.pop_lru() {
-                if self.text_buffer_pool.len() < 20 {
-                    self.text_buffer_pool.push(b);
+                // Free old shaped lyrics from cache, but recycle their internal memory buffers!
+                while let Some((_, b)) = self.text_buffer_cache.pop_lru() {
+                    if self.text_buffer_pool.len() < 20 {
+                        self.text_buffer_pool.push(b);
+                    }
                 }
-            }
 
                 // Free padding buffers to the OS allocator
                 self.album_art_pad_buffer.shrink_to_fit();
@@ -596,11 +596,11 @@ impl Renderer {
 
             Event::PlayerShutDown => {
                 self.cached_track_str.clear();
-            while let Some((_, b)) = self.text_buffer_cache.pop_lru() {
-                if self.text_buffer_pool.len() < 20 {
-                    self.text_buffer_pool.push(b);
+                while let Some((_, b)) = self.text_buffer_cache.pop_lru() {
+                    if self.text_buffer_pool.len() < 20 {
+                        self.text_buffer_pool.push(b);
+                    }
                 }
-            }
                 self.state.previous_palette = self
                     .state
                     .current_track
