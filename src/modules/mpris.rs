@@ -266,10 +266,10 @@ impl MprisWatcher {
 
             // If we are visible and have unprocessed metadata, fetch the art, palette, and lyrics!
             if visible && !is_timed_out && last_metadata != last_processed_metadata {
-                if let Some(meta) = last_metadata.clone() {
+                if let Some(meta) = last_metadata.as_ref() {
                     info!("Fetching track info for: {} - {}", meta.artist, meta.title);
                     let track_info = Self::build_track_info(
-                        &meta,
+                        meta,
                         &mut palette_cache,
                         &mut lyrics_cache,
                         &mut video_cache,
@@ -302,7 +302,7 @@ impl MprisWatcher {
                     }
 
                     let _ = tx.send(Event::TrackChanged(Box::new(track_info))).await;
-                    last_processed_metadata = Some(meta);
+                    last_processed_metadata = Some(meta.clone());
                 }
             }
         }
