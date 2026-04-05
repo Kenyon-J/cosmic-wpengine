@@ -1,6 +1,6 @@
 use super::text::{PositionedBuffer, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
-use crate::modules::colour::{lerp_colour, time_to_sky_colour};
+use crate::modules::colour::{ensure_contrast, ensure_contrast_blended, lerp_colour, relative_luminance, time_to_sky_colour};
 use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
 use crate::modules::event::WeatherCondition;
 use crate::modules::state::SceneHint;
@@ -64,6 +64,14 @@ pub(crate) fn draw_frame(
     let clear_colour = get_clear_colour(renderer);
     // Use our new smart audio-reactive beat detector instead of the generic timer
     let pulse = renderer.beat_pulse;
+
+    let is_n7 = renderer.state.config.audio.style == "n7";
+    
+    let reaper_tint = if renderer.state.current_track.as_ref().is_some_and(|t| t.album.as_ref().contains("Mass Effect 3")) {
+        (base_energy * 0.6).clamp(0.0, 0.8)
+    } else {
+        0.0
+    };
 
     let is_weather_active = renderer.state.config.weather.enabled
         && !renderer.state.config.weather.hide_effects
@@ -158,23 +166,23 @@ pub(crate) fn draw_frame(
     // 1. Pre-calculate Visualizer colors
     let (top_col, bottom_col) = if has_audio {
         let get_colors = |palette: Option<&[[f32; 3]]>| -> ([f32; 3], [f32; 3]) {
+            if is_n7 {
+                return ([0.91, 0.0, 0.0], [1.0, 1.0, 1.0]); // N7 Crimson and stark white
+            }
             let top = renderer.theme.visualiser.color_top;
             let bottom = renderer.theme.visualiser.color_bottom;
 
-            if let (Some(top_val), Some(bottom_val)) = (top, bottom) {
-                (top_val, bottom_val)
-            } else {
-                match palette {
-                    Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
-                    Some(p) if p.len() == 1 => (
-                        top.unwrap_or(p[0]),
-                        bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
-                    ),
-                    _ => (
-                        top.unwrap_or([1.0, 0.2, 0.5]),
-                        bottom.unwrap_or([0.2, 0.5, 1.0]),
-                    ),
-                }
+            match palette {
+                _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
+                Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
+                Some(p) if p.len() == 1 => (
+                    top.unwrap_or(p[0]),
+                    bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
+                ),
+                _ => (
+                    top.unwrap_or([1.0, 0.2, 0.5]),
+                    bottom.unwrap_or([0.2, 0.5, 1.0]),
+                ),
             }
         };
         let target_colors = get_colors(
@@ -206,7 +214,7 @@ pub(crate) fn draw_frame(
     };
 
     // 2. Pre-calculate Album Art colors
-    let art_tint_color = if show_art_fg || show_art_bg || show_color_bg {
+    let mut art_tint_color = if show_art_fg || show_art_bg || show_color_bg {
         renderer
             .state
             .current_track
@@ -236,13 +244,17 @@ pub(crate) fn draw_frame(
         [0.1, 0.1, 0.1]
     };
 
+    if reaper_tint > 0.0 {
+        art_tint_color = lerp_colour(art_tint_color, [0.8, 0.0, 0.0], reaper_tint);
+    }
+
     let elapsed = renderer.start_time.elapsed().as_secs_f32();
 
     // 3. Pre-calculate Sky colors
     let sky_color_data = if renderer.custom_bg_bind_group.is_none() {
         let mut weather_type = 0u32;
         let sky = time_to_sky_colour(renderer.state.time_of_day);
-        let final_sky = if let Some(weather) = &renderer.state.weather {
+        let mut final_sky = if let Some(weather) = &renderer.state.weather {
             if renderer.state.config.weather.enabled {
                 weather_type = match weather.condition {
                     WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
@@ -263,6 +275,10 @@ pub(crate) fn draw_frame(
         } else {
             sky
         };
+
+        if reaper_tint > 0.0 {
+            final_sky = lerp_colour(final_sky, [0.8, 0.0, 0.0], reaper_tint);
+        }
         Some((elapsed, weather_type, final_sky))
     } else {
         None
@@ -272,15 +288,19 @@ pub(crate) fn draw_frame(
     let mut last_uniform_res = None;
 
     // 4. Pre-calculate Text colors (luminance and tinting)
-    let (primary_text, secondary_text) = {
-        let text_bg_color = renderer
-            .state
-            .current_track
-            .as_ref()
-            .and_then(|t| t.palette.as_deref())
-            .and_then(|p| p.first())
-            .copied()
-            .unwrap_or([0.1, 0.1, 0.1]);
+    let (primary_text, secondary_text) = if is_n7 {
+        ([1.0, 1.0, 1.0, 1.0], [0.9, 0.9, 0.9, 0.8]) // Force white text for N7 theme
+    } else {
+        let text_bg_color = if show_art_bg || show_color_bg {
+            art_tint_color
+        } else if renderer.custom_bg_bind_group.is_some() {
+            [0.1, 0.1, 0.1] // Rely on drop shadow for custom wallpapers
+        } else if let Some((_, _, sky)) = sky_color_data {
+            sky
+        } else {
+            [0.1, 0.1, 0.1]
+        };
+
         let text_accent = renderer
             .state
             .current_track
@@ -290,31 +310,22 @@ pub(crate) fn draw_frame(
             .copied()
             .unwrap_or([1.0, 1.0, 1.0]);
 
-        let luminance =
-            0.299 * text_bg_color[0] + 0.587 * text_bg_color[1] + 0.114 * text_bg_color[2];
-        if luminance > 0.55 {
-            // Dark text for bright backgrounds, tinted with the accent color
-            let tint = [
-                text_accent[0] * 0.3,
-                text_accent[1] * 0.3,
-                text_accent[2] * 0.3,
-            ];
-            (
-                [tint[0], tint[1], tint[2], 1.0],
-                [tint[0], tint[1], tint[2], 0.7],
-            )
+        let l_bg = relative_luminance(text_bg_color);
+        let base_tint = if l_bg > 0.179 {
+            [text_accent[0] * 0.3, text_accent[1] * 0.3, text_accent[2] * 0.3]
         } else {
-            // Light text for dark backgrounds, lightly tinted with the accent color
-            let tint = [
-                text_accent[0] * 0.3 + 0.7,
-                text_accent[1] * 0.3 + 0.7,
-                text_accent[2] * 0.3 + 0.7,
-            ];
-            (
-                [tint[0], tint[1], tint[2], 1.0],
-                [tint[0], tint[1], tint[2], 0.45],
-            )
-        }
+            [text_accent[0] * 0.3 + 0.7, text_accent[1] * 0.3 + 0.7, text_accent[2] * 0.3 + 0.7]
+        };
+
+        // WCAG 2.0 AA requires a contrast ratio of at least 4.5:1 for normal text.
+        let primary_rgb = ensure_contrast(base_tint, text_bg_color, 4.5);
+        // Secondary text uses a 0.7 alpha fade. ensure_contrast_blended guarantees it still hits >= 3.0:1!
+        let secondary_rgb = ensure_contrast_blended(base_tint, text_bg_color, 0.7, 3.0);
+
+        (
+            [primary_rgb[0], primary_rgb[1], primary_rgb[2], 1.0],
+            [secondary_rgb[0], secondary_rgb[1], secondary_rgb[2], 0.7],
+        )
     };
 
     let map_align = |a: &TextAlign| -> cosmic_text::Align {
@@ -333,12 +344,6 @@ pub(crate) fn draw_frame(
         .as_deref()
         .map_or(Family::SansSerif, Family::Name);
     let attrs = Attrs::new().family(family);
-
-    // Prevent unbound memory growth for weather/ambient setups left running for days
-    if renderer.text_buffer_cache.len() > 100 {
-        renderer.text_buffer_cache.clear();
-        renderer.text_buffer_cache.shrink_to_fit();
-    }
 
     for (i, gpu_out) in renderer.outputs.iter_mut().enumerate() {
         if wayland_manager.is_frame_pending(i) {
@@ -538,8 +543,13 @@ pub(crate) fn draw_frame(
                 };
                 let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
 
+                let mut custom_bg_color = [1.0, 1.0, 1.0];
+                if reaper_tint > 0.0 {
+                    custom_bg_color = lerp_colour(custom_bg_color, [0.8, 0.0, 0.0], reaper_tint);
+                }
+
                 let custom_bg_uniforms = ArtUniforms {
-                    color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
+                    color_and_transition: [custom_bg_color[0], custom_bg_color[1], custom_bg_color[2], 1.0],
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                     art_position: [0.5, 0.5],
                     audio_energy,
@@ -623,9 +633,11 @@ pub(crate) fn draw_frame(
 
         if last_text_params != Some(current_text_params) {
             for p_buf in renderer.text_buffers.drain(..) {
-                renderer
-                    .text_buffer_cache
-                    .insert(p_buf.text_key, p_buf.buffer);
+                if let Some((_, evicted)) = renderer.text_buffer_cache.push(p_buf.text_key, p_buf.buffer) {
+                    if renderer.text_buffer_pool.len() < 20 {
+                        renderer.text_buffer_pool.push(evicted);
+                    }
+                }
             }
 
             if renderer.state.config.audio.show_lyrics {
@@ -689,12 +701,11 @@ pub(crate) fn draw_frame(
                                 let text_key = format!("{i}_{}", lyric_line.text);
                                 let mut buffer = renderer
                                     .text_buffer_cache
-                                    .remove(&text_key)
+                                    .pop(&text_key)
                                     .unwrap_or_else(|| {
-                                        let mut b = cosmic_text::Buffer::new(
-                                            &mut renderer.font_system,
-                                            metrics,
-                                        );
+                                        let mut b = renderer.text_buffer_pool.pop().unwrap_or_else(|| {
+                                            cosmic_text::Buffer::new(&mut renderer.font_system, metrics)
+                                        });
                                         b.set_metrics(&mut renderer.font_system, metrics);
                                         b.set_size(&mut renderer.font_system, width_f, height_f);
                                         b.set_text(
@@ -741,10 +752,11 @@ pub(crate) fn draw_frame(
                 let mut buffer =
                     renderer
                         .text_buffer_cache
-                        .remove(&text_key)
+                        .pop(&text_key)
                         .unwrap_or_else(|| {
-                            let mut b =
-                                cosmic_text::Buffer::new(&mut renderer.font_system, metrics);
+                            let mut b = renderer.text_buffer_pool.pop().unwrap_or_else(|| {
+                                cosmic_text::Buffer::new(&mut renderer.font_system, metrics)
+                            });
                             b.set_metrics(&mut renderer.font_system, metrics);
                             b.set_size(&mut renderer.font_system, width_f, height_f);
                             b.set_text(
@@ -794,10 +806,11 @@ pub(crate) fn draw_frame(
                 let mut buffer =
                     renderer
                         .text_buffer_cache
-                        .remove(&text_key)
+                        .pop(&text_key)
                         .unwrap_or_else(|| {
-                            let mut b =
-                                cosmic_text::Buffer::new(&mut renderer.font_system, metrics);
+                            let mut b = renderer.text_buffer_pool.pop().unwrap_or_else(|| {
+                                cosmic_text::Buffer::new(&mut renderer.font_system, metrics)
+                            });
                             b.set_metrics(&mut renderer.font_system, metrics);
                             b.set_size(&mut renderer.font_system, width_f, height_f);
                             b.set_text(
@@ -929,7 +942,9 @@ pub(crate) fn draw_frame(
 
             // --- Background Rendering ---
             // Simplified logic with clear precedence: Album Art > Custom BG > Ambient
-            if show_art_bg || show_color_bg {
+            if is_n7 {
+                // Draw nothing; get_clear_colour is already forcing a pitch black background!
+            } else if show_art_bg || show_color_bg {
                 if let Some(bind_group) = &renderer.album_art_bg_bind_group {
                     render_pass.set_pipeline(&renderer.album_art_pipeline);
                     render_pass.set_bind_group(0, bind_group, &[]);
@@ -991,15 +1006,20 @@ pub(crate) fn draw_frame(
     }
 
     for p_buf in renderer.text_buffers.drain(..) {
-        renderer
-            .text_buffer_cache
-            .insert(p_buf.text_key, p_buf.buffer);
+        if let Some((_, evicted)) = renderer.text_buffer_cache.push(p_buf.text_key, p_buf.buffer) {
+            if renderer.text_buffer_pool.len() < 20 {
+                renderer.text_buffer_pool.push(evicted);
+            }
+        }
     }
 
     Ok(())
 }
 
 pub(crate) fn get_clear_colour(renderer: &super::Renderer) -> wgpu::Color {
+    if renderer.state.config.audio.style == "n7" {
+        return wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+    }
     if renderer.state.config.appearance.transparent_background {
         return wgpu::Color::TRANSPARENT;
     }

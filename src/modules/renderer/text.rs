@@ -334,8 +334,46 @@ impl TextRenderer {
 
                         let color = p_buf.color;
 
-                        let base_index = text_renderer.cpu_vertices.len() as u32;
                         let [u_min, v_min, u_max, v_max] = cached.uv;
+
+                        // --- Shadow Quad ---
+                        let shadow_offset = 2.0 * p_buf.scale;
+                        let shadow_color = [0.0, 0.0, 0.0, color[3] * 0.8]; // 80% opacity black
+                        let sx = x + (shadow_offset / width * 2.0);
+                        let sy = y - (shadow_offset / height * 2.0);
+
+                        let shadow_index = text_renderer.cpu_vertices.len() as u32;
+                        
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [sx, sy],
+                            tex_pos: [u_min, v_min],
+                            color: shadow_color,
+                        });
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [sx + w, sy],
+                            tex_pos: [u_max, v_min],
+                            color: shadow_color,
+                        });
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [sx, sy - h],
+                            tex_pos: [u_min, v_max],
+                            color: shadow_color,
+                        });
+                        text_renderer.cpu_vertices.push(TextVertex {
+                            pos: [sx + w, sy - h],
+                            tex_pos: [u_max, v_max],
+                            color: shadow_color,
+                        });
+
+                        text_renderer.cpu_indices.push(shadow_index);
+                        text_renderer.cpu_indices.push(shadow_index + 1);
+                        text_renderer.cpu_indices.push(shadow_index + 2);
+                        text_renderer.cpu_indices.push(shadow_index + 1);
+                        text_renderer.cpu_indices.push(shadow_index + 3);
+                        text_renderer.cpu_indices.push(shadow_index + 2);
+
+                        // --- Foreground Quad ---
+                        let base_index = text_renderer.cpu_vertices.len() as u32;
 
                         text_renderer.cpu_vertices.push(TextVertex {
                             pos: [x, y],

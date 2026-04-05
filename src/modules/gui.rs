@@ -444,12 +444,43 @@ impl Application for SettingsApp {
 
                     match options.open(&path) {
                         Ok(mut file) => {
-                            let default_content = r#"[visualiser]
+                            let default_content = if name == "n7" {
+                                r#"# ==============================================================================
+# N7 Theme (Easter Egg)
+# ==============================================================================
+# I'm Commander Shepard, and this is my favorite wallpaper on the Citadel.
+
+[album_art]
+position = [0.24, 0.59]
+size = 0.15
+shape = "square"
+
+[track_info]
+position = [0.29, 0.56]
+align = "left"
+
+[lyrics]
+position = [0.49, 0.72]
+align = "left"
+
+[weather]
+position = [0.98, 0.03]
+align = "right"
+
+[visualiser]
+shape = "linear"
+position = [0.5, 0.5]
+size = 0.6
+rotation = 0
+amplitude = 1.5"#
+                            } else {
+                                r#"[visualiser]
 shape = "linear"
 position = [0.5, 0.5]
 size = 0.85
 rotation = 0.0
-amplitude = 1.5"#;
+amplitude = 1.5"#
+                            };
                             use std::io::Write;
                             let _ = file.write_all(default_content.as_bytes());
                             self.available_files = load_files();

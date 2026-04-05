@@ -29,7 +29,8 @@ pub struct Renderer {
     pub(crate) font_system: FontSystem,
     pub(crate) swash_cache: SwashCache,
     pub(crate) text_renderer: TextRenderer,
-    pub(crate) text_buffer_cache: std::collections::HashMap<String, Buffer>,
+    pub(crate) text_buffer_cache: lru::LruCache<String, Buffer>,
+    pub(crate) text_buffer_pool: Vec<Buffer>,
     pub(crate) text_buffers: Vec<PositionedBuffer>,
     pub(crate) current_outputs_cache: Vec<WaylandOutput>,
     pub(crate) visualiser_pass: VisualiserPass,
@@ -220,6 +221,10 @@ impl Renderer {
             super::utils::build_frequency_bin_ranges(state.config.audio.bands);
         let waveform_bin_ranges = super::utils::build_waveform_bin_ranges(state.config.audio.bands);
 
+        let cache_cap = std::num::NonZeroUsize::new(50).unwrap();
+        let text_buffer_cache = lru::LruCache::new(cache_cap);
+        let text_buffer_pool = Vec::with_capacity(20);
+
         let mut renderer = Self {
             instance,
             adapter,
@@ -229,7 +234,8 @@ impl Renderer {
             font_system,
             swash_cache,
             text_renderer,
-            text_buffer_cache: std::collections::HashMap::new(),
+            text_buffer_cache,
+            text_buffer_pool,
             text_buffers: Vec::new(),
             current_outputs_cache: Vec::new(),
             visualiser_pass,
@@ -525,8 +531,12 @@ impl Renderer {
                 info!("Live settings applied!");
             }
             Event::TrackChanged(mut track) => {
-                self.text_buffer_cache.clear(); // Free old shaped lyrics from memory!
-                self.text_buffer_cache.shrink_to_fit();
+            // Free old shaped lyrics from cache, but recycle their internal memory buffers!
+            while let Some((_, b)) = self.text_buffer_cache.pop_lru() {
+                if self.text_buffer_pool.len() < 20 {
+                    self.text_buffer_pool.push(b);
+                }
+            }
 
                 // Free padding buffers to the OS allocator
                 self.album_art_pad_buffer.shrink_to_fit();
@@ -564,6 +574,7 @@ impl Renderer {
                     .as_ref()
                     .and_then(|t| t.palette.clone());
                 self.state.current_track = Some(*track);
+                self.update_weather_string(); // Instantly update weather text for Planet Scanning easter egg
                 self.state.is_playing = true;
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;
@@ -585,8 +596,11 @@ impl Renderer {
 
             Event::PlayerShutDown => {
                 self.cached_track_str.clear();
-                self.text_buffer_cache.clear();
-                self.text_buffer_cache.shrink_to_fit();
+            while let Some((_, b)) = self.text_buffer_cache.pop_lru() {
+                if self.text_buffer_pool.len() < 20 {
+                    self.text_buffer_pool.push(b);
+                }
+            }
                 self.state.previous_palette = self
                     .state
                     .current_track
@@ -1048,22 +1062,39 @@ impl Renderer {
 
     fn update_weather_string(&mut self) {
         if let Some(weather) = &self.state.weather {
+            let is_uncharted = self
+                .state
+                .current_track
+                .as_ref()
+                .is_some_and(|t| t.title.as_ref() == "Uncharted Worlds");
+
             let mut val = weather.temperature_celsius;
             let mut unit = "C";
             if self.state.config.weather.temperature_unit == TemperatureUnit::Fahrenheit {
                 val = (val * 9.0 / 5.0) + 32.0;
                 unit = "F";
             }
-            let condition_str = match weather.condition {
-                WeatherCondition::Clear => "Clear",
-                WeatherCondition::PartlyCloudy => "Partly Cloudy",
-                WeatherCondition::Cloudy => "Cloudy",
-                WeatherCondition::Rain => "Rain",
-                WeatherCondition::Snow => "Snow",
-                WeatherCondition::Thunderstorm => "Thunderstorm",
-                WeatherCondition::Fog => "Fog",
-            };
-            self.cached_weather_str = format!("{} {:.1}°{}", condition_str, val, unit);
+
+            if is_uncharted {
+                let condition_str = match weather.condition {
+                    WeatherCondition::Clear | WeatherCondition::PartlyCloudy => "Probe Launched.",
+                    WeatherCondition::Rain | WeatherCondition::Snow => "Anomaly Detected.",
+                    WeatherCondition::Thunderstorm => "Warning: Hazard Hazard",
+                    _ => "Scanning...",
+                };
+                self.cached_weather_str = condition_str.to_string();
+            } else {
+                let condition_str = match weather.condition {
+                    WeatherCondition::Clear => "Clear",
+                    WeatherCondition::PartlyCloudy => "Partly Cloudy",
+                    WeatherCondition::Cloudy => "Cloudy",
+                    WeatherCondition::Rain => "Rain",
+                    WeatherCondition::Snow => "Snow",
+                    WeatherCondition::Thunderstorm => "Thunderstorm",
+                    WeatherCondition::Fog => "Fog",
+                };
+                self.cached_weather_str = format!("{} {:.1}°{}", condition_str, val, unit);
+            }
         } else {
             self.cached_weather_str.clear();
         }
