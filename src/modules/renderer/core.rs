@@ -221,7 +221,8 @@ impl Renderer {
             super::utils::build_frequency_bin_ranges(state.config.audio.bands);
         let waveform_bin_ranges = super::utils::build_waveform_bin_ranges(state.config.audio.bands);
 
-        let cache_cap = std::num::NonZeroUsize::new(50).unwrap();
+        let cache_cap = std::num::NonZeroUsize::new(50)
+            .ok_or_else(|| anyhow::anyhow!("Invalid cache capacity"))?;
         let text_buffer_cache = lru::LruCache::new(cache_cap);
         let text_buffer_pool = Vec::with_capacity(20);
 
@@ -531,12 +532,12 @@ impl Renderer {
                 info!("Live settings applied!");
             }
             Event::TrackChanged(mut track) => {
-            // Free old shaped lyrics from cache, but recycle their internal memory buffers!
-            while let Some((_, b)) = self.text_buffer_cache.pop_lru() {
-                if self.text_buffer_pool.len() < 20 {
-                    self.text_buffer_pool.push(b);
+                // Free old shaped lyrics from cache, but recycle their internal memory buffers!
+                while let Some((_, b)) = self.text_buffer_cache.pop_lru() {
+                    if self.text_buffer_pool.len() < 20 {
+                        self.text_buffer_pool.push(b);
+                    }
                 }
-            }
 
                 // Free padding buffers to the OS allocator
                 self.album_art_pad_buffer.shrink_to_fit();
@@ -596,11 +597,11 @@ impl Renderer {
 
             Event::PlayerShutDown => {
                 self.cached_track_str.clear();
-            while let Some((_, b)) = self.text_buffer_cache.pop_lru() {
-                if self.text_buffer_pool.len() < 20 {
-                    self.text_buffer_pool.push(b);
+                while let Some((_, b)) = self.text_buffer_cache.pop_lru() {
+                    if self.text_buffer_pool.len() < 20 {
+                        self.text_buffer_pool.push(b);
+                    }
                 }
-            }
                 self.state.previous_palette = self
                     .state
                     .current_track

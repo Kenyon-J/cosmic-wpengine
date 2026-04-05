@@ -89,17 +89,28 @@ pub fn ensure_contrast(fg: [f32; 3], bg: [f32; 3], target_ratio: f32) -> [f32; 3
     ensure_contrast_blended(fg, bg, 1.0, target_ratio)
 }
 
-pub fn ensure_contrast_blended(fg: [f32; 3], bg: [f32; 3], alpha: f32, target_ratio: f32) -> [f32; 3] {
+pub fn ensure_contrast_blended(
+    fg: [f32; 3],
+    bg: [f32; 3],
+    alpha: f32,
+    target_ratio: f32,
+) -> [f32; 3] {
     let l_bg = relative_luminance(bg);
     let blended_fg = lerp_colour(bg, fg, alpha);
     let l_fg = relative_luminance(blended_fg);
-    
+
     if contrast_ratio(l_fg, l_bg) >= target_ratio {
         return fg;
     }
 
-    let cr_white = contrast_ratio(relative_luminance(lerp_colour(bg, [1.0, 1.0, 1.0], alpha)), l_bg);
-    let cr_black = contrast_ratio(relative_luminance(lerp_colour(bg, [0.0, 0.0, 0.0], alpha)), l_bg);
+    let cr_white = contrast_ratio(
+        relative_luminance(lerp_colour(bg, [1.0, 1.0, 1.0], alpha)),
+        l_bg,
+    );
+    let cr_black = contrast_ratio(
+        relative_luminance(lerp_colour(bg, [0.0, 0.0, 0.0], alpha)),
+        l_bg,
+    );
 
     let mix_target = if cr_white > cr_black {
         [1.0, 1.0, 1.0]
@@ -120,7 +131,7 @@ pub fn ensure_contrast_blended(fg: [f32; 3], bg: [f32; 3], alpha: f32, target_ra
             low = mid;
         }
     }
-    
+
     lerp_colour(fg, mix_target, high)
 }
 
