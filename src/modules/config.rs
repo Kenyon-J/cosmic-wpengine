@@ -711,7 +711,7 @@ impl ThemeLayout {
         }
 
         let mut theme = Self::default();
-        if style == "monstercat" || style == "n7" {
+        if style == "monstercat" {
             theme.visualiser.shape = VisShape::Linear;
             theme.visualiser.position = [0.5, 0.5];
             theme.visualiser.size = 0.6;

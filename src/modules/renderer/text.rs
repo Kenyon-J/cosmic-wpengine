@@ -221,7 +221,7 @@ impl TextRenderer {
                         glyph.physical((0.0, 0.0), 1.0);
                     let cache_key = physical_glyph.cache_key;
 
-                    // Rasterize and pack into texture atlas if not already cached.
+                    // Rasterize and pack into texture atlas if not already cached
                     if !text_renderer.glyph_cache.contains_key(&cache_key) {
                         if let Some(image) = swash_cache.get_image(font_system, cache_key) {
                             let img_w = image.placement.width;
@@ -334,6 +334,7 @@ impl TextRenderer {
 
                         let color = p_buf.color;
 
+                        let base_index = text_renderer.cpu_vertices.len() as u32;
                         let [u_min, v_min, u_max, v_max] = cached.uv;
 
                         text_renderer.cpu_vertices.extend([

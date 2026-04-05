@@ -25,14 +25,10 @@ impl WeatherWatcher {
             }
         );
 
-        let client = tokio::task::spawn_blocking(|| {
-            reqwest::Client::builder()
-                .user_agent("cosmic-wallpaper/1.0")
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Tokio spawn_blocking failed: {}", e))??;
+        let client = reqwest::Client::builder()
+            .user_agent("cosmic-wallpaper/1.0")
+            .timeout(std::time::Duration::from_secs(10))
+            .build()?;
 
         let mut last_fetch = tokio::time::Instant::now() - tokio::time::Duration::from_secs(86400);
 
