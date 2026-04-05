@@ -833,7 +833,8 @@ impl Renderer {
                 },
                 texture_size,
             );
-            self.album_art_pad_buffer.clear();
+            // Optimization: Don't clear the buffer; preserving its capacity avoids redundant
+            // zero-filling during the next resize() call in the hot loop.
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -938,7 +939,8 @@ impl Renderer {
                         },
                         texture.size(),
                     );
-                    self.video_frame_buffer.clear();
+                    // Optimization: Preserve capacity for the next video frame to avoid
+                    // redundant zero-filling.
                 }
                 return;
             }
@@ -1035,7 +1037,7 @@ impl Renderer {
                 },
                 texture_size,
             );
-            self.album_art_pad_buffer.clear();
+            // Optimization: Preserve capacity for future custom background reloads.
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());

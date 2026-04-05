@@ -17,3 +17,7 @@
 ## 05-02-2025- Optimize Multi-Monitor Rendering by Caching Monitor-Specific State
 **Learning:** In multi-monitor environments, monitors often share identical resolutions and scale factors. Redundantly performing text shaping, vertex generation, and GPU uniform updates for every monitor consumes significant CPU/GPU time.
 **Action:** Move display-invariant calculations (like font attributes and sky gradients) outside the per-monitor loop. Cache the resolution and scale factor of the previous monitor to skip redundant text preparation and GPU buffer writes if the current monitor configuration matches. Ensure all resources (e.g. text buffers) are correctly returned to their pools after the entire multi-monitor loop completes.
+
+## 10-02-2025- Optimize staging buffer reuse and multi-monitor cache keys
+**Learning:** Redundant zero-filling and cache thrashing significantly impact rendering performance. Calling `Vec::clear()` before `Vec::resize()` on staging buffers forces unnecessary `memset` operations every frame. Additionally, indexing text layout caches by monitor ID rather than monitor properties (resolution, scale) causes cache misses on identical displays.
+**Action:** Remove `Vec::clear()` calls on reused staging buffers to preserve capacity without redundant zeroing. Update layout cache keys to use resolution and scale to enable sharing across identical monitors. Use single-lookup hash map patterns to minimize hashing overhead in the hot rendering loop.
