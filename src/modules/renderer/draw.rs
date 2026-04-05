@@ -1,6 +1,8 @@
 use super::text::{PositionedBuffer, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
-use crate::modules::colour::{ensure_contrast, ensure_contrast_blended, lerp_colour, relative_luminance, time_to_sky_colour};
+use crate::modules::colour::{
+    ensure_contrast, ensure_contrast_blended, lerp_colour, relative_luminance, time_to_sky_colour,
+};
 use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
 use crate::modules::event::WeatherCondition;
 use crate::modules::state::SceneHint;
@@ -66,8 +68,13 @@ pub(crate) fn draw_frame(
     let pulse = renderer.beat_pulse;
 
     let is_n7 = renderer.state.config.audio.style == "n7";
-    
-    let reaper_tint = if renderer.state.current_track.as_ref().is_some_and(|t| t.album.as_ref().contains("Mass Effect 3")) {
+
+    let reaper_tint = if renderer
+        .state
+        .current_track
+        .as_ref()
+        .is_some_and(|t| t.album.as_ref().contains("Mass Effect 3"))
+    {
         (base_energy * 0.6).clamp(0.0, 0.8)
     } else {
         0.0
@@ -173,7 +180,9 @@ pub(crate) fn draw_frame(
             let bottom = renderer.theme.visualiser.color_bottom;
 
             match palette {
-                _ if top.is_some() && bottom.is_some() => (top.unwrap(), bottom.unwrap()),
+                _ if top.is_some() && bottom.is_some() => {
+                    (top.unwrap_or([0.0; 3]), bottom.unwrap_or([0.0; 3]))
+                }
                 Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
                 Some(p) if p.len() == 1 => (
                     top.unwrap_or(p[0]),
@@ -285,7 +294,6 @@ pub(crate) fn draw_frame(
     };
 
     let mut last_text_params = None;
-    let mut last_uniform_res = None;
 
     // 4. Pre-calculate Text colors (luminance and tinting)
     let (primary_text, secondary_text) = if is_n7 {
@@ -312,9 +320,17 @@ pub(crate) fn draw_frame(
 
         let l_bg = relative_luminance(text_bg_color);
         let base_tint = if l_bg > 0.179 {
-            [text_accent[0] * 0.3, text_accent[1] * 0.3, text_accent[2] * 0.3]
+            [
+                text_accent[0] * 0.3,
+                text_accent[1] * 0.3,
+                text_accent[2] * 0.3,
+            ]
         } else {
-            [text_accent[0] * 0.3 + 0.7, text_accent[1] * 0.3 + 0.7, text_accent[2] * 0.3 + 0.7]
+            [
+                text_accent[0] * 0.3 + 0.7,
+                text_accent[1] * 0.3 + 0.7,
+                text_accent[2] * 0.3 + 0.7,
+            ]
         };
 
         // WCAG 2.0 AA requires a contrast ratio of at least 4.5:1 for normal text.
@@ -366,10 +382,8 @@ pub(crate) fn draw_frame(
 
         wayland_manager.mark_frame_rendered(i); // Request the next frame callback
 
-        let current_res = (gpu_out.config.width, gpu_out.config.height);
-
         // 1. Process visualizer uniforms
-        if has_audio && last_uniform_res != Some(current_res) {
+        if has_audio {
             #[repr(C, align(16))]
             struct VisUniforms {
                 res: [f32; 2],
@@ -426,7 +440,7 @@ pub(crate) fn draw_frame(
         }
 
         // 2. Process album art uniforms
-        if (show_art_fg || show_art_bg || show_color_bg) && last_uniform_res != Some(current_res) {
+        if show_art_fg || show_art_bg || show_color_bg {
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
                 let bg_mode = if show_color_bg {
@@ -533,86 +547,87 @@ pub(crate) fn draw_frame(
             }
         }
 
-        if last_uniform_res != Some(current_res) {
-            if renderer.custom_bg_bind_group.is_some() {
-                // 4. Process custom background uniforms
-                let bg_mode = if renderer.state.config.appearance.disable_blur {
-                    2
-                } else {
-                    0
-                };
-                let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
+        if renderer.custom_bg_bind_group.is_some() {
+            // 4. Process custom background uniforms
+            let bg_mode = if renderer.state.config.appearance.disable_blur {
+                2
+            } else {
+                0
+            };
+            let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
 
-                let mut custom_bg_color = [1.0, 1.0, 1.0];
-                if reaper_tint > 0.0 {
-                    custom_bg_color = lerp_colour(custom_bg_color, [0.8, 0.0, 0.0], reaper_tint);
-                }
-
-                let custom_bg_uniforms = ArtUniforms {
-                    color_and_transition: [custom_bg_color[0], custom_bg_color[1], custom_bg_color[2], 1.0],
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    art_position: [0.5, 0.5],
-                    audio_energy,
-                    mode: bg_mode,
-                    bg_alpha: bg_alpha_val,
-                    art_size: 1.0,
-                    shape: 0,
-                    blur_opacity: renderer.state.config.appearance.blur_opacity,
-                    image_res: [
-                        renderer
-                            .current_custom_bg_size
-                            .map(|s| s.0 as f32)
-                            .unwrap_or(1.0),
-                        renderer
-                            .current_custom_bg_size
-                            .map(|s| s.1 as f32)
-                            .unwrap_or(1.0),
-                    ],
-                };
-                let cbg_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &custom_bg_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<ArtUniforms>(),
-                    )
-                };
-                renderer
-                    .queue
-                    .write_buffer(&renderer.custom_bg_uniform_buffer, 0, cbg_bytes);
-            } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
-                // 3. Process ambient uniforms
-                let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
-
-                #[repr(C, align(16))]
-                struct AmbUniforms {
-                    res: [f32; 2],
-                    time: f32,
-                    weather: u32,
-                    sky: [f32; 4],
-                    bg_alpha: f32,
-                    // Padding to match std140 layout alignment rules for vec4/arrays
-                    _padding: [f32; 3],
-                }
-                let amb_uniforms = AmbUniforms {
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    time: elapsed,
-                    weather: weather_type,
-                    sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
-                    bg_alpha: bg_alpha_val,
-                    _padding: [0.0; 3],
-                };
-                let amb_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &amb_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<AmbUniforms>(),
-                    )
-                };
-                renderer
-                    .queue
-                    .write_buffer(&renderer.ambient_uniform_buffer, 0, amb_bytes);
+            let mut custom_bg_color = [1.0, 1.0, 1.0];
+            if reaper_tint > 0.0 {
+                custom_bg_color = lerp_colour(custom_bg_color, [0.8, 0.0, 0.0], reaper_tint);
             }
-        }
 
-        last_uniform_res = Some(current_res);
+            let custom_bg_uniforms = ArtUniforms {
+                color_and_transition: [
+                    custom_bg_color[0],
+                    custom_bg_color[1],
+                    custom_bg_color[2],
+                    1.0,
+                ],
+                res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                art_position: [0.5, 0.5],
+                audio_energy,
+                mode: bg_mode,
+                bg_alpha: bg_alpha_val,
+                art_size: 1.0,
+                shape: 0,
+                blur_opacity: renderer.state.config.appearance.blur_opacity,
+                image_res: [
+                    renderer
+                        .current_custom_bg_size
+                        .map(|s| s.0 as f32)
+                        .unwrap_or(1.0),
+                    renderer
+                        .current_custom_bg_size
+                        .map(|s| s.1 as f32)
+                        .unwrap_or(1.0),
+                ],
+            };
+            let cbg_bytes = unsafe {
+                std::slice::from_raw_parts(
+                    &custom_bg_uniforms as *const _ as *const u8,
+                    std::mem::size_of::<ArtUniforms>(),
+                )
+            };
+            renderer
+                .queue
+                .write_buffer(&renderer.custom_bg_uniform_buffer, 0, cbg_bytes);
+        } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
+            // 3. Process ambient uniforms
+            let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
+
+            #[repr(C, align(16))]
+            struct AmbUniforms {
+                res: [f32; 2],
+                time: f32,
+                weather: u32,
+                sky: [f32; 4],
+                bg_alpha: f32,
+                // Padding to match std140 layout alignment rules for vec4/arrays
+                _padding: [f32; 3],
+            }
+            let amb_uniforms = AmbUniforms {
+                res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                time: elapsed,
+                weather: weather_type,
+                sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
+                bg_alpha: bg_alpha_val,
+                _padding: [0.0; 3],
+            };
+            let amb_bytes = unsafe {
+                std::slice::from_raw_parts(
+                    &amb_uniforms as *const _ as *const u8,
+                    std::mem::size_of::<AmbUniforms>(),
+                )
+            };
+            renderer
+                .queue
+                .write_buffer(&renderer.ambient_uniform_buffer, 0, amb_bytes);
+        }
 
         // --- Prepare Text for Rendering ---
         let width_f = gpu_out.config.width as f32;
@@ -633,7 +648,10 @@ pub(crate) fn draw_frame(
 
         if last_text_params != Some(current_text_params) {
             for p_buf in renderer.text_buffers.drain(..) {
-                if let Some((_, evicted)) = renderer.text_buffer_cache.push(p_buf.text_key, p_buf.buffer) {
+                if let Some((_, evicted)) = renderer
+                    .text_buffer_cache
+                    .push(p_buf.text_key, p_buf.buffer)
+                {
                     if renderer.text_buffer_pool.len() < 20 {
                         renderer.text_buffer_pool.push(evicted);
                     }
@@ -703,9 +721,13 @@ pub(crate) fn draw_frame(
                                     .text_buffer_cache
                                     .pop(&text_key)
                                     .unwrap_or_else(|| {
-                                        let mut b = renderer.text_buffer_pool.pop().unwrap_or_else(|| {
-                                            cosmic_text::Buffer::new(&mut renderer.font_system, metrics)
-                                        });
+                                        let mut b =
+                                            renderer.text_buffer_pool.pop().unwrap_or_else(|| {
+                                                cosmic_text::Buffer::new(
+                                                    &mut renderer.font_system,
+                                                    metrics,
+                                                )
+                                            });
                                         b.set_metrics(&mut renderer.font_system, metrics);
                                         b.set_size(&mut renderer.font_system, width_f, height_f);
                                         b.set_text(
@@ -749,24 +771,23 @@ pub(crate) fn draw_frame(
                 let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
                 let text_key = format!("{i}_{}", renderer.cached_track_str);
-                let mut buffer =
-                    renderer
-                        .text_buffer_cache
-                        .pop(&text_key)
-                        .unwrap_or_else(|| {
-                            let mut b = renderer.text_buffer_pool.pop().unwrap_or_else(|| {
-                                cosmic_text::Buffer::new(&mut renderer.font_system, metrics)
-                            });
-                            b.set_metrics(&mut renderer.font_system, metrics);
-                            b.set_size(&mut renderer.font_system, width_f, height_f);
-                            b.set_text(
-                                &mut renderer.font_system,
-                                &renderer.cached_track_str,
-                                attrs,
-                                Shaping::Advanced,
-                            );
-                            b
+                let mut buffer = renderer
+                    .text_buffer_cache
+                    .pop(&text_key)
+                    .unwrap_or_else(|| {
+                        let mut b = renderer.text_buffer_pool.pop().unwrap_or_else(|| {
+                            cosmic_text::Buffer::new(&mut renderer.font_system, metrics)
                         });
+                        b.set_metrics(&mut renderer.font_system, metrics);
+                        b.set_size(&mut renderer.font_system, width_f, height_f);
+                        b.set_text(
+                            &mut renderer.font_system,
+                            &renderer.cached_track_str,
+                            attrs,
+                            Shaping::Advanced,
+                        );
+                        b
+                    });
                 buffer.set_metrics(&mut renderer.font_system, metrics);
                 buffer.set_size(&mut renderer.font_system, width_f, height_f);
                 let final_color = [
@@ -803,24 +824,23 @@ pub(crate) fn draw_frame(
                 let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
                 let text_key = format!("{i}_{}", renderer.cached_weather_str);
-                let mut buffer =
-                    renderer
-                        .text_buffer_cache
-                        .pop(&text_key)
-                        .unwrap_or_else(|| {
-                            let mut b = renderer.text_buffer_pool.pop().unwrap_or_else(|| {
-                                cosmic_text::Buffer::new(&mut renderer.font_system, metrics)
-                            });
-                            b.set_metrics(&mut renderer.font_system, metrics);
-                            b.set_size(&mut renderer.font_system, width_f, height_f);
-                            b.set_text(
-                                &mut renderer.font_system,
-                                &renderer.cached_weather_str,
-                                attrs,
-                                Shaping::Advanced,
-                            );
-                            b
+                let mut buffer = renderer
+                    .text_buffer_cache
+                    .pop(&text_key)
+                    .unwrap_or_else(|| {
+                        let mut b = renderer.text_buffer_pool.pop().unwrap_or_else(|| {
+                            cosmic_text::Buffer::new(&mut renderer.font_system, metrics)
                         });
+                        b.set_metrics(&mut renderer.font_system, metrics);
+                        b.set_size(&mut renderer.font_system, width_f, height_f);
+                        b.set_text(
+                            &mut renderer.font_system,
+                            &renderer.cached_weather_str,
+                            attrs,
+                            Shaping::Advanced,
+                        );
+                        b
+                    });
                 buffer.set_metrics(&mut renderer.font_system, metrics);
                 buffer.set_size(&mut renderer.font_system, width_f, height_f);
                 let final_color = [
@@ -1006,7 +1026,10 @@ pub(crate) fn draw_frame(
     }
 
     for p_buf in renderer.text_buffers.drain(..) {
-        if let Some((_, evicted)) = renderer.text_buffer_cache.push(p_buf.text_key, p_buf.buffer) {
+        if let Some((_, evicted)) = renderer
+            .text_buffer_cache
+            .push(p_buf.text_key, p_buf.buffer)
+        {
             if renderer.text_buffer_pool.len() < 20 {
                 renderer.text_buffer_pool.push(evicted);
             }
@@ -1018,7 +1041,12 @@ pub(crate) fn draw_frame(
 
 pub(crate) fn get_clear_colour(renderer: &super::Renderer) -> wgpu::Color {
     if renderer.state.config.audio.style == "n7" {
-        return wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+        return wgpu::Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 1.0,
+        };
     }
     if renderer.state.config.appearance.transparent_background {
         return wgpu::Color::TRANSPARENT;
