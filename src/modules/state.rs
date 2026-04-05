@@ -144,6 +144,24 @@ mod tests {
         state.has_album_art = true;
         assert_eq!(state.scene_description(), SceneHint::AlbumArt);
     }
+
+    #[test]
+    fn test_update_time() {
+        let config = Config::default();
+        let mut state = AppState::new(config);
+
+        // Initially time of day should be within [0.0, 1.0]
+        assert!(state.time_of_day >= 0.0 && state.time_of_day <= 1.0);
+
+        // Modify time to out of bounds
+        state.time_of_day = 2.0;
+
+        // Call update_time
+        state.update_time();
+
+        // Check it's back in valid range
+        assert!(state.time_of_day >= 0.0 && state.time_of_day <= 1.0);
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
