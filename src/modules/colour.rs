@@ -158,6 +158,32 @@ mod tests {
         (a[0] - b[0]).abs() < eps && (a[1] - b[1]).abs() < eps && (a[2] - b[2]).abs() < eps
     }
 
+    fn approx_eq_f32(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-6
+    }
+
+    #[test]
+    fn test_relative_luminance() {
+        // Black
+        assert!(approx_eq_f32(relative_luminance([0.0, 0.0, 0.0]), 0.0));
+        // White
+        assert!(approx_eq_f32(relative_luminance([1.0, 1.0, 1.0]), 1.0));
+
+        // Pure colors
+        assert!(approx_eq_f32(relative_luminance([1.0, 0.0, 0.0]), 0.2126));
+        assert!(approx_eq_f32(relative_luminance([0.0, 1.0, 0.0]), 0.7152));
+        assert!(approx_eq_f32(relative_luminance([0.0, 0.0, 1.0]), 0.0722));
+
+        // Low threshold (< 0.03928)
+        let low = 0.03;
+        assert!(approx_eq_f32(relative_luminance([low, low, low]), low / 12.92));
+
+        // High threshold (>= 0.03928)
+        let high = 0.5;
+        let expected_high = ((high + 0.055) / 1.055_f32).powf(2.4);
+        assert!(approx_eq_f32(relative_luminance([high, high, high]), expected_high));
+    }
+
     #[test]
     fn test_lerp_colour() {
         let a = [0.0, 0.0, 0.0];
