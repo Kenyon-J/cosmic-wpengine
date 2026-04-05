@@ -716,7 +716,9 @@ pub(crate) fn draw_frame(
                             if final_color[3] > 0.01 {
                                 let metrics =
                                     Metrics::new(active_font_size, active_font_size * 1.2);
-                                let text_key = format!("{i}_{}", lyric_line.text);
+                                // Optimization: Use resolution and scale in the key instead of monitor index.
+                                // This allows identical monitors to share the same shaped text buffers.
+                                let text_key = format!("{}_{}_{}_{}", width_f, height_f, scale_factor, lyric_line.text);
                                 let mut buffer = renderer
                                     .text_buffer_cache
                                     .pop(&text_key)
@@ -770,7 +772,7 @@ pub(crate) fn draw_frame(
             if renderer.state.current_track.is_some() && !renderer.cached_track_str.is_empty() {
                 let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
-                let text_key = format!("{i}_{}", renderer.cached_track_str);
+                let text_key = format!("{}_{}_{}_{}", width_f, height_f, scale_factor, renderer.cached_track_str);
                 let mut buffer = renderer
                     .text_buffer_cache
                     .pop(&text_key)
@@ -823,7 +825,7 @@ pub(crate) fn draw_frame(
             {
                 let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
-                let text_key = format!("{i}_{}", renderer.cached_weather_str);
+                let text_key = format!("{}_{}_{}_{}", width_f, height_f, scale_factor, renderer.cached_weather_str);
                 let mut buffer = renderer
                     .text_buffer_cache
                     .pop(&text_key)
