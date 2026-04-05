@@ -44,10 +44,6 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
         let brightness = (r as u32 + g as u32 + b as u32) / 3;
         if brightness > 30 && brightness < 220 {
             sorted.push(((r, g, b), count));
-        } else if count > 10 {
-            // Retain extreme colors (black/white) with a severe penalty (1/100th weight).
-            // This ensures monochromatic albums still extract a valid background palette!
-            sorted.push(((r, g, b), (count / 100).max(1)));
         }
     }
 
@@ -67,72 +63,6 @@ pub fn lerp_colour(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
         a[1] + (b[1] - a[1]) * t,
         a[2] + (b[2] - a[2]) * t,
     ]
-}
-
-pub fn relative_luminance(c: [f32; 3]) -> f32 {
-    let f = |x: f32| -> f32 {
-        if x <= 0.03928 {
-            x / 12.92
-        } else {
-            ((x + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2])
-}
-
-pub fn contrast_ratio(l1: f32, l2: f32) -> f32 {
-    let (lighter, darker) = if l1 > l2 { (l1, l2) } else { (l2, l1) };
-    (lighter + 0.05) / (darker + 0.05)
-}
-
-pub fn ensure_contrast(fg: [f32; 3], bg: [f32; 3], target_ratio: f32) -> [f32; 3] {
-    ensure_contrast_blended(fg, bg, 1.0, target_ratio)
-}
-
-pub fn ensure_contrast_blended(
-    fg: [f32; 3],
-    bg: [f32; 3],
-    alpha: f32,
-    target_ratio: f32,
-) -> [f32; 3] {
-    let l_bg = relative_luminance(bg);
-    let blended_fg = lerp_colour(bg, fg, alpha);
-    let l_fg = relative_luminance(blended_fg);
-
-    if contrast_ratio(l_fg, l_bg) >= target_ratio {
-        return fg;
-    }
-
-    let cr_white = contrast_ratio(
-        relative_luminance(lerp_colour(bg, [1.0, 1.0, 1.0], alpha)),
-        l_bg,
-    );
-    let cr_black = contrast_ratio(
-        relative_luminance(lerp_colour(bg, [0.0, 0.0, 0.0], alpha)),
-        l_bg,
-    );
-
-    let mix_target = if cr_white > cr_black {
-        [1.0, 1.0, 1.0]
-    } else {
-        [0.0, 0.0, 0.0]
-    };
-
-    let mut low = 0.0;
-    let mut high = 1.0;
-    for _ in 0..10 {
-        let mid = (low + high) / 2.0;
-        let opaque_candidate = lerp_colour(fg, mix_target, mid);
-        let blended = lerp_colour(bg, opaque_candidate, alpha);
-        let cr = contrast_ratio(relative_luminance(blended), l_bg);
-        if cr >= target_ratio {
-            high = mid;
-        } else {
-            low = mid;
-        }
-    }
-
-    lerp_colour(fg, mix_target, high)
 }
 
 pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
@@ -259,8 +189,8 @@ mod tests {
         let dyn_img = image::DynamicImage::ImageRgba8(img);
         let palette = extract_palette(&dyn_img);
 
-        // We expect 3 colors since bright is retained with a severe penalty, and transparent is filtered out
-        assert_eq!(palette.len(), 3);
+        // We expect only 2 colors since bright and transparent are filtered out
+        assert_eq!(palette.len(), 2);
 
         // The background color should be the most common
         let expected_bg = [96.0 / 255.0, 96.0 / 255.0, 96.0 / 255.0];
@@ -352,7 +282,7 @@ mod tests {
         let dyn_img = image::DynamicImage::ImageRgba8(img);
         let palette = extract_palette(&dyn_img);
 
-        // We expect 2 colors since bright and dark are retained with severe penalties
-        assert_eq!(palette.len(), 2);
+        // We expect 0 colors since bright, dark and transparent are filtered out
+        assert_eq!(palette.len(), 0);
     }
 }

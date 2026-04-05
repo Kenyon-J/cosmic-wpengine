@@ -221,7 +221,7 @@ impl TextRenderer {
                         glyph.physical((0.0, 0.0), 1.0);
                     let cache_key = physical_glyph.cache_key;
 
-                    // Rasterize and pack into texture atlas if not already cached.
+                    // Rasterize and pack into texture atlas if not already cached
                     if !text_renderer.glyph_cache.contains_key(&cache_key) {
                         if let Some(image) = swash_cache.get_image(font_system, cache_key) {
                             let img_w = image.placement.width;
@@ -334,74 +334,40 @@ impl TextRenderer {
 
                         let color = p_buf.color;
 
+                        let base_index = text_renderer.cpu_vertices.len() as u32;
                         let [u_min, v_min, u_max, v_max] = cached.uv;
 
-                        // --- Shadow Quad ---
-                        let shadow_offset = 2.0 * p_buf.scale;
-                        let shadow_color = [0.0, 0.0, 0.0, color[3] * 0.8]; // 80% opacity black
-                        let sx = x + (shadow_offset / width * 2.0);
-                        let sy = y - (shadow_offset / height * 2.0);
+                        text_renderer.cpu_vertices.extend([
+                            TextVertex {
+                                pos: [x, y],
+                                tex_pos: [u_min, v_min],
+                                color,
+                            },
+                            TextVertex {
+                                pos: [x + w, y],
+                                tex_pos: [u_max, v_min],
+                                color,
+                            },
+                            TextVertex {
+                                pos: [x, y - h],
+                                tex_pos: [u_min, v_max],
+                                color,
+                            },
+                            TextVertex {
+                                pos: [x + w, y - h],
+                                tex_pos: [u_max, v_max],
+                                color,
+                            },
+                        ]);
 
-                        let shadow_index = text_renderer.cpu_vertices.len() as u32;
-
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [sx, sy],
-                            tex_pos: [u_min, v_min],
-                            color: shadow_color,
-                        });
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [sx + w, sy],
-                            tex_pos: [u_max, v_min],
-                            color: shadow_color,
-                        });
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [sx, sy - h],
-                            tex_pos: [u_min, v_max],
-                            color: shadow_color,
-                        });
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [sx + w, sy - h],
-                            tex_pos: [u_max, v_max],
-                            color: shadow_color,
-                        });
-
-                        text_renderer.cpu_indices.push(shadow_index);
-                        text_renderer.cpu_indices.push(shadow_index + 1);
-                        text_renderer.cpu_indices.push(shadow_index + 2);
-                        text_renderer.cpu_indices.push(shadow_index + 1);
-                        text_renderer.cpu_indices.push(shadow_index + 3);
-                        text_renderer.cpu_indices.push(shadow_index + 2);
-
-                        // --- Foreground Quad ---
-                        let base_index = text_renderer.cpu_vertices.len() as u32;
-
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [x, y],
-                            tex_pos: [u_min, v_min],
-                            color,
-                        });
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [x + w, y],
-                            tex_pos: [u_max, v_min],
-                            color,
-                        });
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [x, y - h],
-                            tex_pos: [u_min, v_max],
-                            color,
-                        });
-                        text_renderer.cpu_vertices.push(TextVertex {
-                            pos: [x + w, y - h],
-                            tex_pos: [u_max, v_max],
-                            color,
-                        });
-
-                        text_renderer.cpu_indices.push(base_index);
-                        text_renderer.cpu_indices.push(base_index + 1);
-                        text_renderer.cpu_indices.push(base_index + 2);
-                        text_renderer.cpu_indices.push(base_index + 1);
-                        text_renderer.cpu_indices.push(base_index + 3);
-                        text_renderer.cpu_indices.push(base_index + 2);
+                        text_renderer.cpu_indices.extend([
+                            base_index,
+                            base_index + 1,
+                            base_index + 2,
+                            base_index + 1,
+                            base_index + 3,
+                            base_index + 2,
+                        ]);
                     }
                 }
             }

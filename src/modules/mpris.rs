@@ -34,7 +34,7 @@ impl MetadataUpdate {
 }
 
 enum MprisUpdate {
-    Metadata(Box<MetadataUpdate>),
+    Metadata(MetadataUpdate),
     Status(mpris::PlaybackStatus),
     Position(std::time::Duration),
 }
@@ -130,9 +130,9 @@ impl MprisWatcher {
 
                     if current_track_id != last_track_id {
                         if let Some(metadata) = metadata_opt {
-                            let _ = update_tx.blocking_send(MprisUpdate::Metadata(Box::new(
+                            let _ = update_tx.blocking_send(MprisUpdate::Metadata(
                                 MetadataUpdate::from_metadata(&metadata),
-                            )));
+                            ));
                         }
                         last_track_id = current_track_id;
                     }
@@ -216,7 +216,7 @@ impl MprisWatcher {
                         let is_empty = (meta.title == "Unknown" || meta.title.trim().is_empty())
                             && meta.artist.trim().is_empty();
                         if !is_empty {
-                            last_metadata = Some(*meta);
+                            last_metadata = Some(meta);
                         }
                     }
                     MprisUpdate::Status(status) => {
