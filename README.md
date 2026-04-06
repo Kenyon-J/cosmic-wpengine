@@ -18,6 +18,8 @@
 
 ## ✨ Features
 
+
+* 🎬 **Video Backgrounds**: Play generic video files (.mp4, .webm) natively as your desktop background, leveraging `ffmpeg-next` and `wgpu`.
 * 🎵 **Media Integration**: Displays album art from MPRIS-compatible players (Spotify, VLC, Firefox, etc.).
 * 🖼️ **Artwork Fallback**: Queries the iTunes API for cover art if local artwork is unavailable (e.g., due to sandboxing).
 * 🎞️ **Spotify Canvas**: Fetches and plays looping video backgrounds for supported tracks via FFmpeg *(Note: Requires a local Canvas API proxy)*.
@@ -132,6 +134,10 @@ bands = 64        # number of frequency bands in visualiser
 smoothing = 0.7   # 0.0 = instant, 1.0 = very smooth
 ```
 
+
+## Video Backgrounds
+You can put video files (like .mp4 or .webm) in your `~/.config/cosmic-wallpaper/videos` directory. The application will detect them and allow you to select them as your background using the tray settings menu!
+
 ## Custom Visualiser Themes
 
 The visualizer fully supports custom user-made themes and WGSL shaders! On first run, default theme templates are automatically generated in `~/.config/cosmic-wallpaper/shaders/`.
@@ -225,5 +231,5 @@ The renderer processes events each frame, updates `AppState`, and dispatches to 
 - [x] Spotify Canvas (short video loops) background support
 - [x] Advanced beat-detection for more organic lyric bouncing
 - [ ] Interactive mouse-reactive wallpaper effects
-- [ ] Generic video file playback (MP4/WebM) as backgrounds
+- [x] Generic video file playback (MP4/WebM) as backgrounds
 - [ ] Plugin API for custom data sources

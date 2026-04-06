@@ -1,4 +1,5 @@
 use anyhow::Result;
+use ffmpeg_next as ffmpeg;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
@@ -52,6 +53,225 @@ impl std::fmt::Debug for PooledImage {
 pub struct VideoDecoder;
 
 impl VideoDecoder {
+    pub async fn run_local_decoder(
+        path: String,
+        tx: Sender<Event>,
+        cancel_rx: tokio::sync::watch::Receiver<bool>,
+        config_rx: tokio::sync::watch::Receiver<super::config::Config>,
+        mut recycle_rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+        recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    ) -> Result<()> {
+        let _ = ffmpeg::init();
+        info!("Starting local ffmpeg-next video decoder for: {}", path);
+
+        tokio::task::spawn_blocking(move || {
+            let mut ictx = match ffmpeg::format::input(&path) {
+                Ok(ctx) => ctx,
+                Err(e) => {
+                    warn!("ffmpeg-next failed to open input {}: {}", path, e);
+                    return;
+                }
+            };
+
+            let input = ictx
+                .streams()
+                .best(ffmpeg::media::Type::Video)
+                .ok_or(ffmpeg::Error::StreamNotFound);
+
+            let input = match input {
+                Ok(stream) => stream,
+                Err(e) => {
+                    warn!("ffmpeg-next failed to find video stream: {}", e);
+                    return;
+                }
+            };
+
+            let stream_index = input.index();
+
+            let context_decoder =
+                match ffmpeg::codec::context::Context::from_parameters(input.parameters()) {
+                    Ok(ctx) => ctx,
+                    Err(e) => {
+                        warn!("ffmpeg-next failed to get codec context: {}", e);
+                        return;
+                    }
+                };
+
+            let mut decoder = match context_decoder.decoder().video() {
+                Ok(dec) => dec,
+                Err(e) => {
+                    warn!("ffmpeg-next failed to get video decoder: {}", e);
+                    return;
+                }
+            };
+
+            let width = decoder.width();
+            let height = decoder.height();
+            let frame_size = (width * height * 4) as usize;
+
+            let mut scaler = match ffmpeg::software::scaling::Context::get(
+                decoder.format(),
+                width,
+                height,
+                ffmpeg::format::Pixel::RGBA,
+                width,
+                height,
+                ffmpeg::software::scaling::flag::Flags::BILINEAR,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!("ffmpeg-next failed to create scaler: {}", e);
+                    return;
+                }
+            };
+
+            let time_base = input.time_base();
+            let time_base_f64 = time_base.numerator() as f64 / time_base.denominator() as f64;
+
+            // Loop infinitely
+            'outer: loop {
+                if *cancel_rx.borrow() {
+                    break;
+                }
+
+                // We need to seek to the beginning if we loop.
+                if let Err(e) = ictx.seek(0, 0..ictx.duration().max(0)) {
+                    warn!("ffmpeg-next seek failed: {}", e);
+                    // Just reopen if seek fails
+                    ictx = match ffmpeg::format::input(&path) {
+                        Ok(ctx) => ctx,
+                        Err(_) => break,
+                    };
+                }
+                let mut first_pts: Option<i64> = None;
+                let start_time = tokio::time::Instant::now();
+                let mut last_sent_time = 0.0;
+
+                for (stream, packet) in ictx.packets() {
+                    if *cancel_rx.borrow() {
+                        break 'outer;
+                    }
+
+                    if stream.index() == stream_index && decoder.send_packet(&packet).is_ok() {
+                        let mut decoded = ffmpeg::frame::Video::empty();
+                        while decoder.receive_frame(&mut decoded).is_ok() {
+                            if *cancel_rx.borrow() {
+                                break 'outer;
+                            }
+
+                            let pts = decoded.pts().unwrap_or(0);
+                            if first_pts.is_none() {
+                                first_pts = Some(pts);
+                            }
+
+                            let pts_diff = pts - first_pts.unwrap();
+                            let target_time = pts_diff as f64 * time_base_f64;
+                            let elapsed = start_time.elapsed().as_secs_f64();
+
+                            if target_time > elapsed {
+                                let sleep_duration =
+                                    std::time::Duration::from_secs_f64(target_time - elapsed);
+                                std::thread::sleep(sleep_duration);
+                            }
+
+                            // Dynamic FPS throttling to save CPU
+                            let target_fps = config_rx.borrow().fps as f64;
+                            let frame_duration = 1.0 / target_fps;
+
+                            // If this frame's target time is less than the duration from the last frame we sent, drop it!
+                            if target_time < last_sent_time + frame_duration && last_sent_time > 0.0
+                            {
+                                continue;
+                            }
+
+                            let mut rgb_frame = ffmpeg::frame::Video::empty();
+                            if scaler.run(&decoded, &mut rgb_frame).is_ok() {
+                                let mut buffer = recycle_rx
+                                    .try_recv()
+                                    .unwrap_or_else(|_| vec![0u8; frame_size]);
+                                if buffer.len() != frame_size {
+                                    buffer.resize(frame_size, 0);
+                                }
+
+                                let stride = rgb_frame.stride(0);
+                                let data = rgb_frame.data(0);
+                                let expected_row_bytes = (width * 4) as usize;
+
+                                for y in 0..height as usize {
+                                    let src_start = y * stride;
+                                    let src_end = src_start + expected_row_bytes;
+                                    let dst_start = y * expected_row_bytes;
+                                    let dst_end = dst_start + expected_row_bytes;
+
+                                    buffer[dst_start..dst_end]
+                                        .copy_from_slice(&data[src_start..src_end]);
+                                }
+
+                                if let Some(img) = image::RgbaImage::from_raw(width, height, buffer)
+                                {
+                                    let pooled_img =
+                                        Box::new(PooledImage::new(img, recycle_tx.clone()));
+                                    match tx.try_send(Event::VideoFrame(pooled_img)) {
+                                        Ok(_) => {
+                                            last_sent_time = target_time;
+                                        }
+                                        Err(tokio::sync::mpsc::error::TrySendError::Full(
+                                            Event::VideoFrame(dropped),
+                                        )) => {
+                                            let _ = recycle_tx.try_send(dropped.into_raw());
+                                        }
+                                        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                            break 'outer
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Flush decoder at end of stream
+                if decoder.send_eof().is_ok() {
+                    let mut decoded = ffmpeg::frame::Video::empty();
+                    while decoder.receive_frame(&mut decoded).is_ok() {
+                        let mut rgb_frame = ffmpeg::frame::Video::empty();
+                        if scaler.run(&decoded, &mut rgb_frame).is_ok() {
+                            let mut buffer = recycle_rx
+                                .try_recv()
+                                .unwrap_or_else(|_| vec![0u8; frame_size]);
+                            if buffer.len() != frame_size {
+                                buffer.resize(frame_size, 0);
+                            }
+
+                            let stride = rgb_frame.stride(0);
+                            let data = rgb_frame.data(0);
+                            let expected_row_bytes = (width * 4) as usize;
+
+                            for y in 0..height as usize {
+                                let src_start = y * stride;
+                                let src_end = src_start + expected_row_bytes;
+                                let dst_start = y * expected_row_bytes;
+                                let dst_end = dst_start + expected_row_bytes;
+
+                                buffer[dst_start..dst_end]
+                                    .copy_from_slice(&data[src_start..src_end]);
+                            }
+
+                            if let Some(img) = image::RgbaImage::from_raw(width, height, buffer) {
+                                let pooled_img =
+                                    Box::new(PooledImage::new(img, recycle_tx.clone()));
+                                let _ = tx.try_send(Event::VideoFrame(pooled_img));
+                            }
+                        }
+                    }
+                }
+            }
+
+            info!("ffmpeg-next local decoder exited");
+        });
+
+        Ok(())
+    }
     pub async fn run_decoder(
         url: String,
         tx: Sender<Event>,

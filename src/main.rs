@@ -43,8 +43,83 @@ async fn main() -> Result<()> {
             let (config_watch_tx, config_watch_rx) = tokio::sync::watch::channel(config.clone());
 
             let weather_tx = event_tx.clone();
-            tokio::spawn(async move { WeatherWatcher::run(weather_tx, config_watch_rx).await });
+            let weather_config_rx = config_watch_rx.clone();
+            tokio::spawn(async move { WeatherWatcher::run(weather_tx, weather_config_rx).await });
 
+            let video_tx = event_tx.clone();
+            let mut video_config_rx = config_watch_rx.clone();
+            tokio::spawn(async move {
+                let mut local_video_cancel_tx: Option<tokio::sync::watch::Sender<bool>> = None;
+
+                // Read initial state
+                let mut current_video_path: Option<String> = {
+                    let cfg = video_config_rx.borrow();
+                    cfg.appearance.video_background_path.clone()
+                };
+
+                if let Some(video) = &current_video_path {
+                    let full_path = Config::config_dir().join("videos").join(video);
+                    if full_path.exists() {
+                        let (c_tx, c_rx) = tokio::sync::watch::channel(false);
+                        local_video_cancel_tx = Some(c_tx);
+                        let (recycle_tx, recycle_rx) = tokio::sync::mpsc::channel(3);
+                        let tx_clone = video_tx.clone();
+
+                        let thread_config_rx = video_config_rx.clone();
+                        tokio::spawn(async move {
+                            let c_config_rx = thread_config_rx;
+                            let _ = modules::video::VideoDecoder::run_local_decoder(
+                                full_path.to_string_lossy().to_string(),
+                                tx_clone,
+                                c_rx,
+                                c_config_rx,
+                                recycle_rx,
+                                recycle_tx,
+                            )
+                            .await;
+                        });
+                    }
+                }
+
+                while video_config_rx.changed().await.is_ok() {
+                    let path = video_config_rx
+                        .borrow()
+                        .appearance
+                        .video_background_path
+                        .clone();
+
+                    if path != current_video_path {
+                        if let Some(cancel) = local_video_cancel_tx.take() {
+                            let _ = cancel.send(true);
+                        }
+                        current_video_path = path.clone();
+
+                        if let Some(video) = path {
+                            let full_path = Config::config_dir().join("videos").join(video);
+                            if full_path.exists() {
+                                let (c_tx, c_rx) = tokio::sync::watch::channel(false);
+                                local_video_cancel_tx = Some(c_tx);
+                                let (recycle_tx, recycle_rx) = tokio::sync::mpsc::channel(3);
+                                let tx_clone = video_tx.clone();
+
+                                let thread_config_rx = video_config_rx.clone();
+                                tokio::spawn(async move {
+                                    let c_config_rx = thread_config_rx;
+                                    let _ = modules::video::VideoDecoder::run_local_decoder(
+                                        full_path.to_string_lossy().to_string(),
+                                        tx_clone,
+                                        c_rx,
+                                        c_config_rx,
+                                        recycle_rx,
+                                        recycle_tx,
+                                    )
+                                    .await;
+                                });
+                            }
+                        }
+                    }
+                }
+            });
             let config_tx = event_tx.clone();
             tokio::spawn(async move {
                 if let Err(e) = Config::watch(config_tx, config_watch_tx).await {
