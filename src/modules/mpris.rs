@@ -128,7 +128,9 @@ impl MprisWatcher {
                         .and_then(|m| m.track_id().map(|id| id.to_string()))
                         .unwrap_or_default();
 
-                    let metadata_update = metadata_opt.as_ref().map(|m| MetadataUpdate::from_metadata(m));
+                    let metadata_update = metadata_opt
+                        .as_ref()
+                        .map(|m| MetadataUpdate::from_metadata(m));
 
                     let effective_track_id = if current_track_id_raw.is_empty() {
                         // Fallback to title + artist for track id if it's missing
