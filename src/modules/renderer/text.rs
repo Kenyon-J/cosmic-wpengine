@@ -13,6 +13,7 @@ pub struct PositionedBuffer {
     pub align: cosmic_text::Align,
 }
 
+#[derive(Clone, Copy)]
 pub struct CachedGlyph {
     pub uv: [f32; 4],
     pub offset: [i32; 2],
@@ -221,95 +222,94 @@ impl TextRenderer {
                         glyph.physical((0.0, 0.0), 1.0);
                     let cache_key = physical_glyph.cache_key;
 
-                    // Rasterize and pack into texture atlas if not already cached
-                    if !text_renderer.glyph_cache.contains_key(&cache_key) {
+                    // Retrieve from cache or rasterize and pack into texture atlas
+                    let mut cached = text_renderer.glyph_cache.get(&cache_key).copied();
+
+                    if cached.is_none() {
                         if let Some(image) = swash_cache.get_image(font_system, cache_key) {
                             let img_w = image.placement.width;
                             let img_h = image.placement.height;
 
                             if img_w == 0 || img_h == 0 {
-                                text_renderer.glyph_cache.insert(
-                                    cache_key,
-                                    CachedGlyph {
-                                        uv: [0.0, 0.0, 0.0, 0.0],
-                                        offset: [0, 0],
-                                        size: [0, 0],
-                                    },
-                                );
-                                continue;
-                            }
-
-                            if img_w > GLYPH_CACHE_WIDTH || img_h > GLYPH_CACHE_HEIGHT {
+                                let empty_glyph = CachedGlyph {
+                                    uv: [0.0, 0.0, 0.0, 0.0],
+                                    offset: [0, 0],
+                                    size: [0, 0],
+                                };
+                                text_renderer.glyph_cache.insert(cache_key, empty_glyph);
+                                cached = Some(empty_glyph);
+                            } else if img_w > GLYPH_CACHE_WIDTH || img_h > GLYPH_CACHE_HEIGHT {
                                 tracing::warn!("Glyph ({}x{}) too large for cache!", img_w, img_h);
-                                continue;
-                            }
+                            } else {
+                                if text_renderer.cache_x + img_w > GLYPH_CACHE_WIDTH {
+                                    text_renderer.cache_x = 0;
+                                    text_renderer.cache_y += text_renderer.cache_row_height;
+                                    text_renderer.cache_row_height = 0;
+                                }
 
-                            if text_renderer.cache_x + img_w > GLYPH_CACHE_WIDTH {
-                                text_renderer.cache_x = 0;
-                                text_renderer.cache_y += text_renderer.cache_row_height;
-                                text_renderer.cache_row_height = 0;
-                            }
+                                if text_renderer.cache_y + img_h > GLYPH_CACHE_HEIGHT {
+                                    tracing::warn!(
+                                        "Glyph cache full! Clearing and starting fresh."
+                                    );
+                                    text_renderer.glyph_cache.clear();
+                                    text_renderer.glyph_cache.shrink_to_fit();
+                                    text_renderer.cache_x = 0;
+                                    text_renderer.cache_y = 0;
+                                    text_renderer.cache_row_height = 0;
+                                }
 
-                            if text_renderer.cache_y + img_h > GLYPH_CACHE_HEIGHT {
-                                tracing::warn!("Glyph cache full! Clearing and starting fresh.");
-                                text_renderer.glyph_cache.clear();
-                                text_renderer.glyph_cache.shrink_to_fit();
-                                text_renderer.cache_x = 0;
-                                text_renderer.cache_y = 0;
-                                text_renderer.cache_row_height = 0;
-                            }
+                                let cur_x = text_renderer.cache_x;
+                                let cur_y = text_renderer.cache_y;
 
-                            let cur_x = text_renderer.cache_x;
-                            let cur_y = text_renderer.cache_y;
-
-                            if let cosmic_text::SwashContent::Mask = image.content {
-                                queue.write_texture(
-                                    wgpu::ImageCopyTexture {
-                                        texture: &text_renderer.texture,
-                                        mip_level: 0,
-                                        origin: wgpu::Origin3d {
-                                            x: cur_x,
-                                            y: cur_y,
-                                            z: 0,
+                                if let cosmic_text::SwashContent::Mask = image.content {
+                                    queue.write_texture(
+                                        wgpu::ImageCopyTexture {
+                                            texture: &text_renderer.texture,
+                                            mip_level: 0,
+                                            origin: wgpu::Origin3d {
+                                                x: cur_x,
+                                                y: cur_y,
+                                                z: 0,
+                                            },
+                                            aspect: wgpu::TextureAspect::All,
                                         },
-                                        aspect: wgpu::TextureAspect::All,
-                                    },
-                                    &image.data,
-                                    wgpu::ImageDataLayout {
-                                        offset: 0,
-                                        bytes_per_row: Some(img_w),
-                                        rows_per_image: Some(img_h),
-                                    },
-                                    wgpu::Extent3d {
-                                        width: img_w,
-                                        height: img_h,
-                                        depth_or_array_layers: 1,
-                                    },
-                                );
-                            }
+                                        &image.data,
+                                        wgpu::ImageDataLayout {
+                                            offset: 0,
+                                            bytes_per_row: Some(img_w),
+                                            rows_per_image: Some(img_h),
+                                        },
+                                        wgpu::Extent3d {
+                                            width: img_w,
+                                            height: img_h,
+                                            depth_or_array_layers: 1,
+                                        },
+                                    );
+                                }
 
-                            let u_min = cur_x as f32 / GLYPH_CACHE_WIDTH as f32;
-                            let v_min = cur_y as f32 / GLYPH_CACHE_HEIGHT as f32;
-                            let u_max = (cur_x + img_w) as f32 / GLYPH_CACHE_WIDTH as f32;
-                            let v_max = (cur_y + img_h) as f32 / GLYPH_CACHE_HEIGHT as f32;
+                                let u_min = cur_x as f32 / GLYPH_CACHE_WIDTH as f32;
+                                let v_min = cur_y as f32 / GLYPH_CACHE_HEIGHT as f32;
+                                let u_max = (cur_x + img_w) as f32 / GLYPH_CACHE_WIDTH as f32;
+                                let v_max = (cur_y + img_h) as f32 / GLYPH_CACHE_HEIGHT as f32;
 
-                            text_renderer.glyph_cache.insert(
-                                cache_key,
-                                CachedGlyph {
+                                let new_cached = CachedGlyph {
                                     uv: [u_min, v_min, u_max, v_max],
                                     offset: [image.placement.left, image.placement.top],
                                     size: [img_w, img_h],
-                                },
-                            );
+                                };
 
-                            text_renderer.cache_x += img_w + 1; // 1px padding
-                            text_renderer.cache_row_height =
-                                text_renderer.cache_row_height.max(img_h + 1);
+                                text_renderer.glyph_cache.insert(cache_key, new_cached);
+                                cached = Some(new_cached);
+
+                                text_renderer.cache_x += img_w + 1; // 1px padding
+                                text_renderer.cache_row_height =
+                                    text_renderer.cache_row_height.max(img_h + 1);
+                            }
                         }
                     }
 
-                    // Retrieve from cache and build vertex layout
-                    if let Some(cached) = text_renderer.glyph_cache.get(&cache_key) {
+                    // Build vertex layout from cached/newly rasterized glyph
+                    if let Some(cached) = cached {
                         if cached.size[0] == 0 || cached.size[1] == 0 {
                             continue;
                         }
