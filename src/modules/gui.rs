@@ -22,6 +22,7 @@ struct SettingsApp {
     wp_config: config::Config,
     available_fonts: Vec<String>,
     available_files: Vec<String>,
+    available_videos: Vec<String>,
     selected_file: Option<String>,
     editor_content: text_editor::Content,
     new_theme_name: String,
@@ -285,6 +286,7 @@ impl Application for SettingsApp {
                 wp_config,
                 available_fonts,
                 available_files,
+                available_videos: config::Config::available_videos(),
                 selected_file,
                 editor_content,
                 autostart: autostart_path().exists(),
@@ -556,9 +558,8 @@ amplitude = 1.5"#;
         );
 
         if current_bg_mode == BackgroundMode::Video {
-            let available_videos = config::Config::available_videos();
             let video_selector = pick_list(
-                available_videos,
+                self.available_videos.clone(),
                 self.wp_config.appearance.video_background_path.clone(),
                 Message::VideoSelected,
             );

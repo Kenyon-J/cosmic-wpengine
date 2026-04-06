@@ -21,7 +21,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev ffmpeg libssl-dev
+          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev ffmpeg libssl-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev libpostproc-dev
 
       - name: Set up Rust cache
         uses: Swatinem/rust-cache@v2

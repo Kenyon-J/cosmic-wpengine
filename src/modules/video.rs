@@ -143,6 +143,7 @@ impl VideoDecoder {
                         Err(_) => break,
                     };
                 }
+                decoder.flush();
                 let mut first_pts: Option<i64> = None;
                 let start_time = tokio::time::Instant::now();
                 let mut last_sent_time = 0.0;
