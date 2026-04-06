@@ -421,6 +421,7 @@ pub struct AppearanceConfig {
     #[serde(default)]
     pub font_family: Option<String>,
     pub custom_background_path: Option<String>,
+    pub video_background_path: Option<String>,
 }
 
 impl Default for AppearanceConfig {
@@ -434,6 +435,7 @@ impl Default for AppearanceConfig {
             album_color_background: true,
             font_family: None,
             custom_background_path: None,
+            video_background_path: None,
         }
     }
 }
@@ -1230,6 +1232,9 @@ impl Config {
         // Extract default themes so users can find and edit them!
         let _ = ThemeLayout::write_defaults();
 
+        let videos_dir = Self::config_dir().join("videos");
+        let _ = std::fs::create_dir_all(&videos_dir);
+
         match std::fs::read_to_string(&path) {
             Ok(text) => match toml::from_str(&text) {
                 Ok(config) => Ok(config),
@@ -1277,6 +1282,26 @@ impl Config {
         }
         std::fs::write(&path, toml::to_string_pretty(self)?)?;
         Ok(())
+    }
+
+    #[allow(dead_code)]
+    #[allow(dead_code)]
+    pub fn available_videos() -> Vec<String> {
+        let mut videos = Vec::new();
+        let videos_dir = Self::config_dir().join("videos");
+        if let Ok(entries) = std::fs::read_dir(videos_dir) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_file() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            videos.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        videos.sort();
+        videos
     }
 
     pub fn config_dir() -> PathBuf {

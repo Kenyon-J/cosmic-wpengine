@@ -22,6 +22,7 @@ struct SettingsApp {
     wp_config: config::Config,
     available_fonts: Vec<String>,
     available_files: Vec<String>,
+    available_videos: Vec<String>,
     selected_file: Option<String>,
     editor_content: text_editor::Content,
     new_theme_name: String,
@@ -204,14 +205,16 @@ enum BackgroundMode {
     Transparent,
     AlbumArt,
     AlbumPalette,
+    Video,
 }
 
 impl BackgroundMode {
-    const ALL: [BackgroundMode; 4] = [
+    const ALL: [BackgroundMode; 5] = [
         BackgroundMode::FrostedGlass,
         BackgroundMode::Transparent,
         BackgroundMode::AlbumArt,
         BackgroundMode::AlbumPalette,
+        BackgroundMode::Video,
     ];
 }
 
@@ -222,6 +225,7 @@ impl std::fmt::Display for BackgroundMode {
             BackgroundMode::Transparent => write!(f, "Fully Transparent"),
             BackgroundMode::AlbumArt => write!(f, "Album Art Background"),
             BackgroundMode::AlbumPalette => write!(f, "Album Colour"),
+            BackgroundMode::Video => write!(f, "Video Background"),
         }
     }
 }
@@ -232,6 +236,7 @@ enum Message {
     FontFamilySelected(String),
     ToggleShowAlbumArt(bool),
     FileSelected(String),
+    VideoSelected(String),
     EditorAction(text_editor::Action),
     SaveFile,
     ApplyTheme,
@@ -281,6 +286,7 @@ impl Application for SettingsApp {
                 wp_config,
                 available_fonts,
                 available_files,
+                available_videos: config::Config::available_videos(),
                 selected_file,
                 editor_content,
                 autostart: autostart_path().exists(),
@@ -303,12 +309,14 @@ impl Application for SettingsApp {
                         self.wp_config.appearance.transparent_background = false;
                         self.wp_config.appearance.album_art_background = false;
                         self.wp_config.appearance.album_color_background = false;
+                        self.wp_config.appearance.video_background_path = None;
                     }
                     BackgroundMode::Transparent => {
                         self.wp_config.appearance.disable_blur = true;
                         self.wp_config.appearance.transparent_background = true;
                         self.wp_config.appearance.album_art_background = false;
                         self.wp_config.appearance.album_color_background = false;
+                        self.wp_config.appearance.video_background_path = None;
                     }
                     BackgroundMode::AlbumArt => {
                         // Album Art typically looks best with some blur fallback or as its own layer
@@ -316,12 +324,26 @@ impl Application for SettingsApp {
                         self.wp_config.appearance.transparent_background = false;
                         self.wp_config.appearance.album_art_background = true;
                         self.wp_config.appearance.album_color_background = false;
+                        self.wp_config.appearance.video_background_path = None;
                     }
                     BackgroundMode::AlbumPalette => {
                         self.wp_config.appearance.disable_blur = true;
                         self.wp_config.appearance.transparent_background = false;
                         self.wp_config.appearance.album_art_background = false;
                         self.wp_config.appearance.album_color_background = true;
+                    }
+                    BackgroundMode::Video => {
+                        self.wp_config.appearance.disable_blur = false;
+                        self.wp_config.appearance.transparent_background = false;
+                        self.wp_config.appearance.album_art_background = false;
+                        self.wp_config.appearance.album_color_background = false;
+                        self.wp_config.appearance.video_background_path = None;
+                        if self.wp_config.appearance.video_background_path.is_none() {
+                            if let Some(first_video) = config::Config::available_videos().first() {
+                                self.wp_config.appearance.video_background_path =
+                                    Some(first_video.clone());
+                            }
+                        }
                     }
                 }
                 let _ = self.wp_config.save();
@@ -338,6 +360,11 @@ impl Application for SettingsApp {
             }
             Message::ToggleShowAlbumArt(state) => {
                 self.wp_config.appearance.show_album_art = state;
+                let _ = self.wp_config.save();
+                self.refresh_editor();
+            }
+            Message::VideoSelected(video) => {
+                self.wp_config.appearance.video_background_path = Some(video);
                 let _ = self.wp_config.save();
                 self.refresh_editor();
             }
@@ -501,7 +528,9 @@ amplitude = 1.5"#;
     fn view(&self) -> Element<'_, Self::Message> {
         let font = cosmic::iced::Font::DEFAULT;
 
-        let current_bg_mode = if self.wp_config.appearance.album_color_background {
+        let current_bg_mode = if self.wp_config.appearance.video_background_path.is_some() {
+            BackgroundMode::Video
+        } else if self.wp_config.appearance.album_color_background {
             BackgroundMode::AlbumPalette
         } else if self.wp_config.appearance.album_art_background {
             BackgroundMode::AlbumArt
@@ -517,17 +546,36 @@ amplitude = 1.5"#;
             Message::BackgroundModeSelected,
         );
 
-        let toggles_row = column()
-            .push(
+        let mut toggles_row = column().push(
+            row()
+                .push(
+                    text("Background Style:")
+                        .font(font)
+                        .width(Length::Fixed(200.0)),
+                )
+                .push(bg_mode_selector)
+                .spacing(20),
+        );
+
+        if current_bg_mode == BackgroundMode::Video {
+            let video_selector = pick_list(
+                self.available_videos.clone(),
+                self.wp_config.appearance.video_background_path.clone(),
+                Message::VideoSelected,
+            );
+            toggles_row = toggles_row.push(
                 row()
                     .push(
-                        text("Background Style:")
+                        text("Selected Video:")
                             .font(font)
                             .width(Length::Fixed(200.0)),
                     )
-                    .push(bg_mode_selector)
+                    .push(video_selector)
                     .spacing(20),
-            )
+            );
+        }
+
+        let toggles_row = toggles_row
             .push(
                 row()
                     .push(
