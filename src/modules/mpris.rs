@@ -123,18 +123,29 @@ impl MprisWatcher {
                         .get_playback_status()
                         .unwrap_or(mpris::PlaybackStatus::Stopped);
                     let metadata_opt = player.get_metadata().ok();
-                    let current_track_id = metadata_opt
+                    let current_track_id_raw = metadata_opt
                         .as_ref()
                         .and_then(|m| m.track_id().map(|id| id.to_string()))
                         .unwrap_or_default();
 
-                    if current_track_id != last_track_id {
-                        if let Some(metadata) = metadata_opt {
-                            let _ = update_tx.blocking_send(MprisUpdate::Metadata(
-                                MetadataUpdate::from_metadata(&metadata),
-                            ));
+                    let metadata_update = metadata_opt.as_ref().map(MetadataUpdate::from_metadata);
+
+                    let effective_track_id = if current_track_id_raw.is_empty() {
+                        // Fallback to title + artist for track id if it's missing
+                        if let Some(metadata) = &metadata_update {
+                            format!("{}-{}", metadata.title, metadata.artist)
+                        } else {
+                            String::new()
                         }
-                        last_track_id = current_track_id;
+                    } else {
+                        current_track_id_raw
+                    };
+
+                    if effective_track_id != last_track_id {
+                        if let Some(metadata) = metadata_update {
+                            let _ = update_tx.blocking_send(MprisUpdate::Metadata(metadata));
+                        }
+                        last_track_id = effective_track_id;
                     }
 
                     if current_status != last_status {
