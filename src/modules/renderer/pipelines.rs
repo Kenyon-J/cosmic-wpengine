@@ -262,9 +262,11 @@ pub(crate) fn create_weather_pipelines(
 ) {
     // --- Weather Compute Pipeline Setup ---
     let max_particles = 2500;
-    let mut initial_particles = Vec::with_capacity(max_particles);
-    for i in 0..max_particles {
-        initial_particles.push(Particle {
+    // Optimization: Use an exact size iterator with `.collect()` instead of a manual
+    // `for` loop with `.push()` to leverage standard library optimizations
+    // and eliminate capacity checking / redundant bounds checking.
+    let initial_particles: Vec<Particle> = (0..max_particles)
+        .map(|i| Particle {
             pos: [
                 (i as f32 * 12.9898).sin().fract() * 2.0 - 0.5, // Random X scatter
                 (i as f32 * 7.2345).sin().fract() * 2.4 - 1.2, // Naturally spread across the entire vertical space
@@ -272,8 +274,8 @@ pub(crate) fn create_weather_pipelines(
             vel: [0.0, 0.5 + (i as f32 % 5.0) * 0.1], // Base downward velocity
             lifetime: 5.0 + (i as f32 % 5.0),
             scale: 1.0,
-        });
-    }
+        })
+        .collect();
 
     let particle_buffer_size =
         (initial_particles.len() * std::mem::size_of::<Particle>()) as wgpu::BufferAddress;
