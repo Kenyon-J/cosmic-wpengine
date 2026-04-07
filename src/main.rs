@@ -129,7 +129,8 @@ async fn spawn_video_watcher(
     };
 
     if let Some(video) = &current_video_path {
-        local_video_cancel_tx = start_video_decoder(video, video_tx.clone(), video_config_rx.clone());
+        local_video_cancel_tx =
+            start_video_decoder(video, video_tx.clone(), video_config_rx.clone());
     }
 
     while video_config_rx.changed().await.is_ok() {
@@ -146,7 +147,8 @@ async fn spawn_video_watcher(
             current_video_path = path.clone();
 
             if let Some(video) = &current_video_path {
-                local_video_cancel_tx = start_video_decoder(video, video_tx.clone(), video_config_rx.clone());
+                local_video_cancel_tx =
+                    start_video_decoder(video, video_tx.clone(), video_config_rx.clone());
             }
         }
     }
