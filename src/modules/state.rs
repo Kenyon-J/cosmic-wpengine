@@ -146,6 +146,24 @@ mod tests {
     }
 
     #[test]
+    fn test_scene_description_edge_cases() {
+        let config = Config::default();
+        let mut state = AppState::new(config);
+
+        // Edge case 1: empty audio bands array (handles division by zero -> NaN)
+        state.audio_bands = vec![].into_boxed_slice();
+        assert_eq!(state.scene_description(), SceneHint::Ambient);
+
+        // Edge case 2: exact boundary condition for audio energy (0.05)
+        state.audio_bands = vec![0.05; 64].into_boxed_slice();
+        assert_eq!(state.scene_description(), SceneHint::Ambient);
+
+        // Edge case 3: slightly above boundary
+        state.audio_bands = vec![0.05001; 64].into_boxed_slice();
+        assert_eq!(state.scene_description(), SceneHint::AudioVisualiser);
+    }
+
+    #[test]
     fn test_update_time() {
         let config = Config::default();
         let mut state = AppState::new(config);
