@@ -754,11 +754,6 @@ impl Renderer {
             depth_or_array_layers: 1,
         };
 
-        // Guarantee dimensions are compatible with wgpu's 256-byte row alignment!
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let unpadded_bytes_per_row = dimensions.0 * 4;
-        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
-
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             size: texture_size,
             mip_level_count: 1,
@@ -770,56 +765,13 @@ impl Renderer {
             view_formats: &[],
         });
 
-        if unpadded_bytes_per_row == padded_bytes_per_row {
-            self.queue.write_texture(
-                wgpu::ImageCopyTexture {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                rgba.as_raw(),
-                wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(unpadded_bytes_per_row),
-                    rows_per_image: Some(dimensions.1),
-                },
-                texture_size,
-            );
-        } else {
-            let required_size = (padded_bytes_per_row * dimensions.1) as usize;
-            // Optimization: Re-use the existing buffer if possible. resize(..., 0) only zero-fills
-            // newly-allocated space, so by skipping .clear() at the end of the previous frame,
-            // we avoid zeroing the entire buffer every single frame.
-            if self.album_art_pad_buffer.len() < required_size {
-                self.album_art_pad_buffer.resize(required_size, 0);
-            }
-
-            let raw_rgba = rgba.as_raw();
-            for y in 0..dimensions.1 {
-                let src_start = (y * unpadded_bytes_per_row) as usize;
-                let src_end = src_start + unpadded_bytes_per_row as usize;
-                let dst_start = (y * padded_bytes_per_row) as usize;
-                let dst_slice = &mut self.album_art_pad_buffer
-                    [dst_start..dst_start + unpadded_bytes_per_row as usize];
-                dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
-            }
-            self.queue.write_texture(
-                wgpu::ImageCopyTexture {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &self.album_art_pad_buffer[..required_size],
-                wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(dimensions.1),
-                },
-                texture_size,
-            );
-        }
+        Self::write_padded_texture(
+            &self.queue,
+            &texture,
+            dimensions,
+            rgba.as_raw(),
+            &mut self.album_art_pad_buffer,
+        );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -872,59 +824,13 @@ impl Renderer {
         if let Some(texture) = &self.current_album_texture {
             let dimensions = rgba.dimensions();
             if texture.size().width == dimensions.0 && texture.size().height == dimensions.1 {
-                let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-                let unpadded_bytes_per_row = dimensions.0 * 4;
-                let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
-
-                if unpadded_bytes_per_row == padded_bytes_per_row {
-                    self.queue.write_texture(
-                        wgpu::ImageCopyTexture {
-                            texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        rgba.as_raw(),
-                        wgpu::ImageDataLayout {
-                            offset: 0,
-                            bytes_per_row: Some(unpadded_bytes_per_row),
-                            rows_per_image: Some(dimensions.1),
-                        },
-                        texture.size(),
-                    );
-                } else {
-                    let required_size = (padded_bytes_per_row * dimensions.1) as usize;
-                    // Optimization: Skip .clear() to avoid redundant zero-filling by .resize()
-                    if self.video_frame_buffer.len() < required_size {
-                        self.video_frame_buffer.resize(required_size, 0);
-                    }
-
-                    let raw_rgba = rgba.as_raw();
-                    for y in 0..dimensions.1 {
-                        let src_start = (y * unpadded_bytes_per_row) as usize;
-                        let src_end = src_start + unpadded_bytes_per_row as usize;
-                        let dst_start = (y * padded_bytes_per_row) as usize;
-                        let dst_slice = &mut self.video_frame_buffer
-                            [dst_start..dst_start + unpadded_bytes_per_row as usize];
-                        dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
-                    }
-
-                    self.queue.write_texture(
-                        wgpu::ImageCopyTexture {
-                            texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        &self.video_frame_buffer[..required_size],
-                        wgpu::ImageDataLayout {
-                            offset: 0,
-                            bytes_per_row: Some(padded_bytes_per_row),
-                            rows_per_image: Some(dimensions.1),
-                        },
-                        texture.size(),
-                    );
-                }
+                Self::write_padded_texture(
+                    &self.queue,
+                    texture,
+                    dimensions,
+                    rgba.as_raw(),
+                    &mut self.video_frame_buffer,
+                );
                 return;
             }
         }
@@ -958,11 +864,6 @@ impl Renderer {
             depth_or_array_layers: 1,
         };
 
-        // Guarantee dimensions are compatible with wgpu's 256-byte row alignment!
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let unpadded_bytes_per_row = dimensions.0 * 4;
-        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
-
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             size: texture_size,
             mip_level_count: 1,
@@ -974,54 +875,13 @@ impl Renderer {
             view_formats: &[],
         });
 
-        if unpadded_bytes_per_row == padded_bytes_per_row {
-            self.queue.write_texture(
-                wgpu::ImageCopyTexture {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                img.as_raw(),
-                wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(unpadded_bytes_per_row),
-                    rows_per_image: Some(dimensions.1),
-                },
-                texture_size,
-            );
-        } else {
-            let required_size = (padded_bytes_per_row * dimensions.1) as usize;
-            // Optimization: Avoid redundant zero-filling by reuse of the pad buffer
-            if self.album_art_pad_buffer.len() < required_size {
-                self.album_art_pad_buffer.resize(required_size, 0);
-            }
-
-            let raw_rgba = img.as_raw();
-            for y in 0..dimensions.1 {
-                let src_start = (y * unpadded_bytes_per_row) as usize;
-                let src_end = src_start + unpadded_bytes_per_row as usize;
-                let dst_start = (y * padded_bytes_per_row) as usize;
-                let dst_slice = &mut self.album_art_pad_buffer
-                    [dst_start..dst_start + unpadded_bytes_per_row as usize];
-                dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
-            }
-            self.queue.write_texture(
-                wgpu::ImageCopyTexture {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &self.album_art_pad_buffer[..required_size],
-                wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(dimensions.1),
-                },
-                texture_size,
-            );
-        }
+        Self::write_padded_texture(
+            &self.queue,
+            &texture,
+            dimensions,
+            img.as_raw(),
+            &mut self.album_art_pad_buffer,
+        );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -1066,6 +926,75 @@ impl Renderer {
             self.cached_weather_str = format!("{} {:.1}°{}", condition_str, val, unit);
         } else {
             self.cached_weather_str.clear();
+        }
+    }
+
+    /// Writes an image slice directly to a `wgpu::Texture` on the GPU.
+    /// It automatically handles padding the image width to be a multiple of `wgpu::COPY_BYTES_PER_ROW_ALIGNMENT` (256 bytes)
+    /// to satisfy wgpu's strict alignment constraints for image copies.
+    fn write_padded_texture(
+        queue: &wgpu::Queue,
+        texture: &wgpu::Texture,
+        dimensions: (u32, u32),
+        raw_rgba: &[u8],
+        pad_buffer: &mut Vec<u8>,
+    ) {
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let unpadded_bytes_per_row = dimensions.0 * 4;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+
+        let texture_size = wgpu::Extent3d {
+            width: dimensions.0,
+            height: dimensions.1,
+            depth_or_array_layers: 1,
+        };
+
+        if unpadded_bytes_per_row == padded_bytes_per_row {
+            queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                raw_rgba,
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(unpadded_bytes_per_row),
+                    rows_per_image: Some(dimensions.1),
+                },
+                texture_size,
+            );
+        } else {
+            let required_size = (padded_bytes_per_row * dimensions.1) as usize;
+            if pad_buffer.len() < required_size {
+                pad_buffer.resize(required_size, 0);
+            }
+
+            for y in 0..dimensions.1 {
+                let src_start = (y * unpadded_bytes_per_row) as usize;
+                let src_end = src_start + unpadded_bytes_per_row as usize;
+                let dst_start = (y * padded_bytes_per_row) as usize;
+                let dst_slice =
+                    &mut pad_buffer[dst_start..dst_start + unpadded_bytes_per_row as usize];
+                dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
+            }
+
+            queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &pad_buffer[..required_size],
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(dimensions.1),
+                },
+                texture_size,
+            );
         }
     }
 }
