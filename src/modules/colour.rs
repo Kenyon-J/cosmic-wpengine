@@ -88,6 +88,21 @@ mod tests {
         (a[0] - b[0]).abs() < eps && (a[1] - b[1]).abs() < eps && (a[2] - b[2]).abs() < eps
     }
 
+    fn fill_rect(
+        img: &mut image::RgbaImage,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        color: image::Rgba<u8>,
+    ) {
+        for dy in 0..height {
+            for dx in 0..width {
+                img.put_pixel(x + dx, y + dy, color);
+            }
+        }
+    }
+
     #[test]
     fn test_lerp_colour() {
         let a = [0.0, 0.0, 0.0];
@@ -157,34 +172,20 @@ mod tests {
         // Fill background with a color that passes brightness check
         // R: 100, G: 100, B: 100. Bin: (96, 96, 96). Brightness: 96 > 30 and < 220
         let bg_color = image::Rgba([100, 100, 100, 255]);
-        for pixel in img.pixels_mut() {
-            *pixel = bg_color;
-        }
+        fill_rect(&mut img, 0, 0, 128, 128, bg_color);
 
         // Add a smaller square of a different valid color
         // R: 200, G: 100, B: 100. Bin: (192, 96, 96). Brightness: (192+96+96)/3 = 128 > 30 and < 220
         let fg_color = image::Rgba([200, 100, 100, 255]);
-        for y in 0..64 {
-            for x in 0..64 {
-                img.put_pixel(x, y, fg_color);
-            }
-        }
+        fill_rect(&mut img, 0, 0, 64, 64, fg_color);
 
         // Add pure white (too bright: 255, 255, 255 -> brightness 255 > 220)
         let bright_color = image::Rgba([255, 255, 255, 255]);
-        for y in 64..96 {
-            for x in 64..96 {
-                img.put_pixel(x, y, bright_color);
-            }
-        }
+        fill_rect(&mut img, 64, 64, 32, 32, bright_color);
 
         // Add transparent pixels (a < 128) - these should be ignored
         let transparent_color = image::Rgba([150, 150, 150, 0]);
-        for y in 96..128 {
-            for x in 96..128 {
-                img.put_pixel(x, y, transparent_color);
-            }
-        }
+        fill_rect(&mut img, 96, 96, 32, 32, transparent_color);
 
         let dyn_img = image::DynamicImage::ImageRgba8(img);
         let palette = extract_palette(&dyn_img);
@@ -219,24 +220,12 @@ mod tests {
                                                       // Color F (smallest area)
         let color_f = image::Rgba([64, 96, 96, 255]); // bin: (64, 96, 96)
 
-        for y in 0..128 {
-            for x in 0..128 {
-                let color = if y < 64 {
-                    color_a // 64 rows
-                } else if y < 96 {
-                    color_b // 32 rows
-                } else if y < 112 {
-                    color_c // 16 rows
-                } else if y < 120 {
-                    color_d // 8 rows
-                } else if y < 126 {
-                    color_e // 6 rows
-                } else {
-                    color_f // 2 rows
-                };
-                img.put_pixel(x, y, color);
-            }
-        }
+        fill_rect(&mut img, 0, 0, 128, 64, color_a); // 64 rows
+        fill_rect(&mut img, 0, 64, 128, 32, color_b); // 32 rows
+        fill_rect(&mut img, 0, 96, 128, 16, color_c); // 16 rows
+        fill_rect(&mut img, 0, 112, 128, 8, color_d); // 8 rows
+        fill_rect(&mut img, 0, 120, 128, 6, color_e); // 6 rows
+        fill_rect(&mut img, 0, 126, 128, 2, color_f); // 2 rows
 
         let dyn_img = image::DynamicImage::ImageRgba8(img);
         let palette = extract_palette(&dyn_img);
@@ -263,19 +252,11 @@ mod tests {
 
         // Add pure black (too dark: 0, 0, 0 -> brightness 0 <= 30)
         let dark_color = image::Rgba([0, 0, 0, 255]);
-        for y in 0..32 {
-            for x in 0..64 {
-                img.put_pixel(x, y, dark_color);
-            }
-        }
+        fill_rect(&mut img, 0, 0, 64, 32, dark_color);
 
         // Add pure white (too bright: 255, 255, 255 -> brightness 255 >= 220)
         let bright_color = image::Rgba([255, 255, 255, 255]);
-        for y in 32..64 {
-            for x in 0..64 {
-                img.put_pixel(x, y, bright_color);
-            }
-        }
+        fill_rect(&mut img, 0, 32, 64, 32, bright_color);
 
         // Remaining implicit pixels are transparent [0,0,0,0], alpha < 128
 
