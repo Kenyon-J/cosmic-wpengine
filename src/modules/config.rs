@@ -750,7 +750,11 @@ impl ThemeLayout {
         std::fs::create_dir_all(&shaders_dir)?;
 
         let bars_path = shaders_dir.join("bars.toml");
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&bars_path) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&bars_path)
+        {
             Ok(mut f) => {
                 use std::io::Write;
                 f.write_all(
@@ -799,7 +803,11 @@ beat_pulse = 0.5
         }
 
         let monstercat_path = shaders_dir.join("monstercat.toml");
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&monstercat_path) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&monstercat_path)
+        {
             Ok(mut f) => {
                 use std::io::Write;
                 f.write_all(
@@ -839,7 +847,11 @@ amplitude = 1.5
         }
 
         let waveform_path = shaders_dir.join("waveform.toml");
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&waveform_path) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&waveform_path)
+        {
             Ok(mut f) => {
                 use std::io::Write;
                 f.write_all(
@@ -1204,7 +1216,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
 
         let symmetric_path = shaders_dir.join("symmetric.toml");
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&symmetric_path) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&symmetric_path)
+        {
             Ok(mut f) => {
                 use std::io::Write;
                 f.write_all(
