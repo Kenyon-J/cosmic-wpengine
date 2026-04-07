@@ -198,14 +198,21 @@ impl VideoDecoder {
                                 let data = rgb_frame.data(0);
                                 let expected_row_bytes = (width * 4) as usize;
 
-                                for y in 0..height as usize {
-                                    let src_start = y * stride;
-                                    let src_end = src_start + expected_row_bytes;
-                                    let dst_start = y * expected_row_bytes;
-                                    let dst_end = dst_start + expected_row_bytes;
+                                // Optimization: If the video frame is densely packed (stride == expected row width),
+                                // we can perform a single bulk `copy_from_slice` to leverage a highly optimized
+                                // `memcpy` instead of iterating row-by-row and suffering bounds checking overhead.
+                                if stride == expected_row_bytes {
+                                    buffer[..frame_size].copy_from_slice(&data[..frame_size]);
+                                } else {
+                                    for y in 0..height as usize {
+                                        let src_start = y * stride;
+                                        let src_end = src_start + expected_row_bytes;
+                                        let dst_start = y * expected_row_bytes;
+                                        let dst_end = dst_start + expected_row_bytes;
 
-                                    buffer[dst_start..dst_end]
-                                        .copy_from_slice(&data[src_start..src_end]);
+                                        buffer[dst_start..dst_end]
+                                            .copy_from_slice(&data[src_start..src_end]);
+                                    }
                                 }
 
                                 if let Some(img) = image::RgbaImage::from_raw(width, height, buffer)
@@ -248,14 +255,21 @@ impl VideoDecoder {
                             let data = rgb_frame.data(0);
                             let expected_row_bytes = (width * 4) as usize;
 
-                            for y in 0..height as usize {
-                                let src_start = y * stride;
-                                let src_end = src_start + expected_row_bytes;
-                                let dst_start = y * expected_row_bytes;
-                                let dst_end = dst_start + expected_row_bytes;
+                            // Optimization: If the video frame is densely packed (stride == expected row width),
+                            // we can perform a single bulk `copy_from_slice` to leverage a highly optimized
+                            // `memcpy` instead of iterating row-by-row and suffering bounds checking overhead.
+                            if stride == expected_row_bytes {
+                                buffer[..frame_size].copy_from_slice(&data[..frame_size]);
+                            } else {
+                                for y in 0..height as usize {
+                                    let src_start = y * stride;
+                                    let src_end = src_start + expected_row_bytes;
+                                    let dst_start = y * expected_row_bytes;
+                                    let dst_end = dst_start + expected_row_bytes;
 
-                                buffer[dst_start..dst_end]
-                                    .copy_from_slice(&data[src_start..src_end]);
+                                    buffer[dst_start..dst_end]
+                                        .copy_from_slice(&data[src_start..src_end]);
+                                }
                             }
 
                             if let Some(img) = image::RgbaImage::from_raw(width, height, buffer) {
