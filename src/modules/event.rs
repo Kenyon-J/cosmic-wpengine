@@ -45,7 +45,8 @@ pub enum Event {
         bands: PooledAudioBuffer<f32>,
         waveform: PooledAudioBuffer<f32>,
     },
-    VideoFrame(Box<super::video::PooledImage>),
+    BackgroundVideoFrame(Box<super::video::PooledImage>),
+    CanvasVideoFrame(Box<super::video::PooledImage>),
     WeatherUpdated(Box<WeatherData>),
 }
 
@@ -81,4 +82,28 @@ pub enum WeatherCondition {
     Snow,
     Thunderstorm,
     Fog,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pooled_audio_buffer_new() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let data: Box<[f32]> = vec![1.0, 2.0, 3.0].into_boxed_slice();
+
+        let buffer = PooledAudioBuffer::new(data.clone(), tx);
+
+        // Test Deref implementation to ensure data is correct
+        assert_eq!(&*buffer, &*data);
+        assert_eq!(buffer.len(), 3);
+
+        // Test drop behavior and recycle_tx
+        drop(buffer);
+        let recycled = rx
+            .blocking_recv()
+            .expect("Buffer should have been sent to recycle channel on drop");
+        assert_eq!(recycled, data);
+    }
 }

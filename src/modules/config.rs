@@ -750,9 +750,14 @@ impl ThemeLayout {
         std::fs::create_dir_all(&shaders_dir)?;
 
         let bars_path = shaders_dir.join("bars.toml");
-        if !bars_path.exists() {
-            std::fs::write(
-                &bars_path,
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&bars_path)
+        {
+            Ok(mut f) => {
+                use std::io::Write;
+                f.write_all(
                 r#"# ==============================================================================
 # Bars Theme (Default)
 # ==============================================================================
@@ -790,14 +795,22 @@ lyric_spring_damping = 12.0 # Slightly underdamped for a natural spring overshoo
 beat_pulse = 0.5
 # color_top = [1.0, 0.2, 0.5]      # Optional fixed colours (RGB 0.0 - 1.0)
 # color_bottom = [0.2, 0.5, 1.0]
-"#,
-            )?;
+"#.as_bytes(),
+                )?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
         }
 
         let monstercat_path = shaders_dir.join("monstercat.toml");
-        if !monstercat_path.exists() {
-            std::fs::write(
-                &monstercat_path,
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&monstercat_path)
+        {
+            Ok(mut f) => {
+                use std::io::Write;
+                f.write_all(
                 r#"# ==============================================================================
 # Monstercat Theme
 # ==============================================================================
@@ -826,14 +839,22 @@ position = [0.5, 0.5]
 size = 0.6
 rotation = 0
 amplitude = 1.5
-"#,
-            )?;
+"#.as_bytes(),
+                )?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
         }
 
         let waveform_path = shaders_dir.join("waveform.toml");
-        if !waveform_path.exists() {
-            std::fs::write(
-                &waveform_path,
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&waveform_path)
+        {
+            Ok(mut f) => {
+                use std::io::Write;
+                f.write_all(
                 r#"# ==============================================================================
 # Waveform Theme
 # ==============================================================================
@@ -871,8 +892,11 @@ lyric_spring_damping = 12.0
 beat_pulse = 0.5
 # color_top = [1.0, 0.2, 0.5]      # Optional fixed colours (RGB 0.0 - 1.0)
 # color_bottom = [0.2, 0.5, 1.0]
-"#,
-            )?;
+"#.as_bytes(),
+                )?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
         }
 
         // This single, unified shader file is now included directly in the binary
@@ -1192,9 +1216,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
 
         let symmetric_path = shaders_dir.join("symmetric.toml");
-        if !symmetric_path.exists() {
-            std::fs::write(
-                &symmetric_path,
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&symmetric_path)
+        {
+            Ok(mut f) => {
+                use std::io::Write;
+                f.write_all(
                 r#"# ==============================================================================
 # Symmetric Theme
 # ==============================================================================
@@ -1217,8 +1246,11 @@ shape = "linear"
 position = [0.5, 0.85]
 size = 0.8
 align = "center"
-"#,
-            )?;
+"#.as_bytes(),
+                )?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
         }
 
         Ok(())

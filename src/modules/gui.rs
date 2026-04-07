@@ -686,14 +686,33 @@ amplitude = 1.5"#;
         };
 
         let apply_btn: Element<'_, Self::Message> = {
-            let btn = cosmic::iced::widget::button(text("Apply Theme").font(font));
-            let is_theme = self
-                .selected_file
-                .as_ref()
-                .is_some_and(|f| f.starts_with("shaders/") && f.ends_with(".toml"));
-            if is_theme {
-                btn.on_press(Message::ApplyTheme).into()
+            let selected_theme = self.selected_file.as_ref().and_then(|f| {
+                if f.starts_with("shaders/") && f.ends_with(".toml") {
+                    Some(
+                        f.trim_start_matches("shaders/")
+                            .trim_end_matches(".toml")
+                            .to_string(),
+                    )
+                } else {
+                    None
+                }
+            });
+
+            if let Some(theme_name) = selected_theme {
+                if theme_name == self.wp_config.audio.style {
+                    let btn = cosmic::iced::widget::button(text("Theme Active").font(font));
+                    cosmic::iced::widget::tooltip(
+                        btn,
+                        "This theme is currently active.",
+                        cosmic::iced::widget::tooltip::Position::Top,
+                    )
+                    .into()
+                } else {
+                    let btn = cosmic::iced::widget::button(text("Apply Theme").font(font));
+                    btn.on_press(Message::ApplyTheme).into()
+                }
             } else {
+                let btn = cosmic::iced::widget::button(text("Apply Theme").font(font));
                 cosmic::iced::widget::tooltip(
                     btn,
                     "Select a theme (.toml in shaders/) to apply it.",
