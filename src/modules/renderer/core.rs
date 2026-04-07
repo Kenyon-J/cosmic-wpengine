@@ -528,10 +528,8 @@ impl Renderer {
                 self.text_buffer_cache.clear(); // Free old shaped lyrics from memory!
                 self.text_buffer_cache.shrink_to_fit();
 
-                // Free padding buffers to the OS allocator
-                self.album_art_pad_buffer.shrink_to_fit();
-                self.video_frame_buffer.shrink_to_fit();
-
+                // Optimization: Don't shrink staging buffers to fit on track changes;
+                // keep the allocations ready for the next track's album art or video loops.
                 // Recreate SwashCache to flush its internal rasterized glyph memory
                 self.swash_cache = SwashCache::new();
                 self.text_renderer.glyph_cache.clear();
@@ -790,6 +788,9 @@ impl Renderer {
             );
         } else {
             let required_size = (padded_bytes_per_row * dimensions.1) as usize;
+            // Optimization: Re-use the existing buffer if possible. resize(..., 0) only zero-fills
+            // newly-allocated space, so by skipping .clear() at the end of the previous frame,
+            // we avoid zeroing the entire buffer every single frame.
             if self.album_art_pad_buffer.len() < required_size {
                 self.album_art_pad_buffer.resize(required_size, 0);
             }
@@ -818,7 +819,6 @@ impl Renderer {
                 },
                 texture_size,
             );
-            self.album_art_pad_buffer.clear();
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -894,6 +894,7 @@ impl Renderer {
                     );
                 } else {
                     let required_size = (padded_bytes_per_row * dimensions.1) as usize;
+                    // Optimization: Skip .clear() to avoid redundant zero-filling by .resize()
                     if self.video_frame_buffer.len() < required_size {
                         self.video_frame_buffer.resize(required_size, 0);
                     }
@@ -923,7 +924,6 @@ impl Renderer {
                         },
                         texture.size(),
                     );
-                    self.video_frame_buffer.clear();
                 }
                 return;
             }
@@ -992,6 +992,7 @@ impl Renderer {
             );
         } else {
             let required_size = (padded_bytes_per_row * dimensions.1) as usize;
+            // Optimization: Avoid redundant zero-filling by reuse of the pad buffer
             if self.album_art_pad_buffer.len() < required_size {
                 self.album_art_pad_buffer.resize(required_size, 0);
             }
@@ -1020,7 +1021,6 @@ impl Renderer {
                 },
                 texture_size,
             );
-            self.album_art_pad_buffer.clear();
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
