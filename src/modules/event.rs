@@ -100,7 +100,9 @@ mod tests {
 
         // Test drop behavior and recycle_tx
         drop(buffer);
-        let recycled = rx.blocking_recv().expect("Buffer should have been sent to recycle channel on drop");
+        let recycled = rx
+            .blocking_recv()
+            .expect("Buffer should have been sent to recycle channel on drop");
         assert_eq!(recycled, data);
     }
 }
