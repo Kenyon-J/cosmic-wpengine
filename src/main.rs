@@ -47,78 +47,9 @@ async fn main() -> Result<()> {
             tokio::spawn(async move { WeatherWatcher::run(weather_tx, weather_config_rx).await });
 
             let video_tx = event_tx.clone();
-            let mut video_config_rx = config_watch_rx.clone();
+            let video_config_rx = config_watch_rx.clone();
             tokio::spawn(async move {
-                let mut local_video_cancel_tx: Option<tokio::sync::watch::Sender<bool>> = None;
-
-                // Read initial state
-                let mut current_video_path: Option<String> = {
-                    let cfg = video_config_rx.borrow();
-                    cfg.appearance.video_background_path.clone()
-                };
-
-                if let Some(video) = &current_video_path {
-                    let full_path = Config::config_dir().join("videos").join(video);
-                    if full_path.exists() {
-                        let (c_tx, c_rx) = tokio::sync::watch::channel(false);
-                        local_video_cancel_tx = Some(c_tx);
-                        let (recycle_tx, recycle_rx) = tokio::sync::mpsc::channel(3);
-                        let tx_clone = video_tx.clone();
-
-                        let thread_config_rx = video_config_rx.clone();
-                        tokio::spawn(async move {
-                            let c_config_rx = thread_config_rx;
-                            let _ = modules::video::VideoDecoder::run_local_decoder(
-                                full_path.to_string_lossy().to_string(),
-                                tx_clone,
-                                c_rx,
-                                c_config_rx,
-                                recycle_rx,
-                                recycle_tx,
-                            )
-                            .await;
-                        });
-                    }
-                }
-
-                while video_config_rx.changed().await.is_ok() {
-                    let path = video_config_rx
-                        .borrow()
-                        .appearance
-                        .video_background_path
-                        .clone();
-
-                    if path != current_video_path {
-                        if let Some(cancel) = local_video_cancel_tx.take() {
-                            let _ = cancel.send(true);
-                        }
-                        current_video_path = path.clone();
-
-                        if let Some(video) = path {
-                            let full_path = Config::config_dir().join("videos").join(video);
-                            if full_path.exists() {
-                                let (c_tx, c_rx) = tokio::sync::watch::channel(false);
-                                local_video_cancel_tx = Some(c_tx);
-                                let (recycle_tx, recycle_rx) = tokio::sync::mpsc::channel(3);
-                                let tx_clone = video_tx.clone();
-
-                                let thread_config_rx = video_config_rx.clone();
-                                tokio::spawn(async move {
-                                    let c_config_rx = thread_config_rx;
-                                    let _ = modules::video::VideoDecoder::run_local_decoder(
-                                        full_path.to_string_lossy().to_string(),
-                                        tx_clone,
-                                        c_rx,
-                                        c_config_rx,
-                                        recycle_rx,
-                                        recycle_tx,
-                                    )
-                                    .await;
-                                });
-                            }
-                        }
-                    }
-                }
+                spawn_video_watcher(video_tx, video_config_rx).await;
             });
             let config_tx = event_tx.clone();
             tokio::spawn(async move {
@@ -153,4 +84,70 @@ async fn main() -> Result<()> {
             Ok(())
         })
         .await
+}
+
+fn start_video_decoder(
+    video: &str,
+    video_tx: mpsc::Sender<modules::event::Event>,
+    video_config_rx: tokio::sync::watch::Receiver<Config>,
+) -> Option<tokio::sync::watch::Sender<bool>> {
+    let full_path = Config::config_dir().join("videos").join(video);
+    if full_path.exists() {
+        let (c_tx, c_rx) = tokio::sync::watch::channel(false);
+        let (recycle_tx, recycle_rx) = tokio::sync::mpsc::channel(3);
+        let tx_clone = video_tx.clone();
+
+        let thread_config_rx = video_config_rx.clone();
+        tokio::spawn(async move {
+            let c_config_rx = thread_config_rx;
+            let _ = modules::video::VideoDecoder::run_local_decoder(
+                full_path.to_string_lossy().to_string(),
+                tx_clone,
+                c_rx,
+                c_config_rx,
+                recycle_rx,
+                recycle_tx,
+            )
+            .await;
+        });
+        Some(c_tx)
+    } else {
+        None
+    }
+}
+
+async fn spawn_video_watcher(
+    video_tx: mpsc::Sender<modules::event::Event>,
+    mut video_config_rx: tokio::sync::watch::Receiver<Config>,
+) {
+    let mut local_video_cancel_tx: Option<tokio::sync::watch::Sender<bool>> = None;
+
+    // Read initial state
+    let mut current_video_path: Option<String> = {
+        let cfg = video_config_rx.borrow();
+        cfg.appearance.video_background_path.clone()
+    };
+
+    if let Some(video) = &current_video_path {
+        local_video_cancel_tx = start_video_decoder(video, video_tx.clone(), video_config_rx.clone());
+    }
+
+    while video_config_rx.changed().await.is_ok() {
+        let path = video_config_rx
+            .borrow()
+            .appearance
+            .video_background_path
+            .clone();
+
+        if path != current_video_path {
+            if let Some(cancel) = local_video_cancel_tx.take() {
+                let _ = cancel.send(true);
+            }
+            current_video_path = path.clone();
+
+            if let Some(video) = &current_video_path {
+                local_video_cancel_tx = start_video_decoder(video, video_tx.clone(), video_config_rx.clone());
+            }
+        }
+    }
 }
