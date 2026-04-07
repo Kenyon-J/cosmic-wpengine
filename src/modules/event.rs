@@ -45,7 +45,8 @@ pub enum Event {
         bands: PooledAudioBuffer<f32>,
         waveform: PooledAudioBuffer<f32>,
     },
-    VideoFrame(Box<super::video::PooledImage>),
+    BackgroundVideoFrame(Box<super::video::PooledImage>),
+    CanvasVideoFrame(Box<super::video::PooledImage>),
     WeatherUpdated(Box<WeatherData>),
 }
 

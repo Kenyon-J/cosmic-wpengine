@@ -46,6 +46,7 @@ pub struct Renderer {
     pub(crate) ambient_uniform_buffer: wgpu::Buffer,
     pub(crate) custom_bg_uniform_buffer: wgpu::Buffer,
     pub(crate) custom_bg_bind_group: Option<wgpu::BindGroup>,
+    pub(crate) current_custom_bg_texture: Option<wgpu::Texture>,
     pub(crate) current_bg_path: Option<String>,
     pub(crate) current_custom_bg_size: Option<(u32, u32)>,
     pub(crate) _particle_buffer: wgpu::Buffer,
@@ -246,6 +247,7 @@ impl Renderer {
             ambient_uniform_buffer,
             custom_bg_uniform_buffer,
             custom_bg_bind_group: None,
+            current_custom_bg_texture: None,
             current_bg_path: None,
             current_custom_bg_size: None,
             _particle_buffer: particle_buffer,
@@ -577,8 +579,12 @@ impl Renderer {
                 self.state.is_playing = true;
             }
 
-            Event::VideoFrame(frame) => {
-                self.update_video_frame(&frame);
+            Event::BackgroundVideoFrame(frame) => {
+                self.update_background_video_frame(&frame);
+            }
+
+            Event::CanvasVideoFrame(frame) => {
+                self.update_canvas_video_frame(&frame);
             }
 
             Event::PlayerShutDown => {
@@ -866,7 +872,7 @@ impl Renderer {
         self.current_album_texture = Some(texture);
     }
 
-    fn update_video_frame(&mut self, rgba: &image::RgbaImage) {
+    fn update_canvas_video_frame(&mut self, rgba: &image::RgbaImage) {
         // Fast-path: If the texture already exists and dimensions match perfectly,
         // we can copy the raw video frame bytes straight into the GPU's VRAM!
         if let Some(texture) = &self.current_album_texture {
@@ -934,9 +940,72 @@ impl Renderer {
         self.update_album_art_texture(rgba);
     }
 
+    fn update_background_video_frame(&mut self, rgba: &image::RgbaImage) {
+        if let Some(texture) = &self.current_custom_bg_texture {
+            let dimensions = rgba.dimensions();
+            if texture.size().width == dimensions.0 && texture.size().height == dimensions.1 {
+                let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+                let unpadded_bytes_per_row = dimensions.0 * 4;
+                let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+
+                if unpadded_bytes_per_row == padded_bytes_per_row {
+                    self.queue.write_texture(
+                        wgpu::ImageCopyTexture {
+                            texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        rgba.as_raw(),
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(unpadded_bytes_per_row),
+                            rows_per_image: Some(dimensions.1),
+                        },
+                        texture.size(),
+                    );
+                } else {
+                    let required_size = (padded_bytes_per_row * dimensions.1) as usize;
+                    if self.video_frame_buffer.len() < required_size {
+                        self.video_frame_buffer.resize(required_size, 0);
+                    }
+
+                    let raw_rgba = rgba.as_raw();
+                    for y in 0..dimensions.1 {
+                        let src_start = (y * unpadded_bytes_per_row) as usize;
+                        let src_end = src_start + unpadded_bytes_per_row as usize;
+                        let dst_start = (y * padded_bytes_per_row) as usize;
+                        let dst_slice = &mut self.video_frame_buffer
+                            [dst_start..dst_start + unpadded_bytes_per_row as usize];
+                        dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
+                    }
+
+                    self.queue.write_texture(
+                        wgpu::ImageCopyTexture {
+                            texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &self.video_frame_buffer[..required_size],
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(padded_bytes_per_row),
+                            rows_per_image: Some(dimensions.1),
+                        },
+                        texture.size(),
+                    );
+                }
+                return;
+            }
+        }
+        self.load_custom_background_from_image(rgba);
+    }
+
     pub fn load_custom_background(&mut self, path: Option<&str>) {
         let Some(path) = path else {
             self.custom_bg_bind_group = None;
+            self.current_custom_bg_texture = None;
             return;
         };
 
@@ -946,10 +1015,15 @@ impl Renderer {
             Err(e) => {
                 warn!("Failed to load custom background: {}", e);
                 self.custom_bg_bind_group = None;
+                self.current_custom_bg_texture = None;
                 return;
             }
         };
 
+        self.load_custom_background_from_image(&img);
+    }
+
+    pub fn load_custom_background_from_image(&mut self, img: &image::RgbaImage) {
         let dimensions = img.dimensions();
         self.current_custom_bg_size = Some(dimensions);
         let texture_size = wgpu::Extent3d {
@@ -1044,6 +1118,7 @@ impl Renderer {
                 ],
                 label: Some("Custom Background Bind Group"),
             }));
+        self.current_custom_bg_texture = Some(texture);
     }
 
     fn update_weather_string(&mut self) {
