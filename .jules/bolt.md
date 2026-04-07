@@ -21,3 +21,7 @@
 ## 2025-05-18 - Fix MPRIS missing metadata when track ID is empty
 **Learning:** Sometimes an MPRIS player (like some web browsers or lightweight players) will emit metadata but leave the `track_id` empty or default. If we only update metadata when `current_track_id != last_track_id`, consecutive tracks with empty IDs will be ignored.
 **Action:** Always process the metadata update if the `current_track_id` is empty, ensuring that song changes without valid track IDs still propagate.
+
+## 2023-10-24 - Optimize densely packed image buffers with bulk memcpy
+**Learning:** Looping row-by-row to copy image or video frames (e.g. `ffmpeg` or `image` crate buffers) introduces severe overhead from redundant bounds checks and pointer arithmetic. When `stride == width * channels` (densely packed buffers, common for RGBA video), this is completely unnecessary.
+**Action:** Always check if `stride == expected_row_bytes`. If true, bypass the `for` loop and copy the entire frame in a single bulk operation using `copy_from_slice(&data[..frame_size])` to leverage highly optimized `memcpy` routines.
