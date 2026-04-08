@@ -91,7 +91,8 @@ fn start_video_decoder(
     video_tx: mpsc::Sender<modules::event::Event>,
     video_config_rx: tokio::sync::watch::Receiver<Config>,
 ) -> Option<tokio::sync::watch::Sender<bool>> {
-    let full_path = Config::config_dir().join("videos").join(video);
+    let video_name = std::path::Path::new(video).file_name()?;
+    let full_path = Config::config_dir().join("videos").join(video_name);
     if full_path.exists() {
         let (c_tx, c_rx) = tokio::sync::watch::channel(false);
         let (recycle_tx, recycle_rx) = tokio::sync::mpsc::channel(3);
