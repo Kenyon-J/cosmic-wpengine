@@ -226,6 +226,7 @@ impl Renderer {
         let frequency_bin_ranges =
             super::utils::build_frequency_bin_ranges(state.config.audio.bands);
         let waveform_bin_ranges = super::utils::build_waveform_bin_ranges(state.config.audio.bands);
+        let is_waveform_style = state.config.audio.style == "waveform";
 
         let mut renderer = Self {
             instance,
@@ -289,7 +290,7 @@ impl Renderer {
             secondary_text_color: [1.0, 1.0, 1.0, 0.7],
             audio_max_energy: 0.0,
             audio_base_energy: 0.0,
-            is_waveform_style: state.config.audio.style == "waveform",
+            is_waveform_style,
         };
 
         let path = renderer
@@ -634,7 +635,7 @@ impl Renderer {
             Event::AudioFrame { bands, waveform } => {
                 self.audio_max_energy = waveform
                     .iter()
-                    .fold(0.0f32, |a: f32, &b: f32| a.max(b.abs()));
+                    .fold(0.0f32, |a: f32, b: &f32| a.max(b.abs()));
                 self.audio_base_energy = if self.state.audio_bands.is_empty() {
                     0.0
                 } else {

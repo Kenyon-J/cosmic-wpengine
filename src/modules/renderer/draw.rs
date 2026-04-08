@@ -31,7 +31,8 @@ pub(crate) fn draw_frame(
         && (renderer.state.current_track.is_some() || force_vis);
 
     // Combine the pre-calculated base volume energy with our snappy treble pulse, strictly capped to prevent blown out flashing
-    let audio_energy = (renderer.audio_base_energy * 0.3 + renderer.treble_pulse * 0.4).clamp(0.0, 1.0);
+    let audio_energy =
+        (renderer.audio_base_energy * 0.3 + renderer.treble_pulse * 0.4).clamp(0.0, 1.0);
 
     // --- IMPORTANT FIX ---
     // The old state check can fail due to subtle race conditions.
