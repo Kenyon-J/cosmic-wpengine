@@ -582,32 +582,28 @@ amplitude = 1.5"#;
         let toggles_row = toggles_row
             .push(
                 row()
-                    .push(
-                        cosmic::iced::widget::tooltip(
-                            checkbox(self.wp_config.appearance.show_album_art)
-                                .on_toggle(Message::ToggleShowAlbumArt)
-                                .label("Show Album Art Foreground")
-                                .font(font),
-                            "Displays the current album cover over the background.",
-                            cosmic::iced::widget::tooltip::Position::Top,
-                        )
-                    )
+                    .push(cosmic::iced::widget::tooltip(
+                        checkbox(self.wp_config.appearance.show_album_art)
+                            .on_toggle(Message::ToggleShowAlbumArt)
+                            .label("Show Album Art Foreground")
+                            .font(font),
+                        "Displays the current album cover over the background.",
+                        cosmic::iced::widget::tooltip::Position::Top,
+                    ))
                     .push(
                         checkbox(self.wp_config.audio.show_lyrics)
                             .on_toggle(Message::ToggleShowLyrics)
                             .label("Show Lyrics")
                             .font(font),
                     )
-                    .push(
-                        cosmic::iced::widget::tooltip(
-                            checkbox(self.autostart)
-                                .on_toggle(Message::ToggleAutostart)
-                                .label("Autostart on Login")
-                                .font(font),
-                            "Launches the wallpaper engine automatically when you log in.",
-                            cosmic::iced::widget::tooltip::Position::Top,
-                        )
-                    )
+                    .push(cosmic::iced::widget::tooltip(
+                        checkbox(self.autostart)
+                            .on_toggle(Message::ToggleAutostart)
+                            .label("Autostart on Login")
+                            .font(font),
+                        "Launches the wallpaper engine automatically when you log in.",
+                        cosmic::iced::widget::tooltip::Position::Top,
+                    ))
                     .spacing(20),
             )
             .push(
