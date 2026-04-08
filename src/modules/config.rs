@@ -698,9 +698,13 @@ impl Default for ThemeLayout {
 
 impl ThemeLayout {
     pub fn load(style: &str) -> Self {
+        let style_name = std::path::Path::new(style)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(style);
         let path = Config::config_dir()
             .join("shaders")
-            .join(format!("{}.toml", style));
+            .join(format!("{}.toml", style_name));
         if let Ok(text) = std::fs::read_to_string(&path) {
             if let Ok(theme) = toml::from_str(&text) {
                 return theme;
