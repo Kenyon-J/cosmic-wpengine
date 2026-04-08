@@ -78,6 +78,12 @@ pub struct Renderer {
     pub(crate) lyric_scroll_offset: f32,
     pub(crate) video_frame_buffer: Vec<u8>,
     pub(crate) album_art_pad_buffer: Vec<u8>,
+    // --- Cached Performance Values ---
+    pub(crate) primary_text_color: [f32; 4],
+    pub(crate) secondary_text_color: [f32; 4],
+    pub(crate) audio_max_energy: f32,
+    pub(crate) audio_base_energy: f32,
+    pub(crate) is_waveform_style: bool,
 }
 
 impl Renderer {
@@ -279,6 +285,11 @@ impl Renderer {
             lyric_scroll_offset: 0.0,
             video_frame_buffer: Vec::new(),
             album_art_pad_buffer: Vec::new(),
+            primary_text_color: [1.0, 1.0, 1.0, 1.0],
+            secondary_text_color: [1.0, 1.0, 1.0, 0.7],
+            audio_max_energy: 0.0,
+            audio_base_energy: 0.0,
+            is_waveform_style: state.config.audio.style == "waveform",
         };
 
         let path = renderer
@@ -523,6 +534,7 @@ impl Renderer {
                 // Always reload the theme layout so live edits to the .toml apply instantly!
                 self.theme = *theme_layout;
                 self.state.config = *config;
+                self.is_waveform_style = self.state.config.audio.style == "waveform";
                 self.update_weather_string();
                 info!("Live settings applied!");
             }
@@ -564,6 +576,7 @@ impl Renderer {
                     .as_ref()
                     .and_then(|t| t.palette.clone());
                 self.state.current_track = Some(*track);
+                self.update_text_colors();
                 self.state.is_playing = true;
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;
@@ -601,6 +614,7 @@ impl Renderer {
                 self.current_album_texture = None;
                 self.state.has_album_art = false;
                 self.state.current_track = None;
+                self.update_text_colors();
                 self.state.is_playing = false;
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;
@@ -618,6 +632,17 @@ impl Renderer {
             }
 
             Event::AudioFrame { bands, waveform } => {
+                self.audio_max_energy = waveform
+                    .iter()
+                    .fold(0.0f32, |a: f32, &b: f32| a.max(b.abs()));
+                self.audio_base_energy = if self.state.audio_bands.is_empty() {
+                    0.0
+                } else {
+                    (self.state.audio_bands.iter().sum::<f32>()
+                        / self.state.audio_bands.len() as f32)
+                        * 5.0
+                };
+
                 let smoothing = self.state.config.audio.smoothing;
                 let target_len = self.state.audio_bands.len();
 
@@ -1116,6 +1141,45 @@ impl Renderer {
                 label: Some("Custom Background Bind Group"),
             }));
         self.current_custom_bg_texture = Some(texture);
+    }
+
+    fn update_text_colors(&mut self) {
+        let palette = self
+            .state
+            .current_track
+            .as_ref()
+            .and_then(|t| t.palette.as_deref());
+
+        let text_bg_color = palette
+            .and_then(|p| p.first())
+            .copied()
+            .unwrap_or([0.1, 0.1, 0.1]);
+        let text_accent = palette
+            .and_then(|p| p.get(1).or_else(|| p.first()))
+            .copied()
+            .unwrap_or([1.0, 1.0, 1.0]);
+
+        let luminance =
+            0.299 * text_bg_color[0] + 0.587 * text_bg_color[1] + 0.114 * text_bg_color[2];
+        if luminance > 0.55 {
+            // Dark text for bright backgrounds, tinted with the accent color
+            let tint = [
+                text_accent[0] * 0.3,
+                text_accent[1] * 0.3,
+                text_accent[2] * 0.3,
+            ];
+            self.primary_text_color = [tint[0], tint[1], tint[2], 1.0];
+            self.secondary_text_color = [tint[0], tint[1], tint[2], 0.7];
+        } else {
+            // Light text for dark backgrounds, lightly tinted with the accent color
+            let tint = [
+                text_accent[0] * 0.3 + 0.7,
+                text_accent[1] * 0.3 + 0.7,
+                text_accent[2] * 0.3 + 0.7,
+            ];
+            self.primary_text_color = [tint[0], tint[1], tint[2], 1.0];
+            self.secondary_text_color = [tint[0], tint[1], tint[2], 0.45];
+        }
     }
 
     fn update_weather_string(&mut self) {

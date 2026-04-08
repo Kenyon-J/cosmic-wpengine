@@ -30,4 +30,8 @@
 ## 23-05-2024- Optimize Staging Buffers and Hot-Loop Math
 **Learning:** Re-using staging buffers (like `video_frame_buffer`) without calling `clear()` prevents redundant zero-filling by `Vec::resize()` in subsequent frames. Additionally, pre-calculating the reciprocal of viewport dimensions (`inv_width`, `inv_height`) outside of nested loops allows replacing multiple divisions with multiplications, which are significantly faster on most CPUs.
 **Action:** Preserve capacity in scratch buffers between frames to avoid deallocations and reallocations. Use reciprocal multiplication for viewport normalization in performance-critical rendering loops.
+
+## 07-02-2025- Cache Event-Driven State for the Hot Path
+**Learning:** Performing O(N) calculations (like audio energy scanning) or complex conditional logic (like thematic text color derivation) in the main rendering loop is wasteful if the source data only changes on specific events. Caching these in the `Renderer` state reduces per-frame overhead.
+**Action:** Identify display-invariant and frame-invariant properties derived from events. Move their calculation to the event handlers (`Event::AudioFrame`, `Event::TrackChanged`) and cache the results in the primary state struct for direct access during rendering.
 >>>>>>> master
