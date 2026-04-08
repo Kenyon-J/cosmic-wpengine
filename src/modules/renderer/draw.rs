@@ -25,24 +25,14 @@ pub(crate) fn draw_frame(
     let force_vis = renderer.state.config.mode == WallpaperMode::AudioVisualiser;
     let force_art = renderer.state.config.mode == WallpaperMode::AlbumArt;
 
-    let is_waveform_style = renderer.state.config.audio.style == "waveform";
-
-    let max_energy = audio_data
-        .iter()
-        .fold(0.0f32, |a: f32, &b: &f32| a.max(b.abs()));
-    let has_audio = (max_energy > 0.001 || force_vis)
+    let has_audio = (renderer.audio_max_energy > 0.001 || force_vis)
         && !force_weather
         && !force_art
         && (renderer.state.current_track.is_some() || force_vis);
 
-    let base_energy = if renderer.state.audio_bands.is_empty() {
-        0.0
-    } else {
-        (renderer.state.audio_bands.iter().sum::<f32>() / renderer.state.audio_bands.len() as f32)
-            * 5.0
-    };
-    // Combine the base volume energy with our snappy treble pulse, strictly capped to prevent blown out flashing
-    let audio_energy = (base_energy * 0.3 + renderer.treble_pulse * 0.4).clamp(0.0, 1.0);
+    // Combine the pre-calculated base volume energy with our snappy treble pulse, strictly capped to prevent blown out flashing
+    let audio_energy =
+        (renderer.audio_base_energy * 0.3 + renderer.treble_pulse * 0.4).clamp(0.0, 1.0);
 
     // --- IMPORTANT FIX ---
     // The old state check can fail due to subtle race conditions.
@@ -271,51 +261,9 @@ pub(crate) fn draw_frame(
     let mut last_text_params = None;
     let mut last_uniform_res = None;
 
-    // 4. Pre-calculate Text colors (luminance and tinting)
-    let (primary_text, secondary_text) = {
-        let text_bg_color = renderer
-            .state
-            .current_track
-            .as_ref()
-            .and_then(|t| t.palette.as_deref())
-            .and_then(|p| p.first())
-            .copied()
-            .unwrap_or([0.1, 0.1, 0.1]);
-        let text_accent = renderer
-            .state
-            .current_track
-            .as_ref()
-            .and_then(|t| t.palette.as_deref())
-            .and_then(|p| p.get(1).or_else(|| p.first()))
-            .copied()
-            .unwrap_or([1.0, 1.0, 1.0]);
-
-        let luminance =
-            0.299 * text_bg_color[0] + 0.587 * text_bg_color[1] + 0.114 * text_bg_color[2];
-        if luminance > 0.55 {
-            // Dark text for bright backgrounds, tinted with the accent color
-            let tint = [
-                text_accent[0] * 0.3,
-                text_accent[1] * 0.3,
-                text_accent[2] * 0.3,
-            ];
-            (
-                [tint[0], tint[1], tint[2], 1.0],
-                [tint[0], tint[1], tint[2], 0.7],
-            )
-        } else {
-            // Light text for dark backgrounds, lightly tinted with the accent color
-            let tint = [
-                text_accent[0] * 0.3 + 0.7,
-                text_accent[1] * 0.3 + 0.7,
-                text_accent[2] * 0.3 + 0.7,
-            ];
-            (
-                [tint[0], tint[1], tint[2], 1.0],
-                [tint[0], tint[1], tint[2], 0.45],
-            )
-        }
-    };
+    // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
+    let primary_text = renderer.primary_text_color;
+    let secondary_text = renderer.secondary_text_color;
 
     let map_align = |a: &TextAlign| -> cosmic_text::Align {
         match a {
@@ -406,7 +354,7 @@ pub(crate) fn draw_frame(
                 shape: shape_u32,
                 time: renderer.start_time.elapsed().as_secs_f32(),
                 align: align_u32,
-                is_waveform: if is_waveform_style { 1 } else { 0 },
+                is_waveform: if renderer.is_waveform_style { 1 } else { 0 },
                 _padding: [0; 3],
             };
             let vis_bytes = unsafe {
@@ -957,7 +905,7 @@ pub(crate) fn draw_frame(
             if has_audio {
                 render_pass.set_pipeline(&renderer.visualiser_pass.pipeline);
                 render_pass.set_bind_group(0, &renderer.visualiser_pass.bind_group, &[]);
-                let instance_count = if is_waveform_style {
+                let instance_count = if renderer.is_waveform_style {
                     1
                 } else if renderer.theme.visualiser.shape == VisShape::Linear {
                     renderer.state.config.audio.bands as u32
