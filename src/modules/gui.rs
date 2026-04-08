@@ -540,10 +540,14 @@ amplitude = 1.5"#;
             BackgroundMode::FrostedGlass
         };
 
-        let bg_mode_selector = pick_list(
-            &BackgroundMode::ALL[..],
-            Some(current_bg_mode),
-            Message::BackgroundModeSelected,
+        let bg_mode_selector = cosmic::iced::widget::tooltip(
+            pick_list(
+                &BackgroundMode::ALL[..],
+                Some(current_bg_mode),
+                Message::BackgroundModeSelected,
+            ),
+            "Changes the desktop background effect.",
+            cosmic::iced::widget::tooltip::Position::Top,
         );
 
         let mut toggles_row = column().push(
@@ -578,24 +582,28 @@ amplitude = 1.5"#;
         let toggles_row = toggles_row
             .push(
                 row()
-                    .push(
+                    .push(cosmic::iced::widget::tooltip(
                         checkbox(self.wp_config.appearance.show_album_art)
                             .on_toggle(Message::ToggleShowAlbumArt)
                             .label("Show Album Art Foreground")
                             .font(font),
-                    )
+                        "Displays the current album cover over the background.",
+                        cosmic::iced::widget::tooltip::Position::Top,
+                    ))
                     .push(
                         checkbox(self.wp_config.audio.show_lyrics)
                             .on_toggle(Message::ToggleShowLyrics)
                             .label("Show Lyrics")
                             .font(font),
                     )
-                    .push(
+                    .push(cosmic::iced::widget::tooltip(
                         checkbox(self.autostart)
                             .on_toggle(Message::ToggleAutostart)
                             .label("Autostart on Login")
                             .font(font),
-                    )
+                        "Launches the wallpaper engine automatically when you log in.",
+                        cosmic::iced::widget::tooltip::Position::Top,
+                    ))
                     .spacing(20),
             )
             .push(

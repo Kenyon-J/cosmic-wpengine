@@ -219,12 +219,12 @@ impl VideoDecoder {
                                 {
                                     let pooled_img =
                                         Box::new(PooledImage::new(img, recycle_tx.clone()));
-                                match tx.try_send(Event::BackgroundVideoFrame(pooled_img)) {
+                                    match tx.try_send(Event::BackgroundVideoFrame(pooled_img)) {
                                         Ok(_) => {
                                             last_sent_time = target_time;
                                         }
                                         Err(tokio::sync::mpsc::error::TrySendError::Full(
-                                        Event::BackgroundVideoFrame(dropped),
+                                            Event::BackgroundVideoFrame(dropped),
                                         )) => {
                                             let _ = recycle_tx.try_send(dropped.into_raw());
                                         }
@@ -275,7 +275,7 @@ impl VideoDecoder {
                             if let Some(img) = image::RgbaImage::from_raw(width, height, buffer) {
                                 let pooled_img =
                                     Box::new(PooledImage::new(img, recycle_tx.clone()));
-                            let _ = tx.try_send(Event::BackgroundVideoFrame(pooled_img));
+                                let _ = tx.try_send(Event::BackgroundVideoFrame(pooled_img));
                             }
                         }
                     }
