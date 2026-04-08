@@ -1268,7 +1268,8 @@ impl Config {
             let _ = ThemeLayout::write_defaults();
             let videos_dir = Self::config_dir().join("videos");
             let _ = std::fs::create_dir_all(&videos_dir);
-        }).await;
+        })
+        .await;
 
         match tokio::fs::read_to_string(&path).await {
             Ok(text) => match toml::from_str(&text) {
@@ -1296,7 +1297,8 @@ impl Config {
                     .open(&path)
                     .await?;
                 use tokio::io::AsyncWriteExt;
-                file.write_all(toml::to_string_pretty(&config)?.as_bytes()).await?;
+                file.write_all(toml::to_string_pretty(&config)?.as_bytes())
+                    .await?;
                 tracing::info!("Created default config at {:?}", path);
                 Ok(config)
             }
