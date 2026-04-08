@@ -269,8 +269,6 @@ pub(crate) fn draw_frame(
     };
 
     let mut last_text_params = None;
-    let mut last_uniform_res = None;
-
     // 4. Pre-calculate Text colors (luminance and tinting)
     let (primary_text, secondary_text) = {
         let text_bg_color = renderer
@@ -361,10 +359,8 @@ pub(crate) fn draw_frame(
 
         wayland_manager.mark_frame_rendered(i); // Request the next frame callback
 
-        let current_res = (gpu_out.config.width, gpu_out.config.height);
-
         // 1. Process visualizer uniforms
-        if has_audio && last_uniform_res != Some(current_res) {
+        if has_audio {
             #[repr(C, align(16))]
             struct VisUniforms {
                 res: [f32; 2],
@@ -421,7 +417,7 @@ pub(crate) fn draw_frame(
         }
 
         // 2. Process album art uniforms
-        if (show_art_fg || show_art_bg || show_color_bg) && last_uniform_res != Some(current_res) {
+        if show_art_fg || show_art_bg || show_color_bg {
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
                 let bg_mode = if show_color_bg {
@@ -528,81 +524,77 @@ pub(crate) fn draw_frame(
             }
         }
 
-        if last_uniform_res != Some(current_res) {
-            if renderer.custom_bg_bind_group.is_some() {
-                // 4. Process custom background uniforms
-                let bg_mode = if renderer.state.config.appearance.disable_blur {
-                    2
-                } else {
-                    0
-                };
-                let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
+        if renderer.custom_bg_bind_group.is_some() {
+            // 4. Process custom background uniforms
+            let bg_mode = if renderer.state.config.appearance.disable_blur {
+                2
+            } else {
+                0
+            };
+            let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
 
-                let custom_bg_uniforms = ArtUniforms {
-                    color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    art_position: [0.5, 0.5],
-                    audio_energy,
-                    mode: bg_mode,
-                    bg_alpha: bg_alpha_val,
-                    art_size: 1.0,
-                    shape: 0,
-                    blur_opacity: renderer.state.config.appearance.blur_opacity,
-                    image_res: [
-                        renderer
-                            .current_custom_bg_size
-                            .map(|s| s.0 as f32)
-                            .unwrap_or(1.0),
-                        renderer
-                            .current_custom_bg_size
-                            .map(|s| s.1 as f32)
-                            .unwrap_or(1.0),
-                    ],
-                };
-                let cbg_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &custom_bg_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<ArtUniforms>(),
-                    )
-                };
-                renderer
-                    .queue
-                    .write_buffer(&renderer.custom_bg_uniform_buffer, 0, cbg_bytes);
-            } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
-                // 3. Process ambient uniforms
-                let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
+            let custom_bg_uniforms = ArtUniforms {
+                color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
+                res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                art_position: [0.5, 0.5],
+                audio_energy,
+                mode: bg_mode,
+                bg_alpha: bg_alpha_val,
+                art_size: 1.0,
+                shape: 0,
+                blur_opacity: renderer.state.config.appearance.blur_opacity,
+                image_res: [
+                    renderer
+                        .current_custom_bg_size
+                        .map(|s| s.0 as f32)
+                        .unwrap_or(1.0),
+                    renderer
+                        .current_custom_bg_size
+                        .map(|s| s.1 as f32)
+                        .unwrap_or(1.0),
+                ],
+            };
+            let cbg_bytes = unsafe {
+                std::slice::from_raw_parts(
+                    &custom_bg_uniforms as *const _ as *const u8,
+                    std::mem::size_of::<ArtUniforms>(),
+                )
+            };
+            renderer
+                .queue
+                .write_buffer(&renderer.custom_bg_uniform_buffer, 0, cbg_bytes);
+        } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
+            // 3. Process ambient uniforms
+            let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
 
-                #[repr(C, align(16))]
-                struct AmbUniforms {
-                    res: [f32; 2],
-                    time: f32,
-                    weather: u32,
-                    sky: [f32; 4],
-                    bg_alpha: f32,
-                    // Padding to match std140 layout alignment rules for vec4/arrays
-                    _padding: [f32; 3],
-                }
-                let amb_uniforms = AmbUniforms {
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    time: elapsed,
-                    weather: weather_type,
-                    sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
-                    bg_alpha: bg_alpha_val,
-                    _padding: [0.0; 3],
-                };
-                let amb_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &amb_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<AmbUniforms>(),
-                    )
-                };
-                renderer
-                    .queue
-                    .write_buffer(&renderer.ambient_uniform_buffer, 0, amb_bytes);
+            #[repr(C, align(16))]
+            struct AmbUniforms {
+                res: [f32; 2],
+                time: f32,
+                weather: u32,
+                sky: [f32; 4],
+                bg_alpha: f32,
+                // Padding to match std140 layout alignment rules for vec4/arrays
+                _padding: [f32; 3],
             }
+            let amb_uniforms = AmbUniforms {
+                res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                time: elapsed,
+                weather: weather_type,
+                sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
+                bg_alpha: bg_alpha_val,
+                _padding: [0.0; 3],
+            };
+            let amb_bytes = unsafe {
+                std::slice::from_raw_parts(
+                    &amb_uniforms as *const _ as *const u8,
+                    std::mem::size_of::<AmbUniforms>(),
+                )
+            };
+            renderer
+                .queue
+                .write_buffer(&renderer.ambient_uniform_buffer, 0, amb_bytes);
         }
-
-        last_uniform_res = Some(current_res);
 
         // --- Prepare Text for Rendering ---
         let width_f = gpu_out.config.width as f32;

@@ -215,7 +215,7 @@ impl Renderer {
             weather_render_bind_group,
             weather_render_pipeline,
         ) = super::pipelines::create_weather_pipelines(&device, &queue, config_format);
-        let theme = ThemeLayout::load(&state.config.audio.style);
+        let theme = ThemeLayout::load(&state.config.audio.style).await;
         let a_weighting_curve = super::utils::build_a_weighting_curve(state.config.audio.bands);
         let frequency_bin_ranges =
             super::utils::build_frequency_bin_ranges(state.config.audio.bands);

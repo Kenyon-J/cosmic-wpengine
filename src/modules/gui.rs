@@ -271,7 +271,10 @@ impl Application for SettingsApp {
 
     fn init(core: Core, _flags: Self::Flags) -> (Self, Task<cosmic::Action<Self::Message>>) {
         // Load your existing engine configuration
-        let wp_config = config::Config::load_or_default().unwrap_or_default();
+        let wp_config = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(config::Config::load_or_default())
+            .unwrap_or_default();
         let available_fonts = load_fonts();
         let available_files = load_files();
         let selected_file = Some("config.toml".to_string());
@@ -395,7 +398,10 @@ impl Application for SettingsApp {
                             self.status_msg = format!("Saved {}", file);
                             // If we edited the base config, ensure our GUI state stays in sync
                             if file == "config.toml" {
-                                if let Ok(new_cfg) = config::Config::load_or_default() {
+                                if let Ok(new_cfg) = tokio::runtime::Runtime::new()
+                                    .unwrap()
+                                    .block_on(config::Config::load_or_default())
+                                {
                                     self.wp_config = new_cfg;
                                 }
                             }

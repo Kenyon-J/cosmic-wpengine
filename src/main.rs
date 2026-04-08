@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
 
     local
         .run_until(async move {
-            let config = Config::load_or_default()?;
+            let config = Config::load_or_default().await?;
             info!("Config loaded: {:?}", config);
 
             let state = AppState::new(config.clone());

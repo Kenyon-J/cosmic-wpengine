@@ -697,11 +697,13 @@ impl Default for ThemeLayout {
 }
 
 impl ThemeLayout {
-    pub fn load(style: &str) -> Self {
+    pub async fn load(style: &str) -> Self {
         let path = Config::config_dir()
             .join("shaders")
             .join(format!("{}.toml", style));
-        if let Ok(text) = std::fs::read_to_string(&path) {
+
+        // Optimization: Prevent executor stalling during file I/O using tokio::fs
+        if let Ok(text) = tokio::fs::read_to_string(&path).await {
             if let Ok(theme) = toml::from_str(&text) {
                 return theme;
             } else {
@@ -1258,16 +1260,17 @@ align = "center"
 }
 
 impl Config {
-    pub fn load_or_default() -> Result<Self> {
+    pub async fn load_or_default() -> Result<Self> {
         let path = Self::config_path();
 
-        // Extract default themes so users can find and edit them!
-        let _ = ThemeLayout::write_defaults();
+        // Offload synchronous file creation and directory checks to spawn_blocking
+        let _ = tokio::task::spawn_blocking(|| {
+            let _ = ThemeLayout::write_defaults();
+            let videos_dir = Self::config_dir().join("videos");
+            let _ = std::fs::create_dir_all(&videos_dir);
+        }).await;
 
-        let videos_dir = Self::config_dir().join("videos");
-        let _ = std::fs::create_dir_all(&videos_dir);
-
-        match std::fs::read_to_string(&path) {
+        match tokio::fs::read_to_string(&path).await {
             Ok(text) => match toml::from_str(&text) {
                 Ok(config) => Ok(config),
                 Err(e) => {
@@ -1275,31 +1278,26 @@ impl Config {
                         "Syntax error in config.toml: {}. Falling back to default configuration!",
                         e
                     );
-                    let _ = std::fs::rename(&path, path.with_extension("toml.bak"));
+                    let _ = tokio::fs::rename(&path, path.with_extension("toml.bak")).await;
                     let default_config = Config::default();
-                    let _ = std::fs::write(&path, toml::to_string_pretty(&default_config)?);
+                    let _ = tokio::fs::write(&path, toml::to_string_pretty(&default_config)?).await;
                     Ok(default_config)
                 }
             },
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 let config = Config::default();
                 if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)?;
+                    tokio::fs::create_dir_all(parent).await?;
                 }
-                if let Ok(mut file) = std::fs::OpenOptions::new()
+                // Async file write
+                let mut file = tokio::fs::OpenOptions::new()
                     .write(true)
                     .create_new(true)
                     .open(&path)
-                {
-                    use std::io::Write;
-                    let _ = file.write_all(toml::to_string_pretty(&config)?.as_bytes());
-                    tracing::info!("Created default config at {:?}", path);
-                } else {
-                    tracing::warn!(
-                        "Config file may have been created concurrently at {:?}",
-                        path
-                    );
-                }
+                    .await?;
+                use tokio::io::AsyncWriteExt;
+                file.write_all(toml::to_string_pretty(&config)?.as_bytes()).await?;
+                tracing::info!("Created default config at {:?}", path);
                 Ok(config)
             }
             Err(e) => Err(e.into()),
@@ -1396,14 +1394,8 @@ impl Config {
                     // FLUSH pending events to prevent GUI sliders from queueing 100+ re-renders and locking up the engine!
                     while notify_rx.try_recv().is_ok() {}
 
-                    // Safely offload synchronous I/O parsing to the blocking thread pool
-                    if let Ok(Ok((config, theme))) = tokio::task::spawn_blocking(|| {
-                        let config = Self::load_or_default()?;
-                        let theme = ThemeLayout::load(&config.audio.style);
-                        Ok::<_, anyhow::Error>((config, theme))
-                    })
-                    .await
-                    {
+                    if let Ok(config) = Self::load_or_default().await {
+                        let theme = ThemeLayout::load(&config.audio.style).await;
                         let _ = watch_tx.send(config.clone());
                         let _ = tx
                             .send(Event::ConfigUpdated(Box::new(config), Box::new(theme)))

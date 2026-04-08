@@ -65,8 +65,8 @@ impl VisualiserPass {
 
         let bind_group = Self::create_bind_group(device, &layout, &uniform_buffer, &bands_buffer);
 
-        let theme = super::config::ThemeLayout::load(style);
-        let mut shader_src = Self::load_shader_source(theme.visualiser.shader.as_deref());
+        let theme = super::config::ThemeLayout::load(style).await;
+        let mut shader_src = Self::load_shader_source(theme.visualiser.shader.as_deref()).await;
 
         let mut pipeline = Self::create_pipeline(device, format, &layout, &shader_src).await;
 
@@ -132,8 +132,8 @@ impl VisualiserPass {
             );
         }
 
-        let theme = super::config::ThemeLayout::load(style);
-        let new_shader_src = Self::load_shader_source(theme.visualiser.shader.as_deref());
+        let theme = super::config::ThemeLayout::load(style).await;
+        let new_shader_src = Self::load_shader_source(theme.visualiser.shader.as_deref()).await;
 
         // WGSL pipeline compilation is extremely expensive. Only rebuild if the shader code actually changed!
         if self.shader_src != new_shader_src {
@@ -148,12 +148,12 @@ impl VisualiserPass {
         }
     }
 
-    fn load_shader_source(custom_shader: Option<&str>) -> String {
+    async fn load_shader_source(custom_shader: Option<&str>) -> String {
         if let Some(shader_name) = custom_shader {
             let path = super::config::Config::config_dir()
                 .join("shaders")
                 .join(shader_name);
-            std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            tokio::fs::read_to_string(&path).await.unwrap_or_else(|e| {
                 tracing::warn!(
                     "Failed to read custom shader '{shader_name}': {e}. Falling back to default."
                 );
