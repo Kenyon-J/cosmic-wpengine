@@ -590,12 +590,14 @@ amplitude = 1.5"#;
                         "Displays the current album cover over the background.",
                         cosmic::iced::widget::tooltip::Position::Top,
                     ))
-                    .push(
+                    .push(cosmic::iced::widget::tooltip(
                         checkbox(self.wp_config.audio.show_lyrics)
                             .on_toggle(Message::ToggleShowLyrics)
                             .label("Show Lyrics")
                             .font(font),
-                    )
+                        "Displays scrolling lyrics for the current track.",
+                        cosmic::iced::widget::tooltip::Position::Top,
+                    ))
                     .push(cosmic::iced::widget::tooltip(
                         checkbox(self.autostart)
                             .on_toggle(Message::ToggleAutostart)
@@ -608,18 +610,22 @@ amplitude = 1.5"#;
             )
             .push(
                 row()
-                    .push(
+                    .push(cosmic::iced::widget::tooltip(
                         checkbox(self.wp_config.weather.enabled)
                             .on_toggle(Message::ToggleWeatherEnabled)
                             .label("Enable Weather")
                             .font(font),
-                    )
-                    .push(
+                        "Displays current weather information on the desktop.",
+                        cosmic::iced::widget::tooltip::Position::Top,
+                    ))
+                    .push(cosmic::iced::widget::tooltip(
                         checkbox(self.wp_config.weather.hide_effects)
                             .on_toggle(Message::ToggleHideWeatherEffects)
                             .label("Hide Weather Effects")
                             .font(font),
-                    )
+                        "Disables rain and snow animations to save performance.",
+                        cosmic::iced::widget::tooltip::Position::Top,
+                    ))
                     .spacing(20),
             )
             .spacing(15);
@@ -643,10 +649,10 @@ amplitude = 1.5"#;
                     .font(font)
                     .width(Length::Fixed(200.0)),
             )
-            .push(slider(
-                15.0..=144.0,
-                self.wp_config.fps as f32,
-                Message::FpsChanged,
+            .push(cosmic::iced::widget::tooltip(
+                slider(15.0..=144.0, self.wp_config.fps as f32, Message::FpsChanged),
+                "Higher framerates are smoother but use more system resources.",
+                cosmic::iced::widget::tooltip::Position::Top,
             ))
             .spacing(20);
 
