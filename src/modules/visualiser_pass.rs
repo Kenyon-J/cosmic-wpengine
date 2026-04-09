@@ -150,12 +150,16 @@ impl VisualiserPass {
 
     fn load_shader_source(custom_shader: Option<&str>) -> String {
         if let Some(shader_name) = custom_shader {
+            let safe_shader_name = std::path::Path::new(shader_name)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(shader_name);
             let path = super::config::Config::config_dir()
                 .join("shaders")
-                .join(shader_name);
+                .join(safe_shader_name);
             std::fs::read_to_string(&path).unwrap_or_else(|e| {
                 tracing::warn!(
-                    "Failed to read custom shader '{shader_name}': {e}. Falling back to default."
+                    "Failed to read custom shader '{safe_shader_name}': {e}. Falling back to default."
                 );
                 include_str!("visualiser.wgsl").to_string()
             })
