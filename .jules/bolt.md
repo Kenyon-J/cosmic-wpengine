@@ -34,4 +34,8 @@
 ## 07-02-2025- Cache Event-Driven State for the Hot Path
 **Learning:** Performing O(N) calculations (like audio energy scanning) or complex conditional logic (like thematic text color derivation) in the main rendering loop is wasteful if the source data only changes on specific events. Caching these in the `Renderer` state reduces per-frame overhead.
 **Action:** Identify display-invariant and frame-invariant properties derived from events. Move their calculation to the event handlers (`Event::AudioFrame`, `Event::TrackChanged`) and cache the results in the primary state struct for direct access during rendering.
+
+## 08-02-2025- Optimize Padded Buffer Copies with Iterators
+**Learning:** When copying image data with row padding, manual indexing and slicing in a loop (e.g. `raw_rgba[src_start..src_end]`) prevents the compiler from fully optimizing the memory transfer. Using iterator-based patterns like `chunks_exact_mut().zip()` eliminates manual bounds checking and enables LLVM to apply auto-vectorization (SIMD).
+**Action:** For all bulk memory copies involving stride or padding, prefer iterator-based `chunks_exact` and `zip` patterns over manual index arithmetic.
 >>>>>>> master
