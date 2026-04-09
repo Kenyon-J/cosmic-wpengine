@@ -196,11 +196,11 @@ impl TextRenderer {
         text_renderer.cpu_vertices.clear();
         text_renderer.cpu_indices.clear();
 
-        // Optimization: Pre-calculate the inverse of the viewport width and height.
-        // This allows us to replace multiple divisions inside the triple-nested rendering loop
-        // with much faster multiplications, saving several hundred CPU divisions per frame.
-        let inv_width = 1.0 / width;
-        let inv_height = 1.0 / height;
+        // Optimization: Pre-calculate the constants for NDC transformation.
+        // This allows us to replace multiple multiplications and divisions inside
+        // the triple-nested rendering loop, saving several hundred CPU cycles per frame.
+        let width_to_ndc = 2.0 / width;
+        let height_to_ndc = 2.0 / height;
 
         for p_buf in positioned_buffers.iter_mut() {
             p_buf.buffer.shape_until_scroll(font_system, false);
@@ -332,11 +332,11 @@ impl TextRenderer {
                         let final_y = buffer_offset_y + scaled_glyph_y
                             - cached.offset[1] as f32 * p_buf.scale;
 
-                        let x = final_x * inv_width * 2.0 - 1.0;
-                        let y = -(final_y * inv_height * 2.0 - 1.0);
+                        let x = final_x * width_to_ndc - 1.0;
+                        let y = -(final_y * height_to_ndc - 1.0);
 
-                        let w = (cached.size[0] as f32 * p_buf.scale) * inv_width * 2.0;
-                        let h = (cached.size[1] as f32 * p_buf.scale) * inv_height * 2.0;
+                        let w = (cached.size[0] as f32 * p_buf.scale) * width_to_ndc;
+                        let h = (cached.size[1] as f32 * p_buf.scale) * height_to_ndc;
 
                         let color = p_buf.color;
 
