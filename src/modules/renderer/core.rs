@@ -990,18 +990,18 @@ impl Renderer {
                     );
                 } else {
                     let required_size = (padded_bytes_per_row * dimensions.1) as usize;
+                    // Optimization: Skip .clear() to avoid redundant zero-filling by .resize()
                     if self.video_frame_buffer.len() < required_size {
                         self.video_frame_buffer.resize(required_size, 0);
                     }
 
-                    let raw_rgba = rgba.as_raw();
-                    for y in 0..dimensions.1 {
-                        let src_start = (y * unpadded_bytes_per_row) as usize;
-                        let src_end = src_start + unpadded_bytes_per_row as usize;
-                        let dst_start = (y * padded_bytes_per_row) as usize;
-                        let dst_slice = &mut self.video_frame_buffer
-                            [dst_start..dst_start + unpadded_bytes_per_row as usize];
-                        dst_slice.copy_from_slice(&raw_rgba[src_start..src_end]);
+                    // Optimization: Use exact chunks and zip to eliminate manual bounds checking
+                    // and index arithmetic, allowing LLVM to auto-vectorize the memory copy.
+                    for (dst_row, src_row) in self.video_frame_buffer[..required_size]
+                        .chunks_exact_mut(padded_bytes_per_row as usize)
+                        .zip(rgba.as_raw().chunks_exact(unpadded_bytes_per_row as usize))
+                    {
+                        dst_row[..unpadded_bytes_per_row as usize].copy_from_slice(src_row);
                     }
 
                     self.queue.write_texture(
