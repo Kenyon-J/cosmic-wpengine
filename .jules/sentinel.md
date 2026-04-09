@@ -22,3 +22,7 @@
 **Vulnerability:** User-controlled configuration values used in `Path::join` can result in path traversal or complete path replacement if the input is an absolute path. In `src/main.rs`, the `video_background_path` config was joined directly to the base directory, allowing an attacker to escape the `videos` directory.
 **Learning:** `std::path::Path::join` in Rust completely replaces the existing path if the argument is an absolute path (e.g., `/etc/passwd`). This makes it a critical vector for arbitrary file access if the input is unvalidated.
 **Prevention:** Always extract the file name using `.file_name()` before joining user-controlled paths to base directories, or explicitly validate that the path does not contain path separators.
+## 2024-04-09 - Fix Path Traversal in `visualiser_pass.rs`
+**Vulnerability:** The `load_shader_source` function in `src/modules/visualiser_pass.rs` took an unvalidated `shader_name` string from user configuration and appended it to a base directory using `.join()`. In Rust, `Path::join` replaces the entire path if the provided argument is absolute, allowing arbitrary file read vulnerabilities.
+**Learning:** `std::path::Path::join` in Rust behaves dangerously with absolute paths. User input must always be sanitized before joining paths.
+**Prevention:** Use `.file_name()` to extract only the final component of a path before joining it to a base directory, or explicitly validate that the path is not absolute and does not contain directory traversal components like `..`.
