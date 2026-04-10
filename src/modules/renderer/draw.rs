@@ -716,8 +716,7 @@ pub(crate) fn draw_frame(
                     .filter(|cached| cached.content_hash == content_hash)
                     .map(|cached| cached.buffer)
                     .unwrap_or_else(|| {
-                        let mut b =
-                            cosmic_text::Buffer::new(&mut renderer.font_system, metrics);
+                        let mut b = cosmic_text::Buffer::new(&mut renderer.font_system, metrics);
                         b.set_metrics(&mut renderer.font_system, metrics);
                         b.set_size(&mut renderer.font_system, width_f, height_f);
                         b.set_text(
@@ -775,8 +774,7 @@ pub(crate) fn draw_frame(
                     .filter(|cached| cached.content_hash == content_hash)
                     .map(|cached| cached.buffer)
                     .unwrap_or_else(|| {
-                        let mut b =
-                            cosmic_text::Buffer::new(&mut renderer.font_system, metrics);
+                        let mut b = cosmic_text::Buffer::new(&mut renderer.font_system, metrics);
                         b.set_metrics(&mut renderer.font_system, metrics);
                         b.set_size(&mut renderer.font_system, width_f, height_f);
                         b.set_text(
