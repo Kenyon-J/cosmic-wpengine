@@ -153,7 +153,7 @@ impl VisualiserPass {
             let safe_shader_name = std::path::Path::new(shader_name)
                 .file_name()
                 .and_then(|n| n.to_str())
-                .unwrap_or(shader_name);
+                .unwrap_or("default.wgsl");
             let path = super::config::Config::config_dir()
                 .join("shaders")
                 .join(safe_shader_name);

@@ -701,7 +701,7 @@ impl ThemeLayout {
         let style_name = std::path::Path::new(style)
             .file_name()
             .and_then(|n| n.to_str())
-            .unwrap_or(style);
+            .unwrap_or("default");
         let path = Config::config_dir()
             .join("shaders")
             .join(format!("{}.toml", style_name));
