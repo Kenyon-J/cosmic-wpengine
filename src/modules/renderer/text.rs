@@ -1,12 +1,13 @@
 const TEXT_SHADER_SRC: &str = include_str!("../text.wgsl");
-use super::core::{GLYPH_CACHE_HEIGHT, GLYPH_CACHE_WIDTH};
+use super::core::{TextCacheKey, GLYPH_CACHE_HEIGHT, GLYPH_CACHE_WIDTH};
 
 use anyhow::Result;
 use cosmic_text::{self, Buffer, FontSystem, SwashCache};
 
 pub struct PositionedBuffer {
     pub buffer: Buffer,
-    pub text_key: String,
+    pub text_key: TextCacheKey,
+    pub content_hash: u64,
     pub pos: [f32; 2],
     pub color: [f32; 4],
     pub scale: f32,

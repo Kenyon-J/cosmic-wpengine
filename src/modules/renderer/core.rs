@@ -11,6 +11,19 @@ use crate::modules::wayland::{WaylandManager, WaylandOutput};
 
 pub const GLYPH_CACHE_WIDTH: u32 = 2048;
 pub const GLYPH_CACHE_HEIGHT: u32 = 2048;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum TextCacheKey {
+    LyricLine { monitor_idx: u32, line_idx: u32 },
+    TrackInfo { monitor_idx: u32 },
+    WeatherInfo { monitor_idx: u32 },
+}
+
+pub struct CachedBuffer {
+    pub buffer: Buffer,
+    pub content_hash: u64,
+}
+
 use super::text::*;
 
 use crate::modules::config::{TemperatureUnit, ThemeLayout};
@@ -29,7 +42,7 @@ pub struct Renderer {
     pub(crate) font_system: FontSystem,
     pub(crate) swash_cache: SwashCache,
     pub(crate) text_renderer: TextRenderer,
-    pub(crate) text_buffer_cache: std::collections::HashMap<String, Buffer>,
+    pub(crate) text_buffer_cache: std::collections::HashMap<TextCacheKey, CachedBuffer>,
     pub(crate) text_buffers: Vec<PositionedBuffer>,
     pub(crate) current_outputs_cache: Vec<WaylandOutput>,
     pub(crate) visualiser_pass: VisualiserPass,
