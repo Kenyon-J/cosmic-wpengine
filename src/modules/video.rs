@@ -204,15 +204,12 @@ impl VideoDecoder {
                                 if stride == expected_row_bytes {
                                     buffer[..frame_size].copy_from_slice(&data[..frame_size]);
                                 } else {
-                                    for y in 0..height as usize {
-                                        let src_start = y * stride;
-                                        let src_end = src_start + expected_row_bytes;
-                                        let dst_start = y * expected_row_bytes;
-                                        let dst_end = dst_start + expected_row_bytes;
-
-                                        buffer[dst_start..dst_end]
-                                            .copy_from_slice(&data[src_start..src_end]);
-                                    }
+                                    buffer[..frame_size]
+                                        .chunks_exact_mut(expected_row_bytes)
+                                        .zip(data.chunks_exact(stride))
+                                        .for_each(|(dst_row, src_row)| {
+                                            dst_row.copy_from_slice(&src_row[..expected_row_bytes]);
+                                        });
                                 }
 
                                 if let Some(img) = image::RgbaImage::from_raw(width, height, buffer)
@@ -261,15 +258,12 @@ impl VideoDecoder {
                             if stride == expected_row_bytes {
                                 buffer[..frame_size].copy_from_slice(&data[..frame_size]);
                             } else {
-                                for y in 0..height as usize {
-                                    let src_start = y * stride;
-                                    let src_end = src_start + expected_row_bytes;
-                                    let dst_start = y * expected_row_bytes;
-                                    let dst_end = dst_start + expected_row_bytes;
-
-                                    buffer[dst_start..dst_end]
-                                        .copy_from_slice(&data[src_start..src_end]);
-                                }
+                                buffer[..frame_size]
+                                    .chunks_exact_mut(expected_row_bytes)
+                                    .zip(data.chunks_exact(stride))
+                                    .for_each(|(dst_row, src_row)| {
+                                        dst_row.copy_from_slice(&src_row[..expected_row_bytes]);
+                                    });
                             }
 
                             if let Some(img) = image::RgbaImage::from_raw(width, height, buffer) {

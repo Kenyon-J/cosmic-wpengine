@@ -39,3 +39,6 @@
 **Learning:** When copying image data with row padding, manual indexing and slicing in a loop (e.g. `raw_rgba[src_start..src_end]`) prevents the compiler from fully optimizing the memory transfer. Using iterator-based patterns like `chunks_exact_mut().zip()` eliminates manual bounds checking and enables LLVM to apply auto-vectorization (SIMD).
 **Action:** For all bulk memory copies involving stride or padding, prefer iterator-based `chunks_exact` and `zip` patterns over manual index arithmetic.
 >>>>>>> master
+## 2023-10-25 - Iterator Optimization for Buffer Copies
+**Learning:** The memory copy loop for video frames used a manual `for` loop to handle unpadded strides which hindered auto-vectorization and enforced bounds checks.
+**Action:** Replaced the loop with `.chunks_exact_mut(row_bytes).zip(data.chunks_exact(stride))` to optimize buffer copy performance in hot paths without manual index arithmetic.
