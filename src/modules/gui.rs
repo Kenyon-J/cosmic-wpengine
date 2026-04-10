@@ -688,7 +688,12 @@ amplitude = 1.5"#;
         let save_btn: Element<'_, Self::Message> = {
             let btn = cosmic::iced::widget::button(text("Save File").font(font));
             if self.selected_file.is_some() {
-                btn.on_press(Message::SaveFile).into()
+                cosmic::iced::widget::tooltip(
+                    btn.on_press(Message::SaveFile),
+                    "Save changes to the selected file.",
+                    cosmic::iced::widget::tooltip::Position::Top,
+                )
+                .into()
             } else {
                 cosmic::iced::widget::tooltip(
                     btn,
@@ -723,7 +728,12 @@ amplitude = 1.5"#;
                     .into()
                 } else {
                     let btn = cosmic::iced::widget::button(text("Apply Theme").font(font));
-                    btn.on_press(Message::ApplyTheme).into()
+                    cosmic::iced::widget::tooltip(
+                        btn.on_press(Message::ApplyTheme),
+                        "Apply this theme to the wallpaper.",
+                        cosmic::iced::widget::tooltip::Position::Top,
+                    )
+                    .into()
                 }
             } else {
                 let btn = cosmic::iced::widget::button(text("Apply Theme").font(font));
@@ -743,7 +753,12 @@ amplitude = 1.5"#;
         let create_btn: Element<'_, Self::Message> = {
             let btn = cosmic::iced::widget::button(text("Create Theme").font(font));
             if !self.new_theme_name.trim().is_empty() {
-                btn.on_press(Message::CreateTheme).into()
+                cosmic::iced::widget::tooltip(
+                    btn.on_press(Message::CreateTheme),
+                    "Create a new theme file.",
+                    cosmic::iced::widget::tooltip::Position::Top,
+                )
+                .into()
             } else {
                 cosmic::iced::widget::tooltip(
                     btn,
@@ -769,10 +784,18 @@ amplitude = 1.5"#;
             .on_action(Message::EditorAction)
             .height(Length::Fill);
 
-        let report_btn = cosmic::iced::widget::button(text("Report Issue").font(font).size(14))
-            .on_press(Message::ReportIssue);
-        let notes_btn = cosmic::iced::widget::button(text("Patch Notes").font(font).size(14))
-            .on_press(Message::ShowPatchNotes);
+        let report_btn = cosmic::iced::widget::tooltip(
+            cosmic::iced::widget::button(text("Report Issue").font(font).size(14))
+                .on_press(Message::ReportIssue),
+            "Open the issue tracker in your browser.",
+            cosmic::iced::widget::tooltip::Position::Top,
+        );
+        let notes_btn = cosmic::iced::widget::tooltip(
+            cosmic::iced::widget::button(text("Patch Notes").font(font).size(14))
+                .on_press(Message::ShowPatchNotes),
+            "View recent changes and updates.",
+            cosmic::iced::widget::tooltip::Position::Top,
+        );
 
         let version_display: Element<'_, Self::Message> =
             if let Some(new_v) = &self.update_available {
