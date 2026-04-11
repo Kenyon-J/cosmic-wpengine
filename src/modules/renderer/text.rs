@@ -3,7 +3,7 @@ use super::core::{GLYPH_CACHE_HEIGHT, GLYPH_CACHE_WIDTH};
 
 use anyhow::Result;
 use cosmic_text::{self, Buffer, FontSystem, SwashCache};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum TextCacheKey {
