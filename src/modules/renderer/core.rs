@@ -11,7 +11,7 @@ use crate::modules::wayland::{WaylandManager, WaylandOutput};
 
 pub const GLYPH_CACHE_WIDTH: u32 = 2048;
 pub const GLYPH_CACHE_HEIGHT: u32 = 2048;
-use super::text::*;
+use super::text::{PositionedBuffer, TextCacheKey, TextRenderer};
 
 use crate::modules::config::{TemperatureUnit, ThemeLayout};
 use crate::modules::event::WeatherCondition;
@@ -29,7 +29,7 @@ pub struct Renderer {
     pub(crate) font_system: FontSystem,
     pub(crate) swash_cache: SwashCache,
     pub(crate) text_renderer: TextRenderer,
-    pub(crate) text_buffer_cache: std::collections::HashMap<String, Buffer>,
+    pub(crate) text_buffer_cache: std::collections::HashMap<TextCacheKey, Buffer>,
     pub(crate) text_buffers: Vec<PositionedBuffer>,
     pub(crate) current_outputs_cache: Vec<WaylandOutput>,
     pub(crate) visualiser_pass: VisualiserPass,
@@ -541,7 +541,6 @@ impl Renderer {
             }
             Event::TrackChanged(mut track) => {
                 self.text_buffer_cache.clear(); // Free old shaped lyrics from memory!
-                self.text_buffer_cache.shrink_to_fit();
 
                 // Optimization: Don't shrink staging buffers to fit on track changes;
                 // keep the allocations ready for the next track's album art or video loops.
@@ -604,7 +603,6 @@ impl Renderer {
             Event::PlayerShutDown => {
                 self.cached_track_str.clear();
                 self.text_buffer_cache.clear();
-                self.text_buffer_cache.shrink_to_fit();
                 self.state.previous_palette = self
                     .state
                     .current_track

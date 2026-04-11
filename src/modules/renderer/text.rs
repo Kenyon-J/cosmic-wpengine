@@ -3,10 +3,18 @@ use super::core::{GLYPH_CACHE_HEIGHT, GLYPH_CACHE_WIDTH};
 
 use anyhow::Result;
 use cosmic_text::{self, Buffer, FontSystem, SwashCache};
+use std::hash::{Hash, Hasher};
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum TextCacheKey {
+    Lyric(u32, u64),     // monitor_idx, content_hash
+    TrackInfo(u32, u64), // monitor_idx, content_hash
+    Weather(u32, u64),   // monitor_idx, content_hash
+}
 
 pub struct PositionedBuffer {
     pub buffer: Buffer,
-    pub text_key: String,
+    pub text_key: TextCacheKey,
     pub pos: [f32; 2],
     pub color: [f32; 4],
     pub scale: f32,
