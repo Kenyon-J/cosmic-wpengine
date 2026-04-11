@@ -26,3 +26,7 @@
 **Vulnerability:** The `load_shader_source` function in `src/modules/visualiser_pass.rs` took an unvalidated `shader_name` string from user configuration and appended it to a base directory using `.join()`. In Rust, `Path::join` replaces the entire path if the provided argument is absolute, allowing arbitrary file read vulnerabilities.
 **Learning:** `std::path::Path::join` in Rust behaves dangerously with absolute paths. User input must always be sanitized before joining paths.
 **Prevention:** Use `.file_name()` to extract only the final component of a path before joining it to a base directory, or explicitly validate that the path is not absolute and does not contain directory traversal components like `..`.
+## 2026-04-11 - Fix Path Traversal in Shader and Theme Loading
+**Vulnerability:** Unsafe fallback logic when sanitizing file paths using `std::path::Path::new(path).file_name()`. If the input path is malicious (e.g., ends in `..` or is `/`), `file_name()` returns `None`. Using `.unwrap_or(original_input)` bypasses the sanitization entirely, allowing path traversal or absolute path injection.
+**Learning:** When sanitizing a potentially dangerous input with a function that returns `Option`, falling back to the original unsanitized input is a logical flaw that defeats the purpose of the sanitization.
+**Prevention:** Always provide a known safe default string (e.g., `.unwrap_or("default_safe_file.txt")`) when a sanitization function fails, rather than reusing the untrusted input.
