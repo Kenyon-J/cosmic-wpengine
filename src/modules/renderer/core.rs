@@ -29,7 +29,7 @@ pub struct Renderer {
     pub(crate) font_system: FontSystem,
     pub(crate) swash_cache: SwashCache,
     pub(crate) text_renderer: TextRenderer,
-    pub(crate) text_buffer_cache: std::collections::HashMap<String, Buffer>,
+    pub(crate) text_buffer_cache: std::collections::HashMap<TextCacheKey, Buffer>,
     pub(crate) text_buffers: Vec<PositionedBuffer>,
     pub(crate) current_outputs_cache: Vec<WaylandOutput>,
     pub(crate) visualiser_pass: VisualiserPass,

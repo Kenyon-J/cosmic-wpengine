@@ -1,4 +1,4 @@
-use super::text::{PositionedBuffer, TextRenderer, TextVertex};
+use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
 use crate::modules::colour::{lerp_colour, time_to_sky_colour};
 use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
@@ -7,6 +7,8 @@ use crate::modules::state::SceneHint;
 use crate::modules::wayland::WaylandManager;
 use anyhow::Result;
 use cosmic_text::{self, Attrs, Family, Metrics, Shaping};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use tracing::warn;
 
 pub(crate) fn draw_frame(
@@ -228,6 +230,26 @@ pub(crate) fn draw_frame(
 
     let elapsed = renderer.start_time.elapsed().as_secs_f32();
 
+    // Hashing helper for cache keys
+    let hash_str = |s: &str| {
+        let mut hasher = DefaultHasher::new();
+        s.hash(&mut hasher);
+        hasher.finish()
+    };
+
+    // Pre-calculate hashes for static display strings once per frame
+    let track_hash = if !renderer.cached_track_str.is_empty() {
+        Some(hash_str(&renderer.cached_track_str))
+    } else {
+        None
+    };
+
+    let weather_hash = if !renderer.cached_weather_str.is_empty() {
+        Some(hash_str(&renderer.cached_weather_str))
+    } else {
+        None
+    };
+
     // 3. Pre-calculate Sky colors
     let sky_color_data = if renderer.custom_bg_bind_group.is_none() {
         let mut weather_type = 0u32;
@@ -352,7 +374,7 @@ pub(crate) fn draw_frame(
                 ],
                 amplitude: renderer.theme.visualiser.amplitude,
                 shape: shape_u32,
-                time: renderer.start_time.elapsed().as_secs_f32(),
+                time: elapsed,
                 align: align_u32,
                 is_waveform: if renderer.is_waveform_style { 1 } else { 0 },
                 _padding: [0; 3],
@@ -587,14 +609,14 @@ pub(crate) fn draw_frame(
                         let start_idx = renderer.current_lyric_idx.saturating_sub(2);
                         let end_idx = (renderer.current_lyric_idx + 2).min(lyrics.len());
 
-                        for i in start_idx..=end_idx {
-                            if i == 0 || i > lyrics.len() {
+                        for line_idx in start_idx..=end_idx {
+                            if line_idx == 0 || line_idx > lyrics.len() {
                                 continue;
                             }
 
-                            let lyric_line = &lyrics[i - 1];
+                            let lyric_line = &lyrics[line_idx - 1];
                             // Compute exactly how far this string is from the "current active string"
-                            let dist = (i as f32)
+                            let dist = (line_idx as f32)
                                 - (renderer.current_lyric_idx as f32)
                                 - renderer.lyric_scroll_offset;
                             let abs_dist = dist.abs();
@@ -634,7 +656,13 @@ pub(crate) fn draw_frame(
                             if final_color[3] > 0.01 {
                                 let metrics =
                                     Metrics::new(active_font_size, active_font_size * 1.2);
-                                let text_key = format!("{i}_{}", lyric_line.text);
+
+                                let text_key = TextCacheKey::Lyric {
+                                    monitor: i as u32,
+                                    line: line_idx as u32,
+                                    hash: hash_str(&lyric_line.text),
+                                };
+
                                 let mut buffer = renderer
                                     .text_buffer_cache
                                     .remove(&text_key)
@@ -683,9 +711,13 @@ pub(crate) fn draw_frame(
             }
 
             if renderer.state.current_track.is_some() && !renderer.cached_track_str.is_empty() {
+                let hash = track_hash.unwrap();
                 let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
-                let text_key = format!("{i}_{}", renderer.cached_track_str);
+                let text_key = TextCacheKey::TrackInfo {
+                    monitor: i as u32,
+                    hash,
+                };
                 let mut buffer =
                     renderer
                         .text_buffer_cache
@@ -736,9 +768,13 @@ pub(crate) fn draw_frame(
                 && renderer.state.weather.is_some()
                 && !renderer.cached_weather_str.is_empty()
             {
+                let hash = weather_hash.unwrap();
                 let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
-                let text_key = format!("{i}_{}", renderer.cached_weather_str);
+                let text_key = TextCacheKey::Weather {
+                    monitor: i as u32,
+                    hash,
+                };
                 let mut buffer =
                     renderer
                         .text_buffer_cache

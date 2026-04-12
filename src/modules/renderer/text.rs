@@ -4,9 +4,16 @@ use super::core::{GLYPH_CACHE_HEIGHT, GLYPH_CACHE_WIDTH};
 use anyhow::Result;
 use cosmic_text::{self, Buffer, FontSystem, SwashCache};
 
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub enum TextCacheKey {
+    Lyric { monitor: u32, line: u32, hash: u64 },
+    TrackInfo { monitor: u32, hash: u64 },
+    Weather { monitor: u32, hash: u64 },
+}
+
 pub struct PositionedBuffer {
     pub buffer: Buffer,
-    pub text_key: String,
+    pub text_key: TextCacheKey,
     pub pos: [f32; 2],
     pub color: [f32; 4],
     pub scale: f32,
