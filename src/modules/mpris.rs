@@ -644,7 +644,10 @@ impl MprisWatcher {
         }
 
         if let Ok(home) = std::env::var("HOME") {
-            if path.starts_with(home) {
+            let home_path = std::path::Path::new(&home);
+            let music_path = home_path.join("Music");
+            let cache_path = home_path.join(".cache");
+            if path.starts_with(music_path) || path.starts_with(cache_path) {
                 return true;
             }
         }
@@ -693,11 +696,22 @@ mod tests {
         assert!(MprisWatcher::is_safe_path(Path::new(
             "/home/testuser/Music/cover.png"
         )));
+        assert!(MprisWatcher::is_safe_path(Path::new(
+            "/home/testuser/.cache/art.jpg"
+        )));
 
         // Path traversal attempts
         assert!(!MprisWatcher::is_safe_path(Path::new("/tmp/../etc/passwd")));
         assert!(!MprisWatcher::is_safe_path(Path::new(
             "/run/user/../../var/log"
+        )));
+
+        // Blocked home directory access attempts
+        assert!(!MprisWatcher::is_safe_path(Path::new(
+            "/home/testuser/.ssh/id_rsa"
+        )));
+        assert!(!MprisWatcher::is_safe_path(Path::new(
+            "/home/testuser/document.pdf"
         )));
 
         // Relative paths
