@@ -15,6 +15,7 @@ use super::text::*;
 
 use crate::modules::config::{TemperatureUnit, ThemeLayout};
 use crate::modules::event::WeatherCondition;
+use super::text::TextCacheKey;
 pub struct GpuOutput {
     pub surface: wgpu::Surface<'static>,
     pub config: wgpu::SurfaceConfiguration,
@@ -29,7 +30,7 @@ pub struct Renderer {
     pub(crate) font_system: FontSystem,
     pub(crate) swash_cache: SwashCache,
     pub(crate) text_renderer: TextRenderer,
-    pub(crate) text_buffer_cache: std::collections::HashMap<String, Buffer>,
+    pub(crate) text_buffer_cache: std::collections::HashMap<TextCacheKey, Buffer>,
     pub(crate) text_buffers: Vec<PositionedBuffer>,
     pub(crate) current_outputs_cache: Vec<WaylandOutput>,
     pub(crate) visualiser_pass: VisualiserPass,
@@ -535,6 +536,12 @@ impl Renderer {
                 // Always reload the theme layout so live edits to the .toml apply instantly!
                 self.theme = *theme_layout;
                 self.state.config = *config;
+
+                // Optimization: Clear and shrink the text buffer cache on config updates to ensure
+                // changes like font family or size are applied immediately and memory is reclaimed.
+                self.text_buffer_cache.clear();
+                self.text_buffer_cache.shrink_to_fit();
+
                 self.is_waveform_style = self.state.config.audio.style == "waveform";
                 self.update_weather_string();
                 info!("Live settings applied!");

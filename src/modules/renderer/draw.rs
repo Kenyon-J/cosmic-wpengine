@@ -1,5 +1,6 @@
-use super::text::{PositionedBuffer, TextRenderer, TextVertex};
+use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
+use super::utils::hash_str;
 use crate::modules::colour::{lerp_colour, time_to_sky_colour};
 use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
 use crate::modules::event::WeatherCondition;
@@ -228,6 +229,10 @@ pub(crate) fn draw_frame(
 
     let elapsed = renderer.start_time.elapsed().as_secs_f32();
 
+    // Optimization: Hash display-invariant strings outside the multi-monitor loop
+    let track_hash = hash_str(&renderer.cached_track_str);
+    let weather_hash = hash_str(&renderer.cached_weather_str);
+
     // 3. Pre-calculate Sky colors
     let sky_color_data = if renderer.custom_bg_bind_group.is_none() {
         let mut weather_type = 0u32;
@@ -288,8 +293,9 @@ pub(crate) fn draw_frame(
         renderer.text_buffer_cache.shrink_to_fit();
     }
 
-    for (i, gpu_out) in renderer.outputs.iter_mut().enumerate() {
-        if wayland_manager.is_frame_pending(i) {
+    for (i_idx, gpu_out) in renderer.outputs.iter_mut().enumerate() {
+        let i = i_idx as u32;
+        if wayland_manager.is_frame_pending(i as usize) {
             continue; // The compositor hasn't shown the last frame yet (e.g., hidden behind a window)
         }
 
@@ -307,7 +313,7 @@ pub(crate) fn draw_frame(
             Err(e) => anyhow::bail!("Failed to get current texture: {:?}", e),
         };
 
-        wayland_manager.mark_frame_rendered(i); // Request the next frame callback
+        wayland_manager.mark_frame_rendered(i as usize); // Request the next frame callback
 
         let current_res = (gpu_out.config.width, gpu_out.config.height);
 
@@ -352,7 +358,7 @@ pub(crate) fn draw_frame(
                 ],
                 amplitude: renderer.theme.visualiser.amplitude,
                 shape: shape_u32,
-                time: renderer.start_time.elapsed().as_secs_f32(),
+                time: elapsed,
                 align: align_u32,
                 is_waveform: if renderer.is_waveform_style { 1 } else { 0 },
                 _padding: [0; 3],
@@ -558,7 +564,7 @@ pub(crate) fn draw_frame(
         let scale_factor = wayland_manager
             .app_data
             .windows
-            .get(i)
+            .get(i as usize)
             .map(|w| w.scale_factor as f32)
             .unwrap_or(1.0);
         let logical_height = height_f / scale_factor;
@@ -587,14 +593,14 @@ pub(crate) fn draw_frame(
                         let start_idx = renderer.current_lyric_idx.saturating_sub(2);
                         let end_idx = (renderer.current_lyric_idx + 2).min(lyrics.len());
 
-                        for i in start_idx..=end_idx {
-                            if i == 0 || i > lyrics.len() {
+                        for line_idx in start_idx..=end_idx {
+                            if line_idx == 0 || line_idx > lyrics.len() {
                                 continue;
                             }
 
-                            let lyric_line = &lyrics[i - 1];
+                            let lyric_line = &lyrics[line_idx - 1];
                             // Compute exactly how far this string is from the "current active string"
-                            let dist = (i as f32)
+                            let dist = (line_idx as f32)
                                 - (renderer.current_lyric_idx as f32)
                                 - renderer.lyric_scroll_offset;
                             let abs_dist = dist.abs();
@@ -634,7 +640,11 @@ pub(crate) fn draw_frame(
                             if final_color[3] > 0.01 {
                                 let metrics =
                                     Metrics::new(active_font_size, active_font_size * 1.2);
-                                let text_key = format!("{i}_{}", lyric_line.text);
+                                let text_key = TextCacheKey::Lyric {
+                                    monitor: i,
+                                    line: line_idx as u32,
+                                    content_hash: hash_str(&lyric_line.text),
+                                };
                                 let mut buffer = renderer
                                     .text_buffer_cache
                                     .remove(&text_key)
@@ -685,7 +695,10 @@ pub(crate) fn draw_frame(
             if renderer.state.current_track.is_some() && !renderer.cached_track_str.is_empty() {
                 let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
-                let text_key = format!("{i}_{}", renderer.cached_track_str);
+                let text_key = TextCacheKey::Track {
+                    monitor: i,
+                    content_hash: track_hash,
+                };
                 let mut buffer =
                     renderer
                         .text_buffer_cache
@@ -738,7 +751,10 @@ pub(crate) fn draw_frame(
             {
                 let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
-                let text_key = format!("{i}_{}", renderer.cached_weather_str);
+                let text_key = TextCacheKey::Weather {
+                    monitor: i,
+                    content_hash: weather_hash,
+                };
                 let mut buffer =
                     renderer
                         .text_buffer_cache
