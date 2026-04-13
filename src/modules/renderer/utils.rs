@@ -29,6 +29,13 @@ pub(crate) fn build_a_weighting_curve(band_count: usize) -> Vec<f32> {
         .collect()
 }
 
+pub(crate) fn hash_str(s: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish()
+}
+
 pub(crate) fn build_frequency_bin_ranges(band_count: usize) -> Vec<(usize, usize)> {
     let min_freq = 40.0f32;
     let max_freq = 16000.0f32;
