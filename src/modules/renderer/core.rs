@@ -73,7 +73,9 @@ pub struct Renderer {
     pub(crate) lyric_bounce_value: f32,
     pub(crate) lyric_bounce_velocity: f32,
     pub(crate) cached_track_str: String,
+    pub(crate) cached_track_hash: u64,
     pub(crate) cached_weather_str: String,
+    pub(crate) cached_weather_hash: u64,
     pub(crate) current_lyric_idx: usize,
     pub(crate) lyric_scroll_offset: f32,
     pub(crate) video_frame_buffer: Vec<u8>,
@@ -281,7 +283,9 @@ impl Renderer {
             lyric_bounce_value: 0.0,
             lyric_bounce_velocity: 0.0,
             cached_track_str: String::new(),
+            cached_track_hash: 0,
             cached_weather_str: String::new(),
+            cached_weather_hash: 0,
             current_lyric_idx: 0,
             lyric_scroll_offset: 0.0,
             video_frame_buffer: Vec::new(),
@@ -500,6 +504,7 @@ impl Renderer {
     }
 
     async fn handle_event(&mut self, event: Event) {
+        use super::utils::hash_str;
         match event {
             Event::ConfigUpdated(config, theme_layout) => {
                 let _ = self.show_lyrics_tx.send(config.audio.show_lyrics);
@@ -577,6 +582,7 @@ impl Renderer {
                 self.state.has_album_art = has_art;
                 self.cached_track_str =
                     format!("{} — {}\n{}", track.title, track.artist, track.album);
+                self.cached_track_hash = hash_str(&self.cached_track_str);
                 self.state.previous_palette = self
                     .state
                     .current_track
@@ -609,6 +615,7 @@ impl Renderer {
 
             Event::PlayerShutDown => {
                 self.cached_track_str.clear();
+                self.cached_track_hash = 0;
                 self.text_buffer_cache.clear();
                 self.text_buffer_cache.shrink_to_fit();
                 self.state.previous_palette = self
@@ -1190,6 +1197,7 @@ impl Renderer {
     }
 
     fn update_weather_string(&mut self) {
+        use super::utils::hash_str;
         if let Some(weather) = &self.state.weather {
             let mut val = weather.temperature_celsius;
             let mut unit = "C";
@@ -1207,8 +1215,10 @@ impl Renderer {
                 WeatherCondition::Fog => "Fog",
             };
             self.cached_weather_str = format!("{} {:.1}°{}", condition_str, val, unit);
+            self.cached_weather_hash = hash_str(&self.cached_weather_str);
         } else {
             self.cached_weather_str.clear();
+            self.cached_weather_hash = 0;
         }
     }
 }
