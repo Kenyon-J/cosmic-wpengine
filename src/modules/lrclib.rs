@@ -38,6 +38,7 @@ pub async fn fetch_synced_lyrics(
 }
 
 fn parse_lrc(lrc: &str) -> Box<[LyricLine]> {
+    use crate::modules::renderer::utils::hash_str;
     let mut lines = Vec::new();
 
     for line in lrc.lines() {
@@ -46,6 +47,7 @@ fn parse_lrc(lrc: &str) -> Box<[LyricLine]> {
             if start < end {
                 let time_str = &line[start + 1..end];
                 let text = line[end + 1..].trim().to_string().into_boxed_str();
+                let text_hash = hash_str(&text);
 
                 let mut parts = time_str.split(':');
                 if let (Some(m), Some(s)) = (parts.next(), parts.next()) {
@@ -53,6 +55,7 @@ fn parse_lrc(lrc: &str) -> Box<[LyricLine]> {
                         lines.push(LyricLine {
                             start_time_secs: mins * 60.0 + secs,
                             text,
+                            text_hash,
                         });
                     }
                 }
@@ -83,12 +86,15 @@ mod tests {
 
         assert!((lines[0].start_time_secs - 12.34).abs() < TOLERANCE);
         assert_eq!(lines[0].text.as_ref(), "First line of lyrics");
+        assert!(lines[0].text_hash != 0);
 
         assert!((lines[1].start_time_secs - 65.67).abs() < TOLERANCE);
         assert_eq!(lines[1].text.as_ref(), "Second line of lyrics");
+        assert!(lines[1].text_hash != 0);
 
         assert!((lines[2].start_time_secs - 165.00).abs() < TOLERANCE);
         assert_eq!(lines[2].text.as_ref(), "Third line of lyrics");
+        assert!(lines[2].text_hash != 0);
     }
 
     #[test]

@@ -65,6 +65,7 @@ pub struct TrackInfo {
 pub struct LyricLine {
     pub start_time_secs: f32,
     pub text: Box<str>,
+    pub text_hash: u64,
 }
 
 #[derive(Debug, Clone)]

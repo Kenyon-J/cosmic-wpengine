@@ -229,9 +229,9 @@ pub(crate) fn draw_frame(
 
     let elapsed = renderer.start_time.elapsed().as_secs_f32();
 
-    // Optimization: Hash display-invariant strings outside the multi-monitor loop
-    let track_hash = hash_str(&renderer.cached_track_str);
-    let weather_hash = hash_str(&renderer.cached_weather_str);
+    // Optimization: Use pre-calculated hashes for display-invariant strings
+    let track_hash = renderer.cached_track_hash;
+    let weather_hash = renderer.cached_weather_hash;
 
     // 3. Pre-calculate Sky colors
     let sky_color_data = if renderer.custom_bg_bind_group.is_none() {
@@ -643,7 +643,7 @@ pub(crate) fn draw_frame(
                                 let text_key = TextCacheKey::Lyric {
                                     monitor: i,
                                     line: line_idx as u32,
-                                    content_hash: hash_str(&lyric_line.text),
+                                    content_hash: lyric_line.text_hash,
                                 };
                                 let mut buffer = renderer
                                     .text_buffer_cache

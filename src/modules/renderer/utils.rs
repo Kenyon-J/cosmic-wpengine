@@ -29,7 +29,7 @@ pub(crate) fn build_a_weighting_curve(band_count: usize) -> Vec<f32> {
         .collect()
 }
 
-pub(crate) fn hash_str(s: &str) -> u64 {
+pub fn hash_str(s: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     s.hash(&mut hasher);
