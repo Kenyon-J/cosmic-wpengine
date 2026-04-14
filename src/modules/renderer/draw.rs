@@ -1,6 +1,5 @@
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
-use super::utils::hash_str;
 use crate::modules::colour::{lerp_colour, time_to_sky_colour};
 use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
 use crate::modules::event::WeatherCondition;
