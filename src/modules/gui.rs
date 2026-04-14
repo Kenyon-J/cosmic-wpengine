@@ -784,19 +784,33 @@ amplitude = 1.5"#;
             .on_action(Message::EditorAction)
             .height(Length::Fill);
 
-        let report_btn = cosmic::iced::widget::button(text("Report Issue").font(font).size(14))
-            .on_press(Message::ReportIssue);
-        let notes_btn = cosmic::iced::widget::button(text("Patch Notes").font(font).size(14))
-            .on_press(Message::ShowPatchNotes);
+        let report_btn = cosmic::iced::widget::tooltip(
+            cosmic::iced::widget::button(text("Report Issue").font(font).size(14))
+                .on_press(Message::ReportIssue),
+            "Open GitHub to report a bug or request a feature.",
+            cosmic::iced::widget::tooltip::Position::Top,
+        );
+        let notes_btn = cosmic::iced::widget::tooltip(
+            cosmic::iced::widget::button(text("Patch Notes").font(font).size(14))
+                .on_press(Message::ShowPatchNotes),
+            "View recent changes and updates to the engine.",
+            cosmic::iced::widget::tooltip::Position::Top,
+        );
 
         let version_display: Element<'_, Self::Message> =
             if let Some(new_v) = &self.update_available {
-                cosmic::iced::widget::button(
+                let update_btn = cosmic::iced::widget::button(
                     text(format!("Update Available: {}", new_v))
                         .font(font)
                         .size(14),
                 )
-                .on_press(Message::OpenUpdateLink)
+                .on_press(Message::OpenUpdateLink);
+
+                cosmic::iced::widget::tooltip(
+                    update_btn,
+                    "Open the release page to download the update.",
+                    cosmic::iced::widget::tooltip::Position::Top,
+                )
                 .into()
             } else {
                 text(format!("v{}", env!("CARGO_PKG_VERSION")))
