@@ -46,3 +46,7 @@
 ## 15-05-2026 - Optimize High-Frequency Hashing in Rendering Path
 **Learning:** Repeatedly hashing the same strings (track info, weather, lyrics) inside a high-frequency rendering loop (60+ FPS) is a significant waste of CPU cycles, especially in multi-monitor setups where the loop executes multiple times per frame.
 **Action:** Pre-calculate string hashes once in data-parsing modules or event handlers and store them alongside the data. In the hot path, use the cached `u64` hash instead of recalculating it from the string.
+
+## 15-04-2026- Optimize rendering hot path with cached theme colors and reduced redundancy
+**Learning:** Performing palette lookups, theme color derivations, and string comparisons inside the main rendering loop (`draw_frame`) is wasteful as this data only changes on specific events.
+**Action:** Move display-invariant and frame-invariant color calculations to event handlers (`Event::TrackChanged`, `Event::ConfigUpdated`) and cache them in the `Renderer`. Pre-calculate constant values like color deltas and struct instances (e.g., `Metrics`) outside of inner rendering loops to minimize CPU overhead per frame.

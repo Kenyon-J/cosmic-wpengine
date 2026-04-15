@@ -16,9 +16,10 @@ pub(crate) fn draw_frame(
 ) -> Result<()> {
     let _scene = renderer.state.scene_description();
 
-    let audio_data = match renderer.state.config.audio.style.as_str() {
-        "waveform" => &renderer.state.audio_waveform,
-        _ => &renderer.state.audio_bands,
+    let audio_data = if renderer.is_waveform_style {
+        &renderer.state.audio_waveform
+    } else {
+        &renderer.state.audio_bands
     };
 
     let force_weather = renderer.state.config.mode == WallpaperMode::Weather;
@@ -145,83 +146,48 @@ pub(crate) fn draw_frame(
     // Optimization: Pre-calculate common render values out of the monitor loop
     // to avoid redundant calculations for each output.
 
-    // 1. Pre-calculate Visualizer colors
+    // 1. Pre-calculate Visualizer colors - NOW CACHED
     let (top_col, bottom_col) = if has_audio {
-        let get_colors = |palette: Option<&[[f32; 3]]>| -> ([f32; 3], [f32; 3]) {
-            let top = renderer.theme.visualiser.color_top;
-            let bottom = renderer.theme.visualiser.color_bottom;
-
-            if let (Some(top_val), Some(bottom_val)) = (top, bottom) {
-                (top_val, bottom_val)
-            } else {
-                match palette {
-                    Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
-                    Some(p) if p.len() == 1 => (
-                        top.unwrap_or(p[0]),
-                        bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
-                    ),
-                    _ => (
-                        top.unwrap_or([1.0, 0.2, 0.5]),
-                        bottom.unwrap_or([0.2, 0.5, 1.0]),
-                    ),
-                }
-            }
-        };
-        let target_colors = get_colors(
-            renderer
-                .state
-                .current_track
-                .as_ref()
-                .and_then(|t| t.palette.as_deref()),
-        );
         if renderer.state.transition_progress < 1.0 {
-            let prev_colors = get_colors(renderer.state.previous_palette.as_deref());
             let t = renderer.state.transition_progress;
-            let top_rgb = lerp_colour(prev_colors.0, target_colors.0, t);
-            let bottom_rgb = lerp_colour(prev_colors.1, target_colors.1, t);
+            let top_rgb = lerp_colour(renderer.vis_prev_colors.0, renderer.vis_target_colors.0, t);
+            let bottom_rgb =
+                lerp_colour(renderer.vis_prev_colors.1, renderer.vis_target_colors.1, t);
             (
                 [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
                 [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
             )
         } else {
-            let top_rgb = target_colors.0;
-            let bottom_rgb = target_colors.1;
             (
-                [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
-                [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
+                [
+                    renderer.vis_target_colors.0[0],
+                    renderer.vis_target_colors.0[1],
+                    renderer.vis_target_colors.0[2],
+                    1.0,
+                ],
+                [
+                    renderer.vis_target_colors.1[0],
+                    renderer.vis_target_colors.1[1],
+                    renderer.vis_target_colors.1[2],
+                    1.0,
+                ],
             )
         }
     } else {
         ([0.0; 4], [0.0; 4])
     };
 
-    // 2. Pre-calculate Album Art colors
+    // 2. Pre-calculate Album Art colors - NOW CACHED
     let art_tint_color = if show_art_fg || show_art_bg || show_color_bg {
-        renderer
-            .state
-            .current_track
-            .as_ref()
-            .map(|track| {
-                let target_color = track
-                    .palette
-                    .as_deref()
-                    .and_then(|p| p.first())
-                    .copied()
-                    .unwrap_or([0.1, 0.1, 0.1]);
-                if renderer.state.transition_progress < 1.0 {
-                    let prev_color = renderer
-                        .state
-                        .previous_palette
-                        .as_deref()
-                        .and_then(|p| p.first())
-                        .copied()
-                        .unwrap_or([0.1, 0.1, 0.1]);
-                    lerp_colour(prev_color, target_color, renderer.state.transition_progress)
-                } else {
-                    target_color
-                }
-            })
-            .unwrap_or([0.1, 0.1, 0.1])
+        if renderer.state.transition_progress < 1.0 {
+            lerp_colour(
+                renderer.art_prev_color,
+                renderer.art_target_color,
+                renderer.state.transition_progress,
+            )
+        } else {
+            renderer.art_target_color
+        }
     } else {
         [0.1, 0.1, 0.1]
     };
@@ -268,6 +234,28 @@ pub(crate) fn draw_frame(
     // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
     let primary_text = renderer.primary_text_color;
     let secondary_text = renderer.secondary_text_color;
+    let text_color_delta = [
+        primary_text[0] - secondary_text[0],
+        primary_text[1] - secondary_text[1],
+        primary_text[2] - secondary_text[2],
+        primary_text[3] - secondary_text[3],
+    ];
+
+    let lyrics_align = match renderer.theme.lyrics.align {
+        TextAlign::Left => cosmic_text::Align::Left,
+        TextAlign::Center => cosmic_text::Align::Center,
+        TextAlign::Right => cosmic_text::Align::Right,
+    };
+    let track_info_align = match renderer.theme.track_info.align {
+        TextAlign::Left => cosmic_text::Align::Left,
+        TextAlign::Center => cosmic_text::Align::Center,
+        TextAlign::Right => cosmic_text::Align::Right,
+    };
+    let weather_align = match renderer.theme.weather.align {
+        TextAlign::Left => cosmic_text::Align::Left,
+        TextAlign::Center => cosmic_text::Align::Center,
+        TextAlign::Right => cosmic_text::Align::Right,
+    };
 
     let map_align = |a: &TextAlign| -> cosmic_text::Align {
         match a {
@@ -314,6 +302,8 @@ pub(crate) fn draw_frame(
 
         wayland_manager.mark_frame_rendered(i as usize); // Request the next frame callback
 
+        let current_width_f = gpu_out.config.width as f32;
+        let current_height_f = gpu_out.config.height as f32;
         let current_res = (gpu_out.config.width, gpu_out.config.height);
 
         // 1. Process visualizer uniforms
@@ -344,7 +334,7 @@ pub(crate) fn draw_frame(
                 VisAlign::Right => 2,
             };
             let vis_uniforms = VisUniforms {
-                res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                res: [current_width_f, current_height_f],
                 bands: renderer.state.config.audio.bands as u32,
                 pulse: pulse * 2.0, // Multiplier guarantees visible beat effects
                 top: top_col,
@@ -394,7 +384,7 @@ pub(crate) fn draw_frame(
                         color[2],
                         renderer.state.transition_progress,
                     ],
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                    res: [current_width_f, current_height_f],
                     art_position: [0.5, 0.5],
                     audio_energy,
                     mode: bg_mode,
@@ -444,7 +434,7 @@ pub(crate) fn draw_frame(
                         color[2],
                         renderer.state.transition_progress,
                     ],
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                    res: [current_width_f, current_height_f],
                     art_position,
                     audio_energy,
                     mode: 1,
@@ -493,7 +483,7 @@ pub(crate) fn draw_frame(
 
                 let custom_bg_uniforms = ArtUniforms {
                     color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                    res: [current_width_f, current_height_f],
                     art_position: [0.5, 0.5],
                     audio_energy,
                     mode: bg_mode,
@@ -536,7 +526,7 @@ pub(crate) fn draw_frame(
                     _padding: [f32; 3],
                 }
                 let amb_uniforms = AmbUniforms {
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                    res: [current_width_f, current_height_f],
                     time: elapsed,
                     weather: weather_type,
                     sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
@@ -558,8 +548,8 @@ pub(crate) fn draw_frame(
         last_uniform_res = Some(current_res);
 
         // --- Prepare Text for Rendering ---
-        let width_f = gpu_out.config.width as f32;
-        let height_f = gpu_out.config.height as f32;
+        let width_f = current_width_f;
+        let height_f = current_height_f;
         let scale_factor = wayland_manager
             .app_data
             .windows
@@ -588,6 +578,7 @@ pub(crate) fn draw_frame(
                             (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
                         let active_font_size = base_font_size * 1.5;
                         let line_spacing = active_font_size * 1.2;
+                        let metrics = Metrics::new(active_font_size, line_spacing);
 
                         let start_idx = renderer.current_lyric_idx.saturating_sub(2);
                         let end_idx = (renderer.current_lyric_idx + 2).min(lyrics.len());
@@ -622,14 +613,10 @@ pub(crate) fn draw_frame(
                             let y_pos = (dist * line_spacing) - bounce_y;
 
                             let color = [
-                                secondary_text[0]
-                                    + (primary_text[0] - secondary_text[0]) * center_weight,
-                                secondary_text[1]
-                                    + (primary_text[1] - secondary_text[1]) * center_weight,
-                                secondary_text[2]
-                                    + (primary_text[2] - secondary_text[2]) * center_weight,
-                                secondary_text[3]
-                                    + (primary_text[3] - secondary_text[3]) * center_weight,
+                                secondary_text[0] + text_color_delta[0] * center_weight,
+                                secondary_text[1] + text_color_delta[1] * center_weight,
+                                secondary_text[2] + text_color_delta[2] * center_weight,
+                                secondary_text[3] + text_color_delta[3] * center_weight,
                             ];
 
                             // Fade out gracefully to prevent popping strings at top/bottom
@@ -637,8 +624,6 @@ pub(crate) fn draw_frame(
                             let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
 
                             if final_color[3] > 0.01 {
-                                let metrics =
-                                    Metrics::new(active_font_size, active_font_size * 1.2);
                                 let text_key = TextCacheKey::Lyric {
                                     monitor: i,
                                     line: line_idx as u32,
@@ -665,10 +650,9 @@ pub(crate) fn draw_frame(
                                 buffer.set_metrics(&mut renderer.font_system, metrics);
                                 buffer.set_size(&mut renderer.font_system, width_f, height_f);
 
-                                let align = map_align(&renderer.theme.lyrics.align);
                                 buffer.lines.iter_mut().for_each(
                                     |line: &mut cosmic_text::BufferLine| {
-                                        line.set_align(Some(align));
+                                        line.set_align(Some(lyrics_align));
                                     },
                                 );
 
@@ -683,7 +667,7 @@ pub(crate) fn draw_frame(
                                     pos,
                                     color: final_color,
                                     scale: render_scale,
-                                    align,
+                                    align: lyrics_align,
                                 });
                             }
                         }
@@ -723,12 +707,11 @@ pub(crate) fn draw_frame(
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                let align = map_align(&renderer.theme.track_info.align);
                 buffer
                     .lines
                     .iter_mut()
                     .for_each(|line: &mut cosmic_text::BufferLine| {
-                        line.set_align(Some(align));
+                        line.set_align(Some(track_info_align));
                     });
                 let pos = [
                     renderer.theme.track_info.position[0] * width_f,
@@ -740,7 +723,7 @@ pub(crate) fn draw_frame(
                     pos,
                     color: final_color,
                     scale: 1.0,
-                    align,
+                    align: track_info_align,
                 });
             }
 
@@ -779,12 +762,11 @@ pub(crate) fn draw_frame(
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                let align = map_align(&renderer.theme.weather.align);
                 buffer
                     .lines
                     .iter_mut()
                     .for_each(|line: &mut cosmic_text::BufferLine| {
-                        line.set_align(Some(align));
+                        line.set_align(Some(weather_align));
                     });
                 let pos = [
                     renderer.theme.weather.position[0] * width_f,
@@ -796,7 +778,7 @@ pub(crate) fn draw_frame(
                     pos,
                     color: final_color,
                     scale: 1.0,
-                    align,
+                    align: weather_align,
                 });
             }
 
