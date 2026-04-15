@@ -257,14 +257,6 @@ pub(crate) fn draw_frame(
         TextAlign::Right => cosmic_text::Align::Right,
     };
 
-    let map_align = |a: &TextAlign| -> cosmic_text::Align {
-        match a {
-            TextAlign::Left => cosmic_text::Align::Left,
-            TextAlign::Center => cosmic_text::Align::Center,
-            TextAlign::Right => cosmic_text::Align::Right,
-        }
-    };
-
     let family = renderer
         .state
         .config

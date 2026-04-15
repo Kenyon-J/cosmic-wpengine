@@ -556,6 +556,7 @@ impl Renderer {
                 self.text_buffer_cache.shrink_to_fit();
 
                 self.is_waveform_style = self.state.config.audio.style == "waveform";
+                self.update_theme_colors();
                 self.update_weather_string();
                 info!("Live settings applied!");
             }
