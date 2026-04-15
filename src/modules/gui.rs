@@ -679,10 +679,14 @@ amplitude = 1.5"#;
             )
             .spacing(20);
 
-        let file_selector = pick_list(
-            self.available_files.clone(),
-            self.selected_file.clone(),
-            Message::FileSelected,
+        let file_selector = cosmic::iced::widget::tooltip(
+            pick_list(
+                self.available_files.clone(),
+                self.selected_file.clone(),
+                Message::FileSelected,
+            ),
+            "Select a configuration or shader file to edit.",
+            cosmic::iced::widget::tooltip::Position::Top,
         );
 
         let save_btn: Element<'_, Self::Message> = {
