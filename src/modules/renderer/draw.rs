@@ -16,9 +16,10 @@ pub(crate) fn draw_frame(
 ) -> Result<()> {
     let _scene = renderer.state.scene_description();
 
-    let audio_data = match renderer.state.config.audio.style.as_str() {
-        "waveform" => &renderer.state.audio_waveform,
-        _ => &renderer.state.audio_bands,
+    let audio_data = if renderer.is_waveform_style {
+        &renderer.state.audio_waveform
+    } else {
+        &renderer.state.audio_bands
     };
 
     let force_weather = renderer.state.config.mode == WallpaperMode::Weather;
@@ -51,7 +52,10 @@ pub(crate) fn draw_frame(
     let show_color_bg = (has_media_check_gpu || force_art)
         && renderer.state.config.appearance.album_color_background;
 
-    let clear_colour = get_clear_colour(renderer);
+    // Optimization: Calculate sky colors and clear color once per frame outside the monitor loop
+    let (weather_type, final_sky) = get_sky_state(renderer);
+    let clear_colour = get_clear_colour_from_sky(renderer, final_sky);
+
     // Use our new smart audio-reactive beat detector instead of the generic timer
     let pulse = renderer.beat_pulse;
 
@@ -232,31 +236,8 @@ pub(crate) fn draw_frame(
     let track_hash = renderer.cached_track_hash;
     let weather_hash = renderer.cached_weather_hash;
 
-    // 3. Pre-calculate Sky colors
+    // 3. Pre-calculate Sky color data for uniforms
     let sky_color_data = if renderer.custom_bg_bind_group.is_none() {
-        let mut weather_type = 0u32;
-        let sky = time_to_sky_colour(renderer.state.time_of_day);
-        let final_sky = if let Some(weather) = &renderer.state.weather {
-            if renderer.state.config.weather.enabled {
-                weather_type = match weather.condition {
-                    WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
-                    WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
-                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
-                    WeatherCondition::Snow => 3,
-                };
-                match weather.condition {
-                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
-                        lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
-                    }
-                    WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
-                    _ => sky,
-                }
-            } else {
-                sky
-            }
-        } else {
-            sky
-        };
         Some((elapsed, weather_type, final_sky))
     } else {
         None
@@ -962,7 +943,37 @@ pub(crate) fn draw_frame(
     Ok(())
 }
 
-pub(crate) fn get_clear_colour(renderer: &super::Renderer) -> wgpu::Color {
+fn get_sky_state(renderer: &super::Renderer) -> (u32, [f32; 3]) {
+    let mut weather_type = 0u32;
+    let sky = time_to_sky_colour(renderer.state.time_of_day);
+    let final_sky = if let Some(weather) = &renderer.state.weather {
+        if renderer.state.config.weather.enabled {
+            weather_type = match weather.condition {
+                WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
+                WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
+                WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
+                WeatherCondition::Snow => 3,
+            };
+            match weather.condition {
+                WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
+                    lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
+                }
+                WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
+                _ => sky,
+            }
+        } else {
+            sky
+        }
+    } else {
+        sky
+    };
+    (weather_type, final_sky)
+}
+
+pub(crate) fn get_clear_colour_from_sky(
+    renderer: &super::Renderer,
+    final_sky: [f32; 3],
+) -> wgpu::Color {
     if renderer.state.config.appearance.transparent_background {
         return wgpu::Color::TRANSPARENT;
     }
@@ -975,7 +986,12 @@ pub(crate) fn get_clear_colour(renderer: &super::Renderer) -> wgpu::Color {
     };
 
     match scene {
-        SceneHint::Ambient => get_ambient_clear_colour(renderer),
+        SceneHint::Ambient => wgpu::Color {
+            r: final_sky[0] as f64,
+            g: final_sky[1] as f64,
+            b: final_sky[2] as f64,
+            a: 1.0,
+        },
         SceneHint::AlbumArt => wgpu::Color {
             r: 0.05,
             g: 0.05,
@@ -988,28 +1004,5 @@ pub(crate) fn get_clear_colour(renderer: &super::Renderer) -> wgpu::Color {
             b: 0.15,
             a: 1.0,
         },
-    }
-}
-
-fn get_ambient_clear_colour(renderer: &super::Renderer) -> wgpu::Color {
-    let mut final_sky = time_to_sky_colour(renderer.state.time_of_day);
-
-    if renderer.state.config.weather.enabled {
-        if let Some(weather) = &renderer.state.weather {
-            final_sky = match weather.condition {
-                WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
-                    lerp_colour(final_sky, [0.2, 0.2, 0.25], 0.6)
-                }
-                WeatherCondition::Snow => lerp_colour(final_sky, [0.8, 0.85, 0.9], 0.4),
-                _ => final_sky,
-            };
-        }
-    }
-
-    wgpu::Color {
-        r: final_sky[0] as f64,
-        g: final_sky[1] as f64,
-        b: final_sky[2] as f64,
-        a: 1.0,
     }
 }

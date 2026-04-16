@@ -646,18 +646,8 @@ impl Renderer {
             }
 
             Event::AudioFrame { bands, waveform } => {
-                self.audio_max_energy = waveform
-                    .iter()
-                    .fold(0.0f32, |a: f32, b: &f32| a.max(b.abs()));
-                self.audio_base_energy = if self.state.audio_bands.is_empty() {
-                    0.0
-                } else {
-                    (self.state.audio_bands.iter().sum::<f32>()
-                        / self.state.audio_bands.len() as f32)
-                        * 5.0
-                };
-
                 let smoothing = self.state.config.audio.smoothing;
+                let inv_smoothing = 1.0 - smoothing;
                 let target_len = self.state.audio_bands.len();
 
                 let sample_rate = 48000.0f32;
@@ -724,6 +714,7 @@ impl Renderer {
                 }
 
                 let bands_len = bands.len();
+                let mut total_energy = 0.0;
                 for (i, current) in self.state.audio_bands.iter_mut().enumerate() {
                     let (bin_lo, bin_hi): (usize, usize) = self.frequency_bin_ranges[i];
 
@@ -739,39 +730,52 @@ impl Renderer {
                     let a_weighting_norm = self.a_weighting_curve[i];
                     let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
 
+                    // Optimization: Use more efficient lerp formula a + (b - a) * t
+                    // and use pre-calculated inv_smoothing.
                     if target > *current {
-                        *current = *current * 0.2 + target * 0.8;
+                        *current += (target - *current) * 0.8;
                     } else {
-                        *current = *current * smoothing + target * (1.0 - smoothing);
+                        *current += (target - *current) * inv_smoothing;
                     }
+                    total_energy += *current;
                 }
+
+                // Optimization: Calculate audio_base_energy during the bands loop to avoid a second pass.
+                self.audio_base_energy = if target_len > 0 {
+                    (total_energy / target_len as f32) * 5.0
+                } else {
+                    0.0
+                };
 
                 if self.state.audio_waveform.len() != target_len {
                     self.state.audio_waveform = vec![0.0; target_len].into_boxed_slice();
                 }
 
                 let wave_len = waveform.len();
+                let mut max_energy = 0.0f32;
                 for (i, current) in self.state.audio_waveform.iter_mut().enumerate() {
                     let (start, end): (usize, usize) = self.waveform_bin_ranges[i];
 
-                    let peak =
-                        waveform
-                            .get(start..end.min(wave_len))
-                            .map_or(0.0, |slice: &[f32]| {
-                                let mut peak = 0.0f32;
-                                let mut peak_abs = 0.0f32;
-                                for &val in slice {
-                                    let val_abs: f32 = val.abs();
-                                    if val_abs > peak_abs {
-                                        peak_abs = val_abs;
-                                        peak = val;
-                                    }
-                                }
-                                peak
-                            });
+                    let mut peak = 0.0f32;
+                    let mut peak_abs = 0.0f32;
+                    if let Some(slice) = waveform.get(start..end.min(wave_len)) {
+                        for &val in slice {
+                            let val_abs: f32 = val.abs();
+                            if val_abs > peak_abs {
+                                peak_abs = val_abs;
+                                peak = val;
+                            }
+                        }
+                    }
 
-                    *current = *current * smoothing + peak * (1.0 - smoothing);
+                    // Optimization: Track max absolute energy during the waveform loop to avoid a separate pass.
+                    if peak_abs > max_energy {
+                        max_energy = peak_abs;
+                    }
+
+                    *current += (peak - *current) * inv_smoothing;
                 }
+                self.audio_max_energy = max_energy;
             }
 
             Event::WeatherUpdated(weather) => {
