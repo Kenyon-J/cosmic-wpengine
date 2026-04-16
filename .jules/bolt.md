@@ -46,3 +46,7 @@
 ## 15-05-2026 - Optimize High-Frequency Hashing in Rendering Path
 **Learning:** Repeatedly hashing the same strings (track info, weather, lyrics) inside a high-frequency rendering loop (60+ FPS) is a significant waste of CPU cycles, especially in multi-monitor setups where the loop executes multiple times per frame.
 **Action:** Pre-calculate string hashes once in data-parsing modules or event handlers and store them alongside the data. In the hot path, use the cached `u64` hash instead of recalculating it from the string.
+
+## 03-02-2025- Consolidate Frame-Invariant Calculations
+**Learning:** In the rendering loop, certain values like sky colors and clear colors are display-invariant and frame-invariant. Calculating them multiple times (e.g., once for the clear color and again for shader uniforms) is wasteful.
+**Action:** Move these calculations to a single point at the beginning of the frame, outside the monitor loop, and pass the results where needed.
