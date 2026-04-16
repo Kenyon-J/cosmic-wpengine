@@ -562,10 +562,14 @@ amplitude = 1.5"#;
         );
 
         if current_bg_mode == BackgroundMode::Video {
-            let video_selector = pick_list(
-                self.available_videos.clone(),
-                self.wp_config.appearance.video_background_path.clone(),
-                Message::VideoSelected,
+            let video_selector = cosmic::iced::widget::tooltip(
+                pick_list(
+                    self.available_videos.clone(),
+                    self.wp_config.appearance.video_background_path.clone(),
+                    Message::VideoSelected,
+                ),
+                "Select a video file to play as the background.",
+                cosmic::iced::widget::tooltip::Position::Top,
             );
             toggles_row = toggles_row.push(
                 row()
@@ -632,14 +636,18 @@ amplitude = 1.5"#;
 
         let font_row = row()
             .push(text("Font Family:").font(font).width(Length::Fixed(200.0)))
-            .push(pick_list(
-                self.available_fonts.clone(),
-                self.wp_config
-                    .appearance
-                    .font_family
-                    .clone()
-                    .or_else(|| Some("System Default".to_string())),
-                Message::FontFamilySelected,
+            .push(cosmic::iced::widget::tooltip(
+                pick_list(
+                    self.available_fonts.clone(),
+                    self.wp_config
+                        .appearance
+                        .font_family
+                        .clone()
+                        .or_else(|| Some("System Default".to_string())),
+                    Message::FontFamilySelected,
+                ),
+                "Select the font used for displaying the clock, weather, and lyrics.",
+                cosmic::iced::widget::tooltip::Position::Top,
             ))
             .spacing(20);
 
@@ -679,10 +687,14 @@ amplitude = 1.5"#;
             )
             .spacing(20);
 
-        let file_selector = pick_list(
-            self.available_files.clone(),
-            self.selected_file.clone(),
-            Message::FileSelected,
+        let file_selector = cosmic::iced::widget::tooltip(
+            pick_list(
+                self.available_files.clone(),
+                self.selected_file.clone(),
+                Message::FileSelected,
+            ),
+            "Select a configuration or shader theme file to edit.",
+            cosmic::iced::widget::tooltip::Position::Top,
         );
 
         let save_btn: Element<'_, Self::Message> = {
@@ -746,9 +758,13 @@ amplitude = 1.5"#;
             }
         };
 
-        let new_theme_input = text_input("New Theme Name...", &self.new_theme_name)
-            .on_input(Message::NewThemeNameChanged)
-            .on_submit(|_| Message::CreateTheme);
+        let new_theme_input = cosmic::iced::widget::tooltip(
+            text_input("New Theme Name...", &self.new_theme_name)
+                .on_input(Message::NewThemeNameChanged)
+                .on_submit(|_| Message::CreateTheme),
+            "Enter a name to create a new copy of the current theme.",
+            cosmic::iced::widget::tooltip::Position::Top,
+        );
 
         let create_btn: Element<'_, Self::Message> = {
             let btn = cosmic::iced::widget::button(text("Create Theme").font(font));
