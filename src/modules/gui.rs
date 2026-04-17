@@ -806,12 +806,25 @@ amplitude = 1.5"#;
             "Open GitHub to report a bug or request a feature.",
             cosmic::iced::widget::tooltip::Position::Top,
         );
-        let notes_btn = cosmic::iced::widget::tooltip(
-            cosmic::iced::widget::button(text("Patch Notes").font(font).size(14))
-                .on_press(Message::ShowPatchNotes),
-            "View recent changes and updates to the engine.",
-            cosmic::iced::widget::tooltip::Position::Top,
-        );
+        let notes_btn: Element<'_, Self::Message> = {
+            if self.status_msg == "Fetching patch notes..." {
+                let btn = cosmic::iced::widget::button(text("Fetching...").font(font).size(14));
+                cosmic::iced::widget::tooltip(
+                    btn,
+                    "Downloading patch notes from GitHub...",
+                    cosmic::iced::widget::tooltip::Position::Top,
+                )
+                .into()
+            } else {
+                let btn = cosmic::iced::widget::button(text("Patch Notes").font(font).size(14));
+                cosmic::iced::widget::tooltip(
+                    btn.on_press(Message::ShowPatchNotes),
+                    "View recent changes and updates to the engine.",
+                    cosmic::iced::widget::tooltip::Position::Top,
+                )
+                .into()
+            }
+        };
 
         let version_display: Element<'_, Self::Message> =
             if let Some(new_v) = &self.update_available {
