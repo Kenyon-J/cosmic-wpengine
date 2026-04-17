@@ -86,6 +86,8 @@ pub struct Renderer {
     pub(crate) audio_max_energy: f32,
     pub(crate) audio_base_energy: f32,
     pub(crate) is_waveform_style: bool,
+    pub(crate) bass_bin_range: (usize, usize),
+    pub(crate) treble_bin_range: (usize, usize),
 }
 
 impl Renderer {
@@ -230,6 +232,21 @@ impl Renderer {
         let waveform_bin_ranges = super::utils::build_waveform_bin_ranges(state.config.audio.bands);
         let is_waveform_style = state.config.audio.style == "waveform";
 
+        // Optimization: Pre-calculate the FFT bin ranges for beat and treble detection
+        // to avoid redundant math on every single audio frame (typically 60-100 times per second).
+        let sample_rate = 48000.0f32;
+        let fft_size = 2048.0f32;
+        let freq_per_bin = sample_rate / fft_size;
+
+        let bass_bin_range = (
+            (20.0 / freq_per_bin).floor() as usize,
+            (120.0 / freq_per_bin).ceil() as usize,
+        );
+        let treble_bin_range = (
+            (3000.0 / freq_per_bin).floor() as usize,
+            (8000.0 / freq_per_bin).ceil() as usize,
+        );
+
         let mut renderer = Self {
             instance,
             adapter,
@@ -295,6 +312,8 @@ impl Renderer {
             audio_max_energy: 0.0,
             audio_base_energy: 0.0,
             is_waveform_style,
+            bass_bin_range,
+            treble_bin_range,
         };
 
         let path = renderer
@@ -650,24 +669,19 @@ impl Renderer {
                 let inv_smoothing = 1.0 - smoothing;
                 let target_len = self.state.audio_bands.len();
 
-                let sample_rate = 48000.0f32;
-                let fft_size = 2048.0f32;
-                let freq_per_bin = sample_rate / fft_size;
+                let bands_len = bands.len();
 
                 // --- Smart Beat Detection ---
                 // We focus strictly on the low-end frequencies (e.g. 20Hz - 120Hz)
-                let bass_min_bin = (20.0 / freq_per_bin).floor() as usize;
-                let bass_max_bin = (120.0 / freq_per_bin).ceil() as usize;
+                // Using pre-calculated ranges to avoid redundant math.
+                let (bass_min, bass_max) = self.bass_bin_range;
+                let bass_slice = &bands[bass_min..=bass_max.min(bands_len.saturating_sub(1))];
 
-                let mut current_bass = 0.0f32;
-                let mut count = 0;
-                for &val in &bands[bass_min_bin..=bass_max_bin.min(bands.len() - 1)] {
-                    current_bass += val;
-                    count += 1;
-                }
-                if count > 0 {
-                    current_bass /= count as f32;
-                }
+                let current_bass = if !bass_slice.is_empty() {
+                    bass_slice.iter().sum::<f32>() / bass_slice.len() as f32
+                } else {
+                    0.0
+                };
 
                 // Moving average for a local bass energy threshold (~1 second tracker)
                 self.bass_moving_average = self.bass_moving_average * 0.95 + current_bass * 0.05;
@@ -688,18 +702,14 @@ impl Renderer {
                 }
 
                 // --- Smart Treble Detection (Snares / Hi-Hats) ---
-                let treble_min_bin = (3000.0 / freq_per_bin).floor() as usize;
-                let treble_max_bin = (8000.0 / freq_per_bin).ceil() as usize;
+                let (treble_min, treble_max) = self.treble_bin_range;
+                let treble_slice = &bands[treble_min..=treble_max.min(bands_len.saturating_sub(1))];
 
-                let mut current_treble = 0.0f32;
-                let mut t_count = 0;
-                for &val in &bands[treble_min_bin..=treble_max_bin.min(bands.len() - 1)] {
-                    current_treble += val;
-                    t_count += 1;
-                }
-                if t_count > 0 {
-                    current_treble /= t_count as f32;
-                }
+                let current_treble = if !treble_slice.is_empty() {
+                    treble_slice.iter().sum::<f32>() / treble_slice.len() as f32
+                } else {
+                    0.0
+                };
 
                 self.treble_moving_average =
                     self.treble_moving_average * 0.90 + current_treble * 0.10;
@@ -713,11 +723,15 @@ impl Renderer {
                     self.last_treble_time = Instant::now();
                 }
 
-                let bands_len = bands.len();
                 let mut total_energy = 0.0;
-                for (i, current) in self.state.audio_bands.iter_mut().enumerate() {
-                    let (bin_lo, bin_hi): (usize, usize) = self.frequency_bin_ranges[i];
-
+                // Optimization: Use zipped iterators instead of manual indexing
+                // to eliminate bounds checking and enable auto-vectorization.
+                for (current, (&(bin_lo, bin_hi), &a_weighting_norm)) in self
+                    .state
+                    .audio_bands
+                    .iter_mut()
+                    .zip(self.frequency_bin_ranges.iter().zip(&self.a_weighting_curve))
+                {
                     let max_val =
                         bands
                             .get(bin_lo..bin_hi.min(bands_len))
@@ -727,15 +741,15 @@ impl Renderer {
                                     .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
                             });
 
-                    let a_weighting_norm = self.a_weighting_curve[i];
                     let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
 
                     // Optimization: Use more efficient lerp formula a + (b - a) * t
                     // and use pre-calculated inv_smoothing.
+                    let diff = target - *current;
                     if target > *current {
-                        *current += (target - *current) * 0.8;
+                        *current += diff * 0.8;
                     } else {
-                        *current += (target - *current) * inv_smoothing;
+                        *current += diff * inv_smoothing;
                     }
                     total_energy += *current;
                 }
@@ -753,9 +767,13 @@ impl Renderer {
 
                 let wave_len = waveform.len();
                 let mut max_energy = 0.0f32;
-                for (i, current) in self.state.audio_waveform.iter_mut().enumerate() {
-                    let (start, end): (usize, usize) = self.waveform_bin_ranges[i];
-
+                // Optimization: Use zipped iterators for the waveform smoothing loop.
+                for (current, &(start, end)) in self
+                    .state
+                    .audio_waveform
+                    .iter_mut()
+                    .zip(self.waveform_bin_ranges.iter())
+                {
                     let mut peak = 0.0f32;
                     let mut peak_abs = 0.0f32;
                     if let Some(slice) = waveform.get(start..end.min(wave_len)) {
