@@ -567,7 +567,12 @@ amplitude = 1.5"#;
                     self.available_videos.clone(),
                     self.wp_config.appearance.video_background_path.clone(),
                     Message::VideoSelected,
-                ),
+                )
+                .placeholder(if self.available_videos.is_empty() {
+                    "No videos found"
+                } else {
+                    "Select a video..."
+                }),
                 "Select a video file to play as the background.",
                 cosmic::iced::widget::tooltip::Position::Top,
             );
@@ -645,7 +650,8 @@ amplitude = 1.5"#;
                         .clone()
                         .or_else(|| Some("System Default".to_string())),
                     Message::FontFamilySelected,
-                ),
+                )
+                .placeholder("Select a font..."),
                 "Select the font used for displaying the clock, weather, and lyrics.",
                 cosmic::iced::widget::tooltip::Position::Top,
             ))
@@ -692,7 +698,8 @@ amplitude = 1.5"#;
                 self.available_files.clone(),
                 self.selected_file.clone(),
                 Message::FileSelected,
-            ),
+            )
+            .placeholder("Select a file..."),
             "Select a configuration or shader theme file to edit.",
             cosmic::iced::widget::tooltip::Position::Top,
         );
