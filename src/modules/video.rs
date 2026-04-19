@@ -310,11 +310,13 @@ impl VideoDecoder {
         let safe_url = parsed_url.to_string();
 
         // Runtime check to verify FFmpeg is available before trying to decode
-        if Command::new("ffmpeg")
-            .arg("-version")
-            .output()
-            .await
-            .is_err()
+        if Command::new(
+            crate::modules::utils::resolve_binary("ffmpeg").unwrap_or_else(|| "ffmpeg".into()),
+        )
+        .arg("-version")
+        .output()
+        .await
+        .is_err()
         {
             warn!("FFmpeg is not installed or not in PATH! Video backgrounds will not play.");
             return Ok(());
@@ -326,33 +328,35 @@ impl VideoDecoder {
         let height = 960;
         let frame_size = width * height * 4;
 
-        let mut child = Command::new("ffmpeg")
-            .args([
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-protocol_whitelist",
-                "http,https,tcp,tls,crypto",
-                "-re", // Read input at native frame rate so we don't peg the CPU!
-                "-stream_loop",
-                "-1", // Loop the video stream infinitely
-                "-i",
-                &safe_url,
-                // Scale and crop seamlessly to ensure it fits the 9:16 Canvas perfectly
-                "-vf",
-                "scale=540:960:force_original_aspect_ratio=increase,crop=540:960",
-                "-f",
-                "rawvideo",
-                "-pix_fmt",
-                "rgba",
-                "-r",
-                "30", // Lock output to 30fps
-                "-",
-            ])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .kill_on_drop(true) // Ensure the FFmpeg process dies instantly if the task is dropped
-            .spawn()?;
+        let mut child = Command::new(
+            crate::modules::utils::resolve_binary("ffmpeg").unwrap_or_else(|| "ffmpeg".into()),
+        )
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-protocol_whitelist",
+            "http,https,tcp,tls,crypto",
+            "-re", // Read input at native frame rate so we don't peg the CPU!
+            "-stream_loop",
+            "-1", // Loop the video stream infinitely
+            "-i",
+            &safe_url,
+            // Scale and crop seamlessly to ensure it fits the 9:16 Canvas perfectly
+            "-vf",
+            "scale=540:960:force_original_aspect_ratio=increase,crop=540:960",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
+            "-r",
+            "30", // Lock output to 30fps
+            "-",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true) // Ensure the FFmpeg process dies instantly if the task is dropped
+        .spawn()?;
 
         let mut stdout = child
             .stdout
