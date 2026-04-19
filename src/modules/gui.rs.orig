@@ -545,8 +545,7 @@ amplitude = 1.5"#;
                 &BackgroundMode::ALL[..],
                 Some(current_bg_mode),
                 Message::BackgroundModeSelected,
-            )
-            .placeholder("Select a background mode..."),
+            ),
             "Changes the desktop background effect.",
             cosmic::iced::widget::tooltip::Position::Top,
         );
