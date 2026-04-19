@@ -88,6 +88,10 @@ pub struct Renderer {
     pub(crate) is_waveform_style: bool,
     pub(crate) bass_bin_range: (usize, usize),
     pub(crate) treble_bin_range: (usize, usize),
+    pub(crate) vis_target_colors: ([f32; 3], [f32; 3]),
+    pub(crate) vis_prev_colors: ([f32; 3], [f32; 3]),
+    pub(crate) art_target_color: [f32; 3],
+    pub(crate) art_prev_color: [f32; 3],
 }
 
 impl Renderer {
@@ -314,6 +318,10 @@ impl Renderer {
             is_waveform_style,
             bass_bin_range,
             treble_bin_range,
+            vis_target_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
+            vis_prev_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
+            art_target_color: [0.1, 0.1, 0.1],
+            art_prev_color: [0.1, 0.1, 0.1],
         };
 
         let path = renderer
@@ -324,6 +332,7 @@ impl Renderer {
             .await;
         renderer.current_bg_path = path.clone();
         renderer.load_custom_background(path.as_deref());
+        renderer.update_theme_colors();
 
         info!("Renderer initialised at {}fps", fps);
         Ok(renderer)
@@ -559,6 +568,7 @@ impl Renderer {
                 // Always reload the theme layout so live edits to the .toml apply instantly!
                 self.theme = *theme_layout;
                 self.state.config = *config;
+                self.update_theme_colors();
 
                 // Optimization: Clear and shrink the text buffer cache on config updates to ensure
                 // changes like font family or size are applied immediately and memory is reclaimed.
@@ -608,6 +618,7 @@ impl Renderer {
                     .as_ref()
                     .and_then(|t| t.palette.clone());
                 self.state.current_track = Some(*track);
+                self.update_theme_colors();
                 self.update_text_colors();
                 self.state.is_playing = true;
                 self.current_lyric_idx = 0;
@@ -647,6 +658,7 @@ impl Renderer {
                 self.current_album_texture = None;
                 self.state.has_album_art = false;
                 self.state.current_track = None;
+                self.update_theme_colors();
                 self.update_text_colors();
                 self.state.is_playing = false;
                 self.current_lyric_idx = 0;
@@ -1060,6 +1072,55 @@ impl Renderer {
             }
         }
         self.load_custom_background_from_image(rgba);
+    }
+
+    fn update_theme_colors(&mut self) {
+        let get_vis_colors = |palette: Option<&[[f32; 3]]>, theme: &ThemeLayout| -> ([f32; 3], [f32; 3]) {
+            let top = theme.visualiser.color_top;
+            let bottom = theme.visualiser.color_bottom;
+
+            if let (Some(top_val), Some(bottom_val)) = (top, bottom) {
+                (top_val, bottom_val)
+            } else {
+                match palette {
+                    Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
+                    Some(p) if p.len() == 1 => (
+                        top.unwrap_or(p[0]),
+                        bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
+                    ),
+                    _ => (
+                        top.unwrap_or([1.0, 0.2, 0.5]),
+                        bottom.unwrap_or([0.2, 0.5, 1.0]),
+                    ),
+                }
+            }
+        };
+
+        let get_art_color = |palette: Option<&[[f32; 3]]>| -> [f32; 3] {
+            palette
+                .and_then(|p| p.first())
+                .copied()
+                .unwrap_or([0.1, 0.1, 0.1])
+        };
+
+        // Update Visualizer colors
+        self.vis_prev_colors = get_vis_colors(self.state.previous_palette.as_deref(), &self.theme);
+        self.vis_target_colors = get_vis_colors(
+            self.state
+                .current_track
+                .as_ref()
+                .and_then(|t| t.palette.as_deref()),
+            &self.theme,
+        );
+
+        // Update Album Art colors
+        self.art_prev_color = get_art_color(self.state.previous_palette.as_deref());
+        self.art_target_color = get_art_color(
+            self.state
+                .current_track
+                .as_ref()
+                .and_then(|t| t.palette.as_deref()),
+        );
     }
 
     pub fn load_custom_background(&mut self, path: Option<&str>) {
