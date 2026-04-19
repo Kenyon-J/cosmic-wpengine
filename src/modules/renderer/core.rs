@@ -1074,27 +1074,30 @@ impl Renderer {
         self.load_custom_background_from_image(rgba);
     }
 
+    /// Optimization: Recalculate theme-derived colors only when specific events occur
+    /// (track change, config update) instead of on every frame in the rendering loop.
     fn update_theme_colors(&mut self) {
-        let get_vis_colors = |palette: Option<&[[f32; 3]]>, theme: &ThemeLayout| -> ([f32; 3], [f32; 3]) {
-            let top = theme.visualiser.color_top;
-            let bottom = theme.visualiser.color_bottom;
+        let get_vis_colors =
+            |palette: Option<&[[f32; 3]]>, theme: &ThemeLayout| -> ([f32; 3], [f32; 3]) {
+                let top = theme.visualiser.color_top;
+                let bottom = theme.visualiser.color_bottom;
 
-            if let (Some(top_val), Some(bottom_val)) = (top, bottom) {
-                (top_val, bottom_val)
-            } else {
-                match palette {
-                    Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
-                    Some(p) if p.len() == 1 => (
-                        top.unwrap_or(p[0]),
-                        bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
-                    ),
-                    _ => (
-                        top.unwrap_or([1.0, 0.2, 0.5]),
-                        bottom.unwrap_or([0.2, 0.5, 1.0]),
-                    ),
+                if let (Some(top_val), Some(bottom_val)) = (top, bottom) {
+                    (top_val, bottom_val)
+                } else {
+                    match palette {
+                        Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
+                        Some(p) if p.len() == 1 => (
+                            top.unwrap_or(p[0]),
+                            bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
+                        ),
+                        _ => (
+                            top.unwrap_or([1.0, 0.2, 0.5]),
+                            bottom.unwrap_or([0.2, 0.5, 1.0]),
+                        ),
+                    }
                 }
-            }
-        };
+            };
 
         let get_art_color = |palette: Option<&[[f32; 3]]>| -> [f32; 3] {
             palette

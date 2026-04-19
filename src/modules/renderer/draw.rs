@@ -153,16 +153,9 @@ pub(crate) fn draw_frame(
     let (top_col, bottom_col) = if has_audio {
         if renderer.state.transition_progress < 1.0 {
             let t = renderer.state.transition_progress;
-            let top_rgb = lerp_colour(
-                renderer.vis_prev_colors.0,
-                renderer.vis_target_colors.0,
-                t,
-            );
-            let bottom_rgb = lerp_colour(
-                renderer.vis_prev_colors.1,
-                renderer.vis_target_colors.1,
-                t,
-            );
+            let top_rgb = lerp_colour(renderer.vis_prev_colors.0, renderer.vis_target_colors.0, t);
+            let bottom_rgb =
+                lerp_colour(renderer.vis_prev_colors.1, renderer.vis_target_colors.1, t);
             (
                 [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
                 [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
