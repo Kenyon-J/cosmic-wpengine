@@ -7,6 +7,7 @@ pub mod mpris;
 pub mod renderer;
 pub mod state;
 pub mod tray;
+pub mod utils;
 pub mod video;
 pub mod visualiser_pass;
 pub mod wayland;

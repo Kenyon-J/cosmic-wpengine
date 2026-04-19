@@ -127,3 +127,6 @@ path = "benches/bench8.rs"
 [[bench]]
 name = "bench9"
 path = "benches/bench9.rs"
+
+[lib]
+path = "src/lib.rs"
