@@ -151,45 +151,18 @@ pub(crate) fn draw_frame(
 
     // 1. Pre-calculate Visualizer colors
     let (top_col, bottom_col) = if has_audio {
-        let get_colors = |palette: Option<&[[f32; 3]]>| -> ([f32; 3], [f32; 3]) {
-            let top = renderer.theme.visualiser.color_top;
-            let bottom = renderer.theme.visualiser.color_bottom;
-
-            if let (Some(top_val), Some(bottom_val)) = (top, bottom) {
-                (top_val, bottom_val)
-            } else {
-                match palette {
-                    Some(p) if p.len() >= 2 => (top.unwrap_or(p[0]), bottom.unwrap_or(p[1])),
-                    Some(p) if p.len() == 1 => (
-                        top.unwrap_or(p[0]),
-                        bottom.unwrap_or([p[0][0] * 0.5, p[0][1] * 0.5, p[0][2] * 0.5]),
-                    ),
-                    _ => (
-                        top.unwrap_or([1.0, 0.2, 0.5]),
-                        bottom.unwrap_or([0.2, 0.5, 1.0]),
-                    ),
-                }
-            }
-        };
-        let target_colors = get_colors(
-            renderer
-                .state
-                .current_track
-                .as_ref()
-                .and_then(|t| t.palette.as_deref()),
-        );
         if renderer.state.transition_progress < 1.0 {
-            let prev_colors = get_colors(renderer.state.previous_palette.as_deref());
             let t = renderer.state.transition_progress;
-            let top_rgb = lerp_colour(prev_colors.0, target_colors.0, t);
-            let bottom_rgb = lerp_colour(prev_colors.1, target_colors.1, t);
+            let top_rgb = lerp_colour(renderer.vis_prev_colors.0, renderer.vis_target_colors.0, t);
+            let bottom_rgb =
+                lerp_colour(renderer.vis_prev_colors.1, renderer.vis_target_colors.1, t);
             (
                 [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
                 [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
             )
         } else {
-            let top_rgb = target_colors.0;
-            let bottom_rgb = target_colors.1;
+            let top_rgb = renderer.vis_target_colors.0;
+            let bottom_rgb = renderer.vis_target_colors.1;
             (
                 [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
                 [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
@@ -201,31 +174,15 @@ pub(crate) fn draw_frame(
 
     // 2. Pre-calculate Album Art colors
     let art_tint_color = if show_art_fg || show_art_bg || show_color_bg {
-        renderer
-            .state
-            .current_track
-            .as_ref()
-            .map(|track| {
-                let target_color = track
-                    .palette
-                    .as_deref()
-                    .and_then(|p| p.first())
-                    .copied()
-                    .unwrap_or([0.1, 0.1, 0.1]);
-                if renderer.state.transition_progress < 1.0 {
-                    let prev_color = renderer
-                        .state
-                        .previous_palette
-                        .as_deref()
-                        .and_then(|p| p.first())
-                        .copied()
-                        .unwrap_or([0.1, 0.1, 0.1]);
-                    lerp_colour(prev_color, target_color, renderer.state.transition_progress)
-                } else {
-                    target_color
-                }
-            })
-            .unwrap_or([0.1, 0.1, 0.1])
+        if renderer.state.transition_progress < 1.0 {
+            lerp_colour(
+                renderer.art_prev_color,
+                renderer.art_target_color,
+                renderer.state.transition_progress,
+            )
+        } else {
+            renderer.art_target_color
+        }
     } else {
         [0.1, 0.1, 0.1]
     };
