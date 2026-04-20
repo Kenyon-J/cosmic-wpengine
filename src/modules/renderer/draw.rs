@@ -14,7 +14,9 @@ pub(crate) fn draw_frame(
     wayland_manager: &mut WaylandManager,
     delta: f32,
 ) -> Result<()> {
-    let _scene = renderer.state.scene_description();
+    // Optimization: Calculate scene hint once per frame to avoid redundant O(1) checks
+    // and potential O(N) calculations if the cache were missing.
+    let scene = renderer.state.scene_description();
 
     let audio_data = if renderer.is_waveform_style {
         &renderer.state.audio_waveform
@@ -54,7 +56,7 @@ pub(crate) fn draw_frame(
 
     // Optimization: Calculate sky colors and clear color once per frame outside the monitor loop
     let (weather_type, final_sky) = get_sky_state(renderer);
-    let clear_colour = get_clear_colour_from_sky(renderer, final_sky);
+    let clear_colour = get_clear_colour_from_sky(renderer, final_sky, scene);
 
     // Use our new smart audio-reactive beat detector instead of the generic timer
     let pulse = renderer.beat_pulse;
@@ -172,7 +174,17 @@ pub(crate) fn draw_frame(
         ([0.0; 4], [0.0; 4])
     };
 
-    // 2. Pre-calculate Album Art colors
+    // 2. Pre-calculate Album Art colors and texture dimensions
+    let art_image_res = if show_art_fg || show_art_bg || show_color_bg {
+        renderer
+            .current_album_texture
+            .as_ref()
+            .map(|t| [t.size().width as f32, t.size().height as f32])
+            .unwrap_or([1.0, 1.0])
+    } else {
+        [1.0, 1.0]
+    };
+
     let art_tint_color = if show_art_fg || show_art_bg || show_color_bg {
         if renderer.state.transition_progress < 1.0 {
             lerp_colour(
@@ -188,6 +200,19 @@ pub(crate) fn draw_frame(
     };
 
     let elapsed = renderer.start_time.elapsed().as_secs_f32();
+
+    // Optimization: Pre-calculate visualizer uniform constants
+    let vis_shape_u32 = match renderer.theme.visualiser.shape {
+        VisShape::Circular => 0,
+        VisShape::Linear => 1,
+        VisShape::Square => 2,
+    };
+    let vis_align_u32 = match renderer.theme.visualiser.align {
+        VisAlign::Left => 0,
+        VisAlign::Center => 1,
+        VisAlign::Right => 2,
+    };
+    let is_waveform_u32 = if renderer.is_waveform_style { 1 } else { 0 };
 
     // Optimization: Use pre-calculated hashes for display-invariant strings
     let track_hash = renderer.cached_track_hash;
@@ -271,16 +296,6 @@ pub(crate) fn draw_frame(
                 is_waveform: u32,
                 _padding: [u32; 3],
             }
-            let shape_u32 = match renderer.theme.visualiser.shape {
-                VisShape::Circular => 0,
-                VisShape::Linear => 1,
-                VisShape::Square => 2,
-            };
-            let align_u32 = match renderer.theme.visualiser.align {
-                VisAlign::Left => 0,
-                VisAlign::Center => 1,
-                VisAlign::Right => 2,
-            };
             let vis_uniforms = VisUniforms {
                 res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                 bands: renderer.state.config.audio.bands as u32,
@@ -294,10 +309,10 @@ pub(crate) fn draw_frame(
                     renderer.theme.visualiser.rotation.to_radians(),
                 ],
                 amplitude: renderer.theme.visualiser.amplitude,
-                shape: shape_u32,
+                shape: vis_shape_u32,
                 time: elapsed,
-                align: align_u32,
-                is_waveform: if renderer.is_waveform_style { 1 } else { 0 },
+                align: vis_align_u32,
+                is_waveform: is_waveform_u32,
                 _padding: [0; 3],
             };
             let vis_bytes = unsafe {
@@ -340,18 +355,7 @@ pub(crate) fn draw_frame(
                     art_size: 1.0,
                     shape: 0,
                     blur_opacity: renderer.state.config.appearance.blur_opacity,
-                    image_res: [
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().width as f32)
-                            .unwrap_or(1.0),
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().height as f32)
-                            .unwrap_or(1.0),
-                    ],
+                    image_res: art_image_res,
                 };
                 let bg_bytes = unsafe {
                     std::slice::from_raw_parts(
@@ -394,18 +398,7 @@ pub(crate) fn draw_frame(
                         0
                     },
                     blur_opacity: 1.0,
-                    image_res: [
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().width as f32)
-                            .unwrap_or(1.0),
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().height as f32)
-                            .unwrap_or(1.0),
-                    ],
+                    image_res: art_image_res,
                 };
                 let fg_bytes = unsafe {
                     std::slice::from_raw_parts(
@@ -930,6 +923,7 @@ fn get_sky_state(renderer: &super::Renderer) -> (u32, [f32; 3]) {
 pub(crate) fn get_clear_colour_from_sky(
     renderer: &super::Renderer,
     final_sky: [f32; 3],
+    scene: SceneHint,
 ) -> wgpu::Color {
     if renderer.state.config.appearance.transparent_background {
         return wgpu::Color::TRANSPARENT;
@@ -939,7 +933,7 @@ pub(crate) fn get_clear_colour_from_sky(
         WallpaperMode::Weather => SceneHint::Ambient,
         WallpaperMode::AlbumArt => SceneHint::AlbumArt,
         WallpaperMode::AudioVisualiser => SceneHint::AudioVisualiser,
-        WallpaperMode::Auto => renderer.state.scene_description(),
+        WallpaperMode::Auto => scene,
     };
 
     match scene {

@@ -768,11 +768,12 @@ impl Renderer {
                 }
 
                 // Optimization: Calculate audio_base_energy during the bands loop to avoid a second pass.
-                self.audio_base_energy = if target_len > 0 {
-                    (total_energy / target_len as f32) * 5.0
+                self.state.audio_energy = if target_len > 0 {
+                    total_energy / target_len as f32
                 } else {
                     0.0
                 };
+                self.audio_base_energy = self.state.audio_energy * 5.0;
 
                 if self.state.audio_waveform.len() != target_len {
                     self.state.audio_waveform = vec![0.0; target_len].into_boxed_slice();

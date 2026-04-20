@@ -14,6 +14,7 @@ pub struct AppState {
 
     pub audio_bands: Box<[f32]>,
     pub audio_waveform: Box<[f32]>,
+    pub audio_energy: f32,
 
     pub weather: Option<WeatherData>,
 
@@ -40,6 +41,7 @@ impl AppState {
             playback_position: std::time::Duration::ZERO,
             audio_bands: vec![0.0; band_count].into_boxed_slice(),
             audio_waveform: vec![0.0; band_count].into_boxed_slice(),
+            audio_energy: 0.0,
             weather: None,
             time_of_day: Self::current_time_of_day(),
             transition_progress: 1.0,
@@ -80,9 +82,8 @@ impl AppState {
             return SceneHint::AlbumArt;
         }
 
-        let audio_energy: f32 =
-            self.audio_bands.iter().sum::<f32>() / self.audio_bands.len() as f32;
-        if audio_energy > 0.05 {
+        // Optimization: Use cached audio energy instead of summing bands on every frame.
+        if self.audio_energy > 0.05 {
             return SceneHint::AudioVisualiser;
         }
 
@@ -128,7 +129,7 @@ mod tests {
         assert_eq!(state.scene_description(), SceneHint::Ambient);
 
         // With significant audio energy, it should switch to AudioVisualiser
-        state.audio_bands = vec![1.0; 64].into_boxed_slice();
+        state.audio_energy = 1.0;
         assert_eq!(state.scene_description(), SceneHint::AudioVisualiser);
 
         // Track with album art should take highest precedence over everything
@@ -150,16 +151,16 @@ mod tests {
         let config = Config::default();
         let mut state = AppState::new(config);
 
-        // Edge case 1: empty audio bands array (handles division by zero -> NaN)
-        state.audio_bands = vec![].into_boxed_slice();
+        // Edge case 1: zero energy
+        state.audio_energy = 0.0;
         assert_eq!(state.scene_description(), SceneHint::Ambient);
 
         // Edge case 2: exact boundary condition for audio energy (0.05)
-        state.audio_bands = vec![0.05; 64].into_boxed_slice();
+        state.audio_energy = 0.05;
         assert_eq!(state.scene_description(), SceneHint::Ambient);
 
         // Edge case 3: slightly above boundary
-        state.audio_bands = vec![0.05001; 64].into_boxed_slice();
+        state.audio_energy = 0.05001;
         assert_eq!(state.scene_description(), SceneHint::AudioVisualiser);
     }
 
