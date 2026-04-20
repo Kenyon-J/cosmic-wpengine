@@ -575,7 +575,7 @@ amplitude = 1.5"#;
                     Message::VideoSelected,
                 )
                 .placeholder(if self.available_videos.is_empty() {
-                    "No videos found"
+                    "Place videos in ~/.config/cosmic-wallpaper/videos"
                 } else {
                     "Select a video..."
                 }),
@@ -633,14 +633,29 @@ amplitude = 1.5"#;
                         "Displays current weather information on the desktop.",
                         cosmic::iced::widget::tooltip::Position::Top,
                     ))
-                    .push(cosmic::iced::widget::tooltip(
-                        checkbox(self.wp_config.weather.hide_effects)
-                            .on_toggle(Message::ToggleHideWeatherEffects)
+                    .push({
+                        let cb = checkbox(self.wp_config.weather.hide_effects)
                             .label("Hide Weather Effects")
-                            .font(font),
-                        "Disables rain and snow animations to save performance.",
-                        cosmic::iced::widget::tooltip::Position::Top,
-                    ))
+                            .font(font);
+
+                        let tooltip_element: Element<'_, Self::Message> =
+                            if self.wp_config.weather.enabled {
+                                cosmic::iced::widget::tooltip(
+                                    cb.on_toggle(Message::ToggleHideWeatherEffects),
+                                    "Disables rain and snow animations to save performance.",
+                                    cosmic::iced::widget::tooltip::Position::Top,
+                                )
+                                .into()
+                            } else {
+                                cosmic::iced::widget::tooltip(
+                                    cb,
+                                    "Enable Weather first to configure effects.",
+                                    cosmic::iced::widget::tooltip::Position::Top,
+                                )
+                                .into()
+                            };
+                        tooltip_element
+                    })
                     .spacing(20),
             )
             .spacing(15);
