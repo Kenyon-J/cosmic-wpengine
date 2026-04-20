@@ -1,12 +1,12 @@
+#[cfg(test)]
+mod tests;
+mod view;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use cosmic::app::Core;
-use cosmic::iced::widget::{checkbox, pick_list, slider};
-use cosmic::iced::Length;
 use cosmic::iced::Task;
-use cosmic::widget::{column, row, text, text_editor, text_input};
-use cosmic::{Application, Element};
+use cosmic::Application;
 use cosmic_text::fontdb;
 
 // Import the shared modules from your newly created library crate!
@@ -25,7 +25,7 @@ struct SettingsApp {
     available_files: Vec<String>,
     available_videos: Vec<String>,
     selected_file: Option<String>,
-    editor_content: text_editor::Content,
+    editor_content: cosmic::widget::text_editor::Content,
     new_theme_name: String,
     status_msg: String,
     autostart: bool,
@@ -37,7 +37,7 @@ impl SettingsApp {
         if self.selected_file.as_deref() == Some("config.toml") {
             let path = config::Config::config_dir().join("config.toml");
             let content_str = std::fs::read_to_string(path).unwrap_or_default();
-            self.editor_content = text_editor::Content::with_text(&content_str);
+            self.editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
         }
     }
 }
@@ -91,7 +91,7 @@ Name=COSMIC Wallpaper"#,
     }
 }
 
-fn is_safe_path(path_str: &str) -> bool {
+pub(crate) fn is_safe_path(path_str: &str) -> bool {
     let path = std::path::Path::new(path_str);
     if path.is_absolute() {
         return false;
@@ -239,7 +239,7 @@ enum Message {
     ToggleShowAlbumArt(bool),
     FileSelected(String),
     VideoSelected(String),
-    EditorAction(text_editor::Action),
+    EditorAction(cosmic::widget::text_editor::Action),
     SaveFile,
     ApplyTheme,
     FpsChanged(f32),
@@ -280,7 +280,7 @@ impl Application for SettingsApp {
 
         let path = config::Config::config_dir().join("config.toml");
         let content_str = std::fs::read_to_string(path).unwrap_or_default();
-        let editor_content = text_editor::Content::with_text(&content_str);
+        let editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
 
         (
             SettingsApp {
@@ -375,7 +375,8 @@ impl Application for SettingsApp {
                     self.selected_file = Some(file.clone());
                     let path = config::Config::config_dir().join(&file);
                     let content_str = std::fs::read_to_string(path).unwrap_or_default();
-                    self.editor_content = text_editor::Content::with_text(&content_str);
+                    self.editor_content =
+                        cosmic::widget::text_editor::Content::with_text(&content_str);
                     self.status_msg = format!("Loaded {}", file);
                 } else {
                     self.status_msg = format!("Blocked unsafe file path: {}", file);
@@ -484,7 +485,8 @@ amplitude = 1.5"#;
                             self.available_files = load_files();
                             self.selected_file = Some(file_name.clone());
                             let content_str = std::fs::read_to_string(path).unwrap_or_default();
-                            self.editor_content = text_editor::Content::with_text(&content_str);
+                            self.editor_content =
+                                cosmic::widget::text_editor::Content::with_text(&content_str);
                             self.status_msg = format!("Created {}", file_name);
                             self.new_theme_name.clear();
                         }
@@ -499,15 +501,16 @@ amplitude = 1.5"#;
             }
             Message::ShowPatchNotes => {
                 self.selected_file = None;
-                self.editor_content =
-                    text_editor::Content::with_text("Fetching latest patch notes from GitHub...");
+                self.editor_content = cosmic::widget::text_editor::Content::with_text(
+                    "Fetching latest patch notes from GitHub...",
+                );
                 self.status_msg = "Fetching patch notes...".into();
                 return Task::perform(fetch_patch_notes(), |notes| {
                     Message::PatchNotesLoaded(notes).into()
                 });
             }
             Message::PatchNotesLoaded(notes) => {
-                self.editor_content = text_editor::Content::with_text(&notes);
+                self.editor_content = cosmic::widget::text_editor::Content::with_text(&notes);
                 self.status_msg = "Viewing Patch Notes. Select a file to return to editing.".into();
             }
             Message::ReportIssue => {
@@ -531,382 +534,7 @@ amplitude = 1.5"#;
         Task::none()
     }
 
-    fn view(&self) -> Element<'_, Self::Message> {
-        let font = cosmic::iced::Font::DEFAULT;
-
-        let current_bg_mode = if self.wp_config.appearance.video_background_path.is_some() {
-            BackgroundMode::Video
-        } else if self.wp_config.appearance.album_color_background {
-            BackgroundMode::AlbumPalette
-        } else if self.wp_config.appearance.album_art_background {
-            BackgroundMode::AlbumArt
-        } else if self.wp_config.appearance.transparent_background {
-            BackgroundMode::Transparent
-        } else {
-            BackgroundMode::FrostedGlass
-        };
-
-        let bg_mode_selector = cosmic::iced::widget::tooltip(
-            pick_list(
-                &BackgroundMode::ALL[..],
-                Some(current_bg_mode),
-                Message::BackgroundModeSelected,
-            ),
-            "Changes the desktop background effect.",
-            cosmic::iced::widget::tooltip::Position::Top,
-        );
-
-        let mut toggles_row = column().push(
-            row()
-                .push(
-                    text("Background Style:")
-                        .font(font)
-                        .width(Length::Fixed(200.0)),
-                )
-                .push(bg_mode_selector)
-                .spacing(20),
-        );
-
-        if current_bg_mode == BackgroundMode::Video {
-            let video_selector = cosmic::iced::widget::tooltip(
-                pick_list(
-                    self.available_videos.clone(),
-                    self.wp_config.appearance.video_background_path.clone(),
-                    Message::VideoSelected,
-                )
-                .placeholder(if self.available_videos.is_empty() {
-                    "No videos found"
-                } else {
-                    "Select a video..."
-                }),
-                "Select a video file to play as the background.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            );
-            toggles_row = toggles_row.push(
-                row()
-                    .push(
-                        text("Selected Video:")
-                            .font(font)
-                            .width(Length::Fixed(200.0)),
-                    )
-                    .push(video_selector)
-                    .spacing(20),
-            );
-        }
-
-        let toggles_row = toggles_row
-            .push(
-                row()
-                    .push(cosmic::iced::widget::tooltip(
-                        checkbox(self.wp_config.appearance.show_album_art)
-                            .on_toggle(Message::ToggleShowAlbumArt)
-                            .label("Show Album Art Foreground")
-                            .font(font),
-                        "Displays the current album cover over the background.",
-                        cosmic::iced::widget::tooltip::Position::Top,
-                    ))
-                    .push(cosmic::iced::widget::tooltip(
-                        checkbox(self.wp_config.audio.show_lyrics)
-                            .on_toggle(Message::ToggleShowLyrics)
-                            .label("Show Lyrics")
-                            .font(font),
-                        "Displays scrolling lyrics for the current track.",
-                        cosmic::iced::widget::tooltip::Position::Top,
-                    ))
-                    .push(cosmic::iced::widget::tooltip(
-                        checkbox(self.autostart)
-                            .on_toggle(Message::ToggleAutostart)
-                            .label("Autostart on Login")
-                            .font(font),
-                        "Launches the wallpaper engine automatically when you log in.",
-                        cosmic::iced::widget::tooltip::Position::Top,
-                    ))
-                    .spacing(20),
-            )
-            .push(
-                row()
-                    .push(cosmic::iced::widget::tooltip(
-                        checkbox(self.wp_config.weather.enabled)
-                            .on_toggle(Message::ToggleWeatherEnabled)
-                            .label("Enable Weather")
-                            .font(font),
-                        "Displays current weather information on the desktop.",
-                        cosmic::iced::widget::tooltip::Position::Top,
-                    ))
-                    .push(cosmic::iced::widget::tooltip(
-                        checkbox(self.wp_config.weather.hide_effects)
-                            .on_toggle(Message::ToggleHideWeatherEffects)
-                            .label("Hide Weather Effects")
-                            .font(font),
-                        "Disables rain and snow animations to save performance.",
-                        cosmic::iced::widget::tooltip::Position::Top,
-                    ))
-                    .spacing(20),
-            )
-            .spacing(15);
-
-        let font_row = row()
-            .push(text("Font Family:").font(font).width(Length::Fixed(200.0)))
-            .push(cosmic::iced::widget::tooltip(
-                pick_list(
-                    self.available_fonts.clone(),
-                    self.wp_config
-                        .appearance
-                        .font_family
-                        .clone()
-                        .or_else(|| Some("System Default".to_string())),
-                    Message::FontFamilySelected,
-                )
-                .placeholder("Select a font..."),
-                "Select the font used for displaying the clock, weather, and lyrics.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            ))
-            .spacing(20);
-
-        let framerate_row = row()
-            .push(
-                text(format!("Target Framerate: {} FPS", self.wp_config.fps))
-                    .font(font)
-                    .width(Length::Fixed(200.0)),
-            )
-            .push(cosmic::iced::widget::tooltip(
-                slider(15.0..=144.0, self.wp_config.fps as f32, Message::FpsChanged),
-                "Higher framerates are smoother but use more system resources.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            ))
-            .spacing(20);
-
-        let blur_row = row()
-            .push(
-                text(format!(
-                    "Blur Strength: {:.2}",
-                    self.wp_config.appearance.blur_opacity
-                ))
-                .font(font)
-                .width(Length::Fixed(200.0)),
-            )
-            .push(
-                cosmic::iced::widget::tooltip(
-                    slider(
-                        0.0..=1.0,
-                        self.wp_config.appearance.blur_opacity,
-                        Message::BlurOpacityChanged,
-                    )
-                    .step(0.05),
-                    "Controls the strength of the background blur (only applies to Frosted Glass mode).",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                )
-            )
-            .spacing(20);
-
-        let file_selector = cosmic::iced::widget::tooltip(
-            pick_list(
-                self.available_files.clone(),
-                self.selected_file.clone(),
-                Message::FileSelected,
-            )
-            .placeholder("Select a file..."),
-            "Select a configuration or shader theme file to edit.",
-            cosmic::iced::widget::tooltip::Position::Top,
-        );
-
-        let save_btn: Element<'_, Self::Message> = {
-            let btn = cosmic::iced::widget::button(text("Save File").font(font));
-            if self.selected_file.is_some() {
-                cosmic::iced::widget::tooltip(
-                    btn.on_press(Message::SaveFile),
-                    "Save changes to the current file.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                )
-                .into()
-            } else {
-                cosmic::iced::widget::tooltip(
-                    btn,
-                    "Select a file to enable saving.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                )
-                .into()
-            }
-        };
-
-        let apply_btn: Element<'_, Self::Message> = {
-            let selected_theme = self.selected_file.as_ref().and_then(|f| {
-                if f.starts_with("shaders/") && f.ends_with(".toml") {
-                    Some(
-                        f.trim_start_matches("shaders/")
-                            .trim_end_matches(".toml")
-                            .to_string(),
-                    )
-                } else {
-                    None
-                }
-            });
-
-            if let Some(theme_name) = selected_theme {
-                if theme_name == self.wp_config.audio.style {
-                    let btn = cosmic::iced::widget::button(text("Theme Active").font(font));
-                    cosmic::iced::widget::tooltip(
-                        btn,
-                        "This theme is currently active.",
-                        cosmic::iced::widget::tooltip::Position::Top,
-                    )
-                    .into()
-                } else {
-                    let btn = cosmic::iced::widget::button(text("Apply Theme").font(font));
-                    cosmic::iced::widget::tooltip(
-                        btn.on_press(Message::ApplyTheme),
-                        "Apply this theme to the wallpaper engine.",
-                        cosmic::iced::widget::tooltip::Position::Top,
-                    )
-                    .into()
-                }
-            } else {
-                let btn = cosmic::iced::widget::button(text("Apply Theme").font(font));
-                cosmic::iced::widget::tooltip(
-                    btn,
-                    "Select a theme (.toml in shaders/) to apply it.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                )
-                .into()
-            }
-        };
-
-        let new_theme_input = cosmic::iced::widget::tooltip(
-            text_input("New Theme Name...", &self.new_theme_name)
-                .on_input(Message::NewThemeNameChanged)
-                .on_submit(|_| Message::CreateTheme),
-            "Enter a name to create a new copy of the current theme.",
-            cosmic::iced::widget::tooltip::Position::Top,
-        );
-
-        let create_btn: Element<'_, Self::Message> = {
-            let btn = cosmic::iced::widget::button(text("Create Theme").font(font));
-            if !self.new_theme_name.trim().is_empty() {
-                cosmic::iced::widget::tooltip(
-                    btn.on_press(Message::CreateTheme),
-                    "Create a new theme with this name.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                )
-                .into()
-            } else {
-                cosmic::iced::widget::tooltip(
-                    btn,
-                    "Enter a name for the new theme first.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                )
-                .into()
-            }
-        };
-
-        let toolbar = row()
-            .push(text("Edit File:").font(font).width(Length::Shrink))
-            .push(file_selector)
-            .push(save_btn)
-            .push(apply_btn)
-            .push(text(" | ").font(font))
-            .push(new_theme_input)
-            .push(create_btn)
-            .spacing(10);
-
-        let editor = text_editor(&self.editor_content)
-            .font(cosmic::iced::Font::MONOSPACE)
-            .on_action(Message::EditorAction)
-            .height(Length::Fill);
-
-        let report_btn = cosmic::iced::widget::tooltip(
-            cosmic::iced::widget::button(text("Report Issue").font(font).size(14))
-                .on_press(Message::ReportIssue),
-            "Open GitHub to report a bug or request a feature.",
-            cosmic::iced::widget::tooltip::Position::Top,
-        );
-        let notes_btn: Element<'_, Self::Message> = {
-            if self.status_msg == "Fetching patch notes..." {
-                let btn = cosmic::iced::widget::button(text("Fetching...").font(font).size(14));
-                cosmic::iced::widget::tooltip(
-                    btn,
-                    "Downloading patch notes from GitHub...",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                )
-                .into()
-            } else {
-                let btn = cosmic::iced::widget::button(text("Patch Notes").font(font).size(14));
-                cosmic::iced::widget::tooltip(
-                    btn.on_press(Message::ShowPatchNotes),
-                    "View recent changes and updates to the engine.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                )
-                .into()
-            }
-        };
-
-        let version_display: Element<'_, Self::Message> =
-            if let Some(new_v) = &self.update_available {
-                let update_btn = cosmic::iced::widget::button(
-                    text(format!("Update Available: {}", new_v))
-                        .font(font)
-                        .size(14),
-                )
-                .on_press(Message::OpenUpdateLink);
-
-                cosmic::iced::widget::tooltip(
-                    update_btn,
-                    "Open the release page to download the update.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                )
-                .into()
-            } else {
-                text(format!("v{}", env!("CARGO_PKG_VERSION")))
-                    .font(font)
-                    .size(14)
-                    .into()
-            };
-
-        let footer_row = row()
-            .push(
-                text(&self.status_msg)
-                    .font(font)
-                    .size(14)
-                    .width(Length::Fill),
-            )
-            .push(version_display)
-            .push(notes_btn)
-            .push(report_btn)
-            .spacing(15);
-
-        column()
-            .push(text("COSMIC Wallpaper Settings").font(font).size(32))
-            .push(toggles_row)
-            .push(font_row)
-            .push(framerate_row)
-            .push(blur_row)
-            .push(toolbar)
-            .push(editor)
-            .push(footer_row)
-            .padding(40)
-            .spacing(20)
-            .into()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_safe_path() {
-        // Valid paths
-        assert!(is_safe_path("config.toml"));
-        assert!(is_safe_path("shaders/theme.toml"));
-        assert!(is_safe_path("shaders/nested/theme.toml"));
-
-        // Path traversal
-        assert!(!is_safe_path("../test.txt"));
-        assert!(!is_safe_path("shaders/../../etc/passwd"));
-        assert!(!is_safe_path(".."));
-
-        // Absolute paths
-        assert!(!is_safe_path("/etc/passwd"));
-        #[cfg(windows)]
-        assert!(!is_safe_path("C:\\Windows\\System32\\config\\SAM"));
+    fn view(&self) -> cosmic::Element<'_, Self::Message> {
+        view::view_app(self)
     }
 }
