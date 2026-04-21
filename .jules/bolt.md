@@ -50,3 +50,7 @@
 ## 03-02-2025- Consolidate Frame-Invariant Calculations
 **Learning:** In the rendering loop, certain values like sky colors and clear colors are display-invariant and frame-invariant. Calculating them multiple times (e.g., once for the clear color and again for shader uniforms) is wasteful.
 **Action:** Move these calculations to a single point at the beginning of the frame, outside the monitor loop, and pass the results where needed.
+
+## 10-02-2025- Cache O(N) Scene Detection Metrics
+**Learning:** The `scene_description` logic was performing an O(N) sum over audio bands on every call. In the rendering hot path, especially with multiple monitors, this adds up to thousands of redundant iterations per second.
+**Action:** Cache the average audio energy in `AppState` during the `Event::AudioFrame` handler, where the bands are already being iterated. This reduces `scene_description` to an O(1) field retrieval, eliminating redundant passes over the audio data.
