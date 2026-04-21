@@ -1,7 +1,0 @@
-## 2024-04-01 - Visual Feedback via Event Handlers in cosmic::iced
-**Learning:** In the `cosmic::iced` GUI framework, interactive elements like buttons do not use a separate "disabled" boolean property or custom CSS classes for styling inactive states. Instead, the framework infers the interactive state directly from the presence of an event handler. When `.on_press()` is omitted, the button automatically transitions into a visually disabled state (reduced opacity, no hover effects).
-**Action:** When implementing forms or toolbars in libcosmic applications, always conditionally chain `.on_press()` handlers based on application state (e.g., input validation, selection availability) rather than relying on manual state checks inside the handler itself. This ensures users receive immediate visual feedback about which actions are currently available.
-
-## 2024-05-18 - Semantic Checkbox Labels in cosmic::iced
-**Learning:** When using `cosmic::iced` to build checkboxes, placing a separate text widget next to it (e.g., `row().push(checkbox(...)).push(text(...))`) makes the label visually distinct but disconnected in accessibility terms. The text is not natively associated with the checkbox, and clicking the text does not toggle the state.
-**Action:** Always use the built-in `.label("Text")` modifier on the `checkbox` widget instead of creating a separate text element. This ensures the label acts as a valid, grouped, and extended click target, significantly improving accessibility for users relying on screen readers or those who need a larger hit area.
