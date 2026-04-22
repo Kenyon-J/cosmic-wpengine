@@ -22,11 +22,10 @@
 **Learning:** Sometimes an MPRIS player (like some web browsers or lightweight players) will emit metadata but leave the `track_id` empty or default. If we only update metadata when `current_track_id != last_track_id`, consecutive tracks with empty IDs will be ignored.
 **Action:** Always process the metadata update if the `current_track_id` is empty, ensuring that song changes without valid track IDs still propagate.
 
-<<<<<<< bolt-video-memcpy-fastpath-16645586428494396973
 ## 2023-10-24 - Optimize densely packed image buffers with bulk memcpy
 **Learning:** Looping row-by-row to copy image or video frames (e.g. `ffmpeg` or `image` crate buffers) introduces severe overhead from redundant bounds checks and pointer arithmetic. When `stride == width * channels` (densely packed buffers, common for RGBA video), this is completely unnecessary.
 **Action:** Always check if `stride == expected_row_bytes`. If true, bypass the `for` loop and copy the entire frame in a single bulk operation using `copy_from_slice(&data[..frame_size])` to leverage highly optimized `memcpy` routines.
-=======
+
 ## 23-05-2024- Optimize Staging Buffers and Hot-Loop Math
 **Learning:** Re-using staging buffers (like `video_frame_buffer`) without calling `clear()` prevents redundant zero-filling by `Vec::resize()` in subsequent frames. Additionally, pre-calculating the reciprocal of viewport dimensions (`inv_width`, `inv_height`) outside of nested loops allows replacing multiple divisions with multiplications, which are significantly faster on most CPUs.
 **Action:** Preserve capacity in scratch buffers between frames to avoid deallocations and reallocations. Use reciprocal multiplication for viewport normalization in performance-critical rendering loops.
@@ -38,10 +37,6 @@
 ## 08-02-2025- Optimize Padded Buffer Copies with Iterators
 **Learning:** When copying image data with row padding, manual indexing and slicing in a loop (e.g. `raw_rgba[src_start..src_end]`) prevents the compiler from fully optimizing the memory transfer. Using iterator-based patterns like `chunks_exact_mut().zip()` eliminates manual bounds checking and enables LLVM to apply auto-vectorization (SIMD).
 **Action:** For all bulk memory copies involving stride or padding, prefer iterator-based `chunks_exact` and `zip` patterns over manual index arithmetic.
->>>>>>> master
-## 2026-04-11 - Optimize Padded Buffer Copies with Iterators
-**Learning:** When copying image data with row padding, manual indexing and slicing in a loop (e.g. `raw_rgba[src_start..src_end]`) prevents the compiler from fully optimizing the memory transfer. Using iterator-based patterns like `chunks_exact_mut().zip()` eliminates manual bounds checking and enables LLVM to apply auto-vectorization (SIMD).
-**Action:** For all bulk memory copies involving stride or padding, prefer iterator-based `chunks_exact` and `zip` patterns over manual index arithmetic.
 
 ## 15-05-2026 - Optimize High-Frequency Hashing in Rendering Path
 **Learning:** Repeatedly hashing the same strings (track info, weather, lyrics) inside a high-frequency rendering loop (60+ FPS) is a significant waste of CPU cycles, especially in multi-monitor setups where the loop executes multiple times per frame.
@@ -50,3 +45,7 @@
 ## 03-02-2025- Consolidate Frame-Invariant Calculations
 **Learning:** In the rendering loop, certain values like sky colors and clear colors are display-invariant and frame-invariant. Calculating them multiple times (e.g., once for the clear color and again for shader uniforms) is wasteful.
 **Action:** Move these calculations to a single point at the beginning of the frame, outside the monitor loop, and pass the results where needed.
+
+## 09-02-2025- Prune Discarded Logic from Rendering Hot Path
+**Learning:** Over time, refactoring can leave behind unused method calls or variable initializations in the main rendering loop. Even O(1) or O(N) calls whose results are discarded (prefixed with `_`) still consume CPU cycles and clutter the performance-critical path.
+**Action:** Audit the rendering hot path (`draw_frame`) regularly to ensure every calculation is strictly necessary for the current frame. Remove any "ghost" logic left over from previous iterations of the engine.
