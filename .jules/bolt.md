@@ -38,10 +38,6 @@
 **Learning:** When copying image data with row padding, manual indexing and slicing in a loop (e.g. `raw_rgba[src_start..src_end]`) prevents the compiler from fully optimizing the memory transfer. Using iterator-based patterns like `chunks_exact_mut().zip()` eliminates manual bounds checking and enables LLVM to apply auto-vectorization (SIMD).
 **Action:** For all bulk memory copies involving stride or padding, prefer iterator-based `chunks_exact` and `zip` patterns over manual index arithmetic.
 
-## 2026-04-11 - Optimize Padded Buffer Copies with Iterators
-**Learning:** When copying image data with row padding, manual indexing and slicing in a loop (e.g. `raw_rgba[src_start..src_end]`) prevents the compiler from fully optimizing the memory transfer. Using iterator-based patterns like `chunks_exact_mut().zip()` eliminates manual bounds checking and enables LLVM to apply auto-vectorization (SIMD).
-**Action:** For all bulk memory copies involving stride or padding, prefer iterator-based `chunks_exact` and `zip` patterns over manual index arithmetic.
-
 ## 15-05-2026 - Optimize High-Frequency Hashing in Rendering Path
 **Learning:** Repeatedly hashing the same strings (track info, weather, lyrics) inside a high-frequency rendering loop (60+ FPS) is a significant waste of CPU cycles, especially in multi-monitor setups where the loop executes multiple times per frame.
 **Action:** Pre-calculate string hashes once in data-parsing modules or event handlers and store them alongside the data. In the hot path, use the cached `u64` hash instead of recalculating it from the string.
