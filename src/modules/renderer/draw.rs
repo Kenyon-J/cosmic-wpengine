@@ -14,8 +14,6 @@ pub(crate) fn draw_frame(
     wayland_manager: &mut WaylandManager,
     delta: f32,
 ) -> Result<()> {
-    let _scene = renderer.state.scene_description();
-
     let audio_data = if renderer.is_waveform_style {
         &renderer.state.audio_waveform
     } else {
