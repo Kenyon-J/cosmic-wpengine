@@ -52,8 +52,8 @@ fn set_autostart(enable: bool) {
     if std::path::Path::new("/.flatpak-info").exists() {
         let enable_str = if enable { "true" } else { "false" };
         // Execute a D-Bus call to the portal using busctl (standard in Freedesktop runtimes)
-        let _ =
-            std::process::Command::new(resolve_binary("busctl").unwrap_or_else(|| "busctl".into()))
+        if let Some(busctl) = resolve_binary("busctl") {
+            let _ = std::process::Command::new(busctl)
                 .args([
                     "--user",
                     "call",
@@ -69,6 +69,9 @@ fn set_autostart(enable: bool) {
                     enable_str,
                 ])
                 .output();
+        } else {
+            tracing::warn!("Failed to set autostart: busctl not found in trusted PATH");
+        }
         return;
     }
 
@@ -514,21 +517,27 @@ amplitude = 1.5"#;
                 self.status_msg = "Viewing Patch Notes. Select a file to return to editing.".into();
             }
             Message::ReportIssue => {
-                let _ = std::process::Command::new(
-                    resolve_binary("xdg-open").unwrap_or_else(|| "xdg-open".into()),
-                )
-                .arg("https://github.com/Kenyon-J/cosmic-wpengine/issues")
-                .spawn();
+                if let Some(xdg_open) = resolve_binary("xdg-open") {
+                    let _ = std::process::Command::new(xdg_open)
+                        .arg("https://github.com/Kenyon-J/cosmic-wpengine/issues")
+                        .spawn();
+                } else {
+                    tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
+                    self.status_msg = "Failed to open link: xdg-open not found".into();
+                }
             }
             Message::UpdateCheckDone(version) => {
                 self.update_available = version;
             }
             Message::OpenUpdateLink => {
-                let _ = std::process::Command::new(
-                    resolve_binary("xdg-open").unwrap_or_else(|| "xdg-open".into()),
-                )
-                .arg("https://github.com/Kenyon-J/cosmic-wpengine/releases/latest")
-                .spawn();
+                if let Some(xdg_open) = resolve_binary("xdg-open") {
+                    let _ = std::process::Command::new(xdg_open)
+                        .arg("https://github.com/Kenyon-J/cosmic-wpengine/releases/latest")
+                        .spawn();
+                } else {
+                    tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
+                    self.status_msg = "Failed to open link: xdg-open not found".into();
+                }
             }
         }
         Task::none()
