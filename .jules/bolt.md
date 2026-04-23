@@ -50,3 +50,7 @@
 ## 03-02-2025- Consolidate Frame-Invariant Calculations
 **Learning:** In the rendering loop, certain values like sky colors and clear colors are display-invariant and frame-invariant. Calculating them multiple times (e.g., once for the clear color and again for shader uniforms) is wasteful.
 **Action:** Move these calculations to a single point at the beginning of the frame, outside the monitor loop, and pass the results where needed.
+
+## 09-02-2025- Optimize Scene Detection with Cached Audio Energy
+**Learning:** Recalculating aggregate metrics (like average audio energy) from large arrays in the hot rendering path (60+ FPS) for state-based logic (like `scene_description`) is redundant when the underlying data is already being processed during event ingestion.
+**Action:** Cache aggregate metrics in the application state during data updates and use O(1) field access in the rendering hot path to minimize CPU cycles per frame.

@@ -15,6 +15,7 @@ impl Renderer {
                 if config.audio.bands != self.state.config.audio.bands {
                     self.state.audio_bands = vec![0.0; config.audio.bands].into_boxed_slice();
                     self.state.audio_waveform = vec![0.0; config.audio.bands].into_boxed_slice();
+                    self.state.audio_energy = 0.0;
                     self.a_weighting_curve =
                         crate::modules::renderer::utils::build_a_weighting_curve(
                             config.audio.bands,
@@ -242,11 +243,15 @@ impl Renderer {
                     total_energy += *current;
                 }
 
-                // Optimization: Calculate audio_base_energy during the bands loop to avoid a second pass.
-                self.audio_base_energy = if target_len > 0 {
-                    (total_energy / target_len as f32) * 5.0
+                // Optimization: Calculate audio_base_energy and update cached audio_energy
+                // during the bands loop to avoid a second pass over the data.
+                if target_len > 0 {
+                    let avg_energy = total_energy / target_len as f32;
+                    self.audio_base_energy = avg_energy * 5.0;
+                    self.state.audio_energy = avg_energy;
                 } else {
-                    0.0
+                    self.audio_base_energy = 0.0;
+                    self.state.audio_energy = 0.0;
                 };
 
                 if self.state.audio_waveform.len() != target_len {

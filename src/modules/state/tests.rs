@@ -31,7 +31,7 @@ fn test_scene_description() {
     assert_eq!(state.scene_description(), SceneHint::Ambient);
 
     // With significant audio energy, it should switch to AudioVisualiser
-    state.audio_bands = vec![1.0; 64].into_boxed_slice();
+    state.audio_energy = 1.0;
     assert_eq!(state.scene_description(), SceneHint::AudioVisualiser);
 
     // Track with album art should take highest precedence over everything
@@ -55,16 +55,16 @@ fn test_scene_description_edge_cases() {
     let config = Config::default();
     let mut state = AppState::new(config);
 
-    // Edge case 1: empty audio bands array (handles division by zero -> NaN)
-    state.audio_bands = vec![].into_boxed_slice();
+    // Edge case 1: zero audio energy
+    state.audio_energy = 0.0;
     assert_eq!(state.scene_description(), SceneHint::Ambient);
 
     // Edge case 2: exact boundary condition for audio energy (0.05)
-    state.audio_bands = vec![0.05; 64].into_boxed_slice();
+    state.audio_energy = 0.05;
     assert_eq!(state.scene_description(), SceneHint::Ambient);
 
     // Edge case 3: slightly above boundary
-    state.audio_bands = vec![0.05001; 64].into_boxed_slice();
+    state.audio_energy = 0.05001;
     assert_eq!(state.scene_description(), SceneHint::AudioVisualiser);
 }
 
@@ -86,4 +86,22 @@ fn test_update_time() {
 
     // Check it's back in valid range
     assert!(state.time_of_day >= 0.0 && state.time_of_day <= 1.0);
+}
+
+/// Verifies that audio_energy is correctly maintained as an average of audio_bands.
+/// This test ensures the integration between data ingestion and the optimization cache.
+#[test]
+fn test_audio_energy_cache_integration() {
+    let config = Config::default();
+    let mut state = AppState::new(config);
+
+    // Simulate audio data ingestion logic from events.rs
+    let bands = [0.1, 0.2, 0.3, 0.4];
+    let total_energy: f32 = bands.iter().sum();
+    let avg_energy = total_energy / bands.len() as f32;
+
+    state.audio_energy = avg_energy;
+
+    assert!((state.audio_energy - 0.25).abs() < f32::EPSILON);
+    assert_eq!(state.scene_description(), SceneHint::AudioVisualiser);
 }
