@@ -4,8 +4,8 @@ fn main() {
     let bands = vec![0.5f32; 2048];
     let mut audio_bands = vec![0.0f32; 128];
     let mut frequency_bin_ranges = vec![(0, 0); 128];
-    for i in 0..128 {
-        frequency_bin_ranges[i] = (i * 10, (i + 1) * 10 + 5);
+    for (i, item) in frequency_bin_ranges.iter_mut().enumerate().take(128) {
+         *item = (i * 10, (i + 1) * 10 + 5);
     }
     let a_weighting_curve = vec![1.0f32; 128];
     let smoothing = 0.5f32;

@@ -96,7 +96,7 @@ fn test_audio_energy_cache_integration() {
     let mut state = AppState::new(config);
 
     // Simulate audio data ingestion logic from events.rs
-    let bands = vec![0.1, 0.2, 0.3, 0.4];
+    let bands = [0.1, 0.2, 0.3, 0.4];
     let total_energy: f32 = bands.iter().sum();
     let avg_energy = total_energy / bands.len() as f32;
 
