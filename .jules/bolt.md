@@ -50,3 +50,7 @@
 ## 03-02-2025- Consolidate Frame-Invariant Calculations
 **Learning:** In the rendering loop, certain values like sky colors and clear colors are display-invariant and frame-invariant. Calculating them multiple times (e.g., once for the clear color and again for shader uniforms) is wasteful.
 **Action:** Move these calculations to a single point at the beginning of the frame, outside the monitor loop, and pass the results where needed.
+
+## 08-02-2025- Cache Derived State to Avoid Redundant O(N) Passes
+**Learning:** Performing O(N) calculations (like audio energy scanning via `sum()`) in a shared state method (`scene_description`) is wasteful if called frequently or in hot paths. Since the source data is already processed in an event loop, the derived metric can be calculated once and cached.
+**Action:** Identify expensive derived metrics in `AppState`. Move their calculation to the event handlers where the source data is already being iterated over, and store the result in the state for O(1) access.
