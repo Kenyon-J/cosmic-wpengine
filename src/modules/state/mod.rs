@@ -14,6 +14,7 @@ pub struct AppState {
 
     pub audio_bands: Box<[f32]>,
     pub audio_waveform: Box<[f32]>,
+    pub audio_energy: f32,
 
     pub weather: Option<WeatherData>,
 
@@ -40,6 +41,7 @@ impl AppState {
             playback_position: std::time::Duration::ZERO,
             audio_bands: vec![0.0; band_count].into_boxed_slice(),
             audio_waveform: vec![0.0; band_count].into_boxed_slice(),
+            audio_energy: 0.0,
             weather: None,
             time_of_day: Self::current_time_of_day(),
             transition_progress: 1.0,
@@ -80,9 +82,8 @@ impl AppState {
             return SceneHint::AlbumArt;
         }
 
-        let audio_energy: f32 =
-            self.audio_bands.iter().sum::<f32>() / self.audio_bands.len() as f32;
-        if audio_energy > 0.05 {
+        // Optimization: Use the cached audio_energy instead of an O(N) loop
+        if self.audio_energy > 0.05 {
             return SceneHint::AudioVisualiser;
         }
 
