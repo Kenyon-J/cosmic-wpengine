@@ -52,23 +52,27 @@ fn set_autostart(enable: bool) {
     if std::path::Path::new("/.flatpak-info").exists() {
         let enable_str = if enable { "true" } else { "false" };
         // Execute a D-Bus call to the portal using busctl (standard in Freedesktop runtimes)
-        let _ =
-            std::process::Command::new(resolve_binary("busctl").unwrap_or_else(|| "busctl".into()))
-                .args([
-                    "--user",
-                    "call",
-                    "org.freedesktop.portal.Desktop",
-                    "/org/freedesktop/portal/desktop",
-                    "org.freedesktop.portal.Background",
-                    "RequestBackground",
-                    "sa{sv}",
-                    "", // parent_window
-                    "1",
-                    "autostart",
-                    "b",
-                    enable_str,
-                ])
-                .output();
+        let busctl_path = resolve_binary("busctl");
+        if busctl_path.is_none() {
+            tracing::warn!("busctl not found in trusted paths, cannot set autostart");
+            return;
+        }
+        let _ = std::process::Command::new(busctl_path.unwrap())
+            .args([
+                "--user",
+                "call",
+                "org.freedesktop.portal.Desktop",
+                "/org/freedesktop/portal/desktop",
+                "org.freedesktop.portal.Background",
+                "RequestBackground",
+                "sa{sv}",
+                "", // parent_window
+                "1",
+                "autostart",
+                "b",
+                enable_str,
+            ])
+            .output();
         return;
     }
 
@@ -514,21 +518,25 @@ amplitude = 1.5"#;
                 self.status_msg = "Viewing Patch Notes. Select a file to return to editing.".into();
             }
             Message::ReportIssue => {
-                let _ = std::process::Command::new(
-                    resolve_binary("xdg-open").unwrap_or_else(|| "xdg-open".into()),
-                )
-                .arg("https://github.com/Kenyon-J/cosmic-wpengine/issues")
-                .spawn();
+                if let Some(xdg_open) = resolve_binary("xdg-open") {
+                    let _ = std::process::Command::new(xdg_open)
+                        .arg("https://github.com/Kenyon-J/cosmic-wpengine/issues")
+                        .spawn();
+                } else {
+                    tracing::warn!("xdg-open not found in trusted paths");
+                }
             }
             Message::UpdateCheckDone(version) => {
                 self.update_available = version;
             }
             Message::OpenUpdateLink => {
-                let _ = std::process::Command::new(
-                    resolve_binary("xdg-open").unwrap_or_else(|| "xdg-open".into()),
-                )
-                .arg("https://github.com/Kenyon-J/cosmic-wpengine/releases/latest")
-                .spawn();
+                if let Some(xdg_open) = resolve_binary("xdg-open") {
+                    let _ = std::process::Command::new(xdg_open)
+                        .arg("https://github.com/Kenyon-J/cosmic-wpengine/releases/latest")
+                        .spawn();
+                } else {
+                    tracing::warn!("xdg-open not found in trusted paths");
+                }
             }
         }
         Task::none()
