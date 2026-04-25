@@ -14,8 +14,6 @@ pub(crate) fn draw_frame(
     wayland_manager: &mut WaylandManager,
     delta: f32,
 ) -> Result<()> {
-    let _scene = renderer.state.scene_description();
-
     let audio_data = if renderer.is_waveform_style {
         &renderer.state.audio_waveform
     } else {
@@ -203,6 +201,23 @@ pub(crate) fn draw_frame(
     let mut last_text_params = None;
     let mut last_uniform_res = None;
 
+    // Optimization: Pre-calculate display-invariant visualizer and album art properties
+    // outside the monitor loop to avoid redundant math and method calls.
+    let shape_u32 = match renderer.theme.visualiser.shape {
+        VisShape::Circular => 0,
+        VisShape::Linear => 1,
+        VisShape::Square => 2,
+    };
+    let align_u32 = match renderer.theme.visualiser.align {
+        VisAlign::Left => 0,
+        VisAlign::Center => 1,
+        VisAlign::Right => 2,
+    };
+    let album_texture_size = renderer.current_album_texture.as_ref().map(|t| {
+        let s = t.size();
+        (s.width as f32, s.height as f32)
+    });
+
     // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
     let primary_text = renderer.primary_text_color;
     let secondary_text = renderer.secondary_text_color;
@@ -271,16 +286,6 @@ pub(crate) fn draw_frame(
                 is_waveform: u32,
                 _padding: [u32; 3],
             }
-            let shape_u32 = match renderer.theme.visualiser.shape {
-                VisShape::Circular => 0,
-                VisShape::Linear => 1,
-                VisShape::Square => 2,
-            };
-            let align_u32 = match renderer.theme.visualiser.align {
-                VisAlign::Left => 0,
-                VisAlign::Center => 1,
-                VisAlign::Right => 2,
-            };
             let vis_uniforms = VisUniforms {
                 res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                 bands: renderer.state.config.audio.bands as u32,
@@ -341,16 +346,8 @@ pub(crate) fn draw_frame(
                     shape: 0,
                     blur_opacity: renderer.state.config.appearance.blur_opacity,
                     image_res: [
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().width as f32)
-                            .unwrap_or(1.0),
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().height as f32)
-                            .unwrap_or(1.0),
+                        album_texture_size.map(|s| s.0).unwrap_or(1.0),
+                        album_texture_size.map(|s| s.1).unwrap_or(1.0),
                     ],
                 };
                 let bg_bytes = unsafe {
@@ -395,16 +392,8 @@ pub(crate) fn draw_frame(
                     },
                     blur_opacity: 1.0,
                     image_res: [
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().width as f32)
-                            .unwrap_or(1.0),
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().height as f32)
-                            .unwrap_or(1.0),
+                        album_texture_size.map(|s| s.0).unwrap_or(1.0),
+                        album_texture_size.map(|s| s.1).unwrap_or(1.0),
                     ],
                 };
                 let fg_bytes = unsafe {
