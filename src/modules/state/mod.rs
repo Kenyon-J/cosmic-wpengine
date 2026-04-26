@@ -21,6 +21,7 @@ pub struct AppState {
 
     pub transition_progress: f32,
     pub transparent_fade: f32,
+    pub audio_energy: f32,
 }
 
 impl AppState {
@@ -44,6 +45,7 @@ impl AppState {
             time_of_day: Self::current_time_of_day(),
             transition_progress: 1.0,
             transparent_fade: initial_fade,
+            audio_energy: 0.0,
         }
     }
 
@@ -80,9 +82,9 @@ impl AppState {
             return SceneHint::AlbumArt;
         }
 
-        let audio_energy: f32 =
-            self.audio_bands.iter().sum::<f32>() / self.audio_bands.len() as f32;
-        if audio_energy > 0.05 {
+        // Optimization: Use pre-calculated audio energy to avoid O(N) summation every frame.
+        // This makes scene detection an O(1) operation in the hot path.
+        if self.audio_energy > 0.05 {
             return SceneHint::AudioVisualiser;
         }
 

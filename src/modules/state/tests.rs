@@ -31,7 +31,7 @@ fn test_scene_description() {
     assert_eq!(state.scene_description(), SceneHint::Ambient);
 
     // With significant audio energy, it should switch to AudioVisualiser
-    state.audio_bands = vec![1.0; 64].into_boxed_slice();
+    state.audio_energy = 1.0;
     assert_eq!(state.scene_description(), SceneHint::AudioVisualiser);
 
     // Track with album art should take highest precedence over everything
@@ -55,16 +55,16 @@ fn test_scene_description_edge_cases() {
     let config = Config::default();
     let mut state = AppState::new(config);
 
-    // Edge case 1: empty audio bands array (handles division by zero -> NaN)
-    state.audio_bands = vec![].into_boxed_slice();
+    // Edge case 1: zero energy
+    state.audio_energy = 0.0;
     assert_eq!(state.scene_description(), SceneHint::Ambient);
 
     // Edge case 2: exact boundary condition for audio energy (0.05)
-    state.audio_bands = vec![0.05; 64].into_boxed_slice();
+    state.audio_energy = 0.05;
     assert_eq!(state.scene_description(), SceneHint::Ambient);
 
     // Edge case 3: slightly above boundary
-    state.audio_bands = vec![0.05001; 64].into_boxed_slice();
+    state.audio_energy = 0.05001;
     assert_eq!(state.scene_description(), SceneHint::AudioVisualiser);
 }
 

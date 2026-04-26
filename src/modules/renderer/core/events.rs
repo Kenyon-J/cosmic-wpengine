@@ -51,6 +51,7 @@ impl Renderer {
                 self.text_buffer_cache.shrink_to_fit();
 
                 self.is_waveform_style = self.state.config.audio.style == "waveform";
+                self.state.audio_energy = 0.0;
                 self.update_weather_string();
                 info!("Live settings applied!");
             }
@@ -98,6 +99,7 @@ impl Renderer {
                 self.state.is_playing = true;
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;
+                self.state.audio_energy = 0.0;
                 self.state.begin_transition();
             }
 
@@ -138,6 +140,7 @@ impl Renderer {
                 self.state.is_playing = false;
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;
+                self.state.audio_energy = 0.0;
                 self.state.begin_transition();
 
                 // Free the padding buffers back to the OS allocator on idle
@@ -282,6 +285,15 @@ impl Renderer {
                     *current += (peak - *current) * inv_smoothing;
                 }
                 self.audio_max_energy = max_energy;
+
+                // Optimization: Cache the average audio energy in the state.
+                // This allows the rendering hot-path to determine the active scene in O(1)
+                // instead of re-summing all frequency bands every frame.
+                self.state.audio_energy = if target_len > 0 {
+                    total_energy / target_len as f32
+                } else {
+                    0.0
+                };
             }
 
             Event::WeatherUpdated(weather) => {
