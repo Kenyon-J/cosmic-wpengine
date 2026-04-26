@@ -51,9 +51,11 @@ fn set_autostart(enable: bool) {
     // If we are running inside a Flatpak sandbox, use the XDG Background Portal
     if std::path::Path::new("/.flatpak-info").exists() {
         let enable_str = if enable { "true" } else { "false" };
-        // Execute a D-Bus call to the portal using busctl (standard in Freedesktop runtimes)
-        let _ =
-            std::process::Command::new(resolve_binary("busctl").unwrap_or_else(|| "busctl".into()))
+
+        // Safely resolve busctl from trusted paths to prevent PATH hijacking
+        if let Some(busctl_bin) = resolve_binary("busctl") {
+            // Execute a D-Bus call to the portal using busctl (standard in Freedesktop runtimes)
+            let _ = std::process::Command::new(busctl_bin)
                 .args([
                     "--user",
                     "call",
@@ -69,6 +71,7 @@ fn set_autostart(enable: bool) {
                     enable_str,
                 ])
                 .output();
+        }
         return;
     }
 
@@ -514,21 +517,21 @@ amplitude = 1.5"#;
                 self.status_msg = "Viewing Patch Notes. Select a file to return to editing.".into();
             }
             Message::ReportIssue => {
-                let _ = std::process::Command::new(
-                    resolve_binary("xdg-open").unwrap_or_else(|| "xdg-open".into()),
-                )
-                .arg("https://github.com/Kenyon-J/cosmic-wpengine/issues")
-                .spawn();
+                if let Some(xdg_open) = resolve_binary("xdg-open") {
+                    let _ = std::process::Command::new(xdg_open)
+                        .arg("https://github.com/Kenyon-J/cosmic-wpengine/issues")
+                        .spawn();
+                }
             }
             Message::UpdateCheckDone(version) => {
                 self.update_available = version;
             }
             Message::OpenUpdateLink => {
-                let _ = std::process::Command::new(
-                    resolve_binary("xdg-open").unwrap_or_else(|| "xdg-open".into()),
-                )
-                .arg("https://github.com/Kenyon-J/cosmic-wpengine/releases/latest")
-                .spawn();
+                if let Some(xdg_open) = resolve_binary("xdg-open") {
+                    let _ = std::process::Command::new(xdg_open)
+                        .arg("https://github.com/Kenyon-J/cosmic-wpengine/releases/latest")
+                        .spawn();
+                }
             }
         }
         Task::none()
