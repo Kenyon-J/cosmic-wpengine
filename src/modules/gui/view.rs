@@ -45,7 +45,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
                 super::Message::VideoSelected,
             )
             .placeholder(if app.available_videos.is_empty() {
-                "No videos found"
+                "Place videos in ~/.config/cosmic-wallpaper/videos"
             } else {
                 "Select a video..."
             }),
