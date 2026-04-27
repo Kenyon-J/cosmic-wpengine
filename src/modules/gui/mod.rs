@@ -143,13 +143,24 @@ struct GitHubRelease {
     body: String,
 }
 
+static HTTP_CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> =
+    std::sync::OnceLock::new();
+
+fn get_http_client() -> Result<&'static reqwest::Client, &'static String> {
+    HTTP_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .user_agent("cosmic-wallpaper/1.0")
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .as_ref()
+}
+
 async fn fetch_patch_notes() -> String {
     let url = "https://api.github.com/repos/Kenyon-J/cosmic-wpengine/releases/latest";
-    let client = reqwest::Client::builder()
-        .user_agent("cosmic-wallpaper/1.0")
-        .build();
 
-    let client = match client {
+    let client = match get_http_client() {
         Ok(c) => c,
         Err(e) => return format!("Failed to build HTTP client: {}", e),
     };
@@ -169,10 +180,8 @@ async fn fetch_patch_notes() -> String {
 
 async fn check_for_updates() -> Option<String> {
     let url = "https://api.github.com/repos/Kenyon-J/cosmic-wpengine/releases/latest";
-    let client = reqwest::Client::builder()
-        .user_agent("cosmic-wallpaper/1.0")
-        .build()
-        .ok()?;
+
+    let client = get_http_client().ok()?;
 
     let release: GitHubRelease = client.get(url).send().await.ok()?.json().await.ok()?;
     let latest_version = release.tag_name.trim_start_matches('v');
