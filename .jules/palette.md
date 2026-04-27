@@ -7,3 +7,6 @@
 ## 2024-04-18 - pick_list Placeholders
 **Learning:** `pick_list` components in `cosmic::iced` can appear entirely blank and broken if no default value is provided or the list is empty, which severely degrades UX and clarity.
 **Action:** Always append `.placeholder("Select...")` to `pick_list` components to ensure a descriptive empty state is shown.
+## 2024-04-21 - Actionable Empty States
+**Learning:** Generic empty states like "No items found" are dead-ends for users. Providing actionable paths (like the directory to place files) directly in the UI placeholder makes the empty state helpful instead of frustrating.
+**Action:** When a UI element relies on user-provided files or configurations that are missing, use the empty state to tell the user exactly where and how to add them.
