@@ -80,3 +80,34 @@ pub(crate) fn build_waveform_bin_ranges(band_count: usize) -> Vec<(usize, usize)
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tests `hash_str` function to ensure it generates deterministic hashes for the same string
+    /// and different hashes for different strings, preventing regressions where string identification breaks.
+    #[test]
+    fn test_hash_str() {
+        let hash1 = hash_str("hello world");
+        let hash2 = hash_str("hello world");
+        assert_eq!(hash1, hash2, "The same string should produce the same hash");
+
+        let hash3 = hash_str("different string");
+        assert_ne!(
+            hash1, hash3,
+            "Different strings should produce different hashes"
+        );
+
+        let empty_hash = hash_str("");
+        let empty_hash2 = hash_str("");
+        assert_eq!(
+            empty_hash, empty_hash2,
+            "Empty strings should hash deterministically"
+        );
+        assert_ne!(
+            empty_hash, hash1,
+            "Empty string hash should differ from non-empty string hash"
+        );
+    }
+}
