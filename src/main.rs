@@ -1,4 +1,4 @@
-mod modules;
+use cosmic_wallpaper::modules;
 
 use anyhow::Result;
 use tokio::sync::mpsc;
