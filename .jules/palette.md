@@ -7,3 +7,6 @@
 ## 2024-04-18 - pick_list Placeholders
 **Learning:** `pick_list` components in `cosmic::iced` can appear entirely blank and broken if no default value is provided or the list is empty, which severely degrades UX and clarity.
 **Action:** Always append `.placeholder("Select...")` to `pick_list` components to ensure a descriptive empty state is shown.
+## 2024-04-27 - Actionable Empty States
+**Learning:** Generic "Not found" messages in UI placeholders or empty states cause friction because users don't know *how* to resolve them. For example, telling a user "No videos found" leaves them wondering where to put videos to make them appear.
+**Action:** Always prefer providing an actionable path, instruction, or call-to-action in empty states (e.g., "Place videos in ~/.config/cosmic-wallpaper/videos") so users can immediately resolve the missing data state.
