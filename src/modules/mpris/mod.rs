@@ -630,6 +630,12 @@ impl MprisWatcher {
             return false;
         }
 
+        // Resolve symlinks to find the real path on disk.
+        let canonical_path = match std::fs::canonicalize(path) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+
         // Restrict to common album art locations for desktop media players:
         // 1. /tmp/ (used by some players for temporary art)
         // 2. /run/user/ (used by some players for art storage)
@@ -639,15 +645,22 @@ impl MprisWatcher {
             std::path::Path::new("/run/user"),
         ];
 
-        if safe_prefixes.iter().any(|p| path.starts_with(p)) {
+        if safe_prefixes.iter().any(|p| {
+            let canon_p = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+            canonical_path.starts_with(&canon_p)
+        }) {
             return true;
         }
 
         if let Ok(home) = std::env::var("HOME") {
             let home_path = std::path::Path::new(&home);
-            let music_path = home_path.join("Music");
-            let cache_path = home_path.join(".cache");
-            if path.starts_with(music_path) || path.starts_with(cache_path) {
+            let canon_home =
+                std::fs::canonicalize(home_path).unwrap_or_else(|_| home_path.to_path_buf());
+            let music_path = std::fs::canonicalize(canon_home.join("Music"))
+                .unwrap_or_else(|_| canon_home.join("Music"));
+            let cache_path = std::fs::canonicalize(canon_home.join(".cache"))
+                .unwrap_or_else(|_| canon_home.join(".cache"));
+            if canonical_path.starts_with(&music_path) || canonical_path.starts_with(&cache_path) {
                 return true;
             }
         }
