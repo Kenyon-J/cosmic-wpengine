@@ -52,8 +52,8 @@ fn set_autostart(enable: bool) {
     if std::path::Path::new("/.flatpak-info").exists() {
         let enable_str = if enable { "true" } else { "false" };
         // Execute a D-Bus call to the portal using busctl (standard in Freedesktop runtimes)
-        let _ =
-            std::process::Command::new(resolve_binary("busctl").unwrap_or_else(|| "busctl".into()))
+        if let Some(busctl_path) = resolve_binary("busctl") {
+            let _ = std::process::Command::new(busctl_path)
                 .args([
                     "--user",
                     "call",
@@ -69,6 +69,9 @@ fn set_autostart(enable: bool) {
                     enable_str,
                 ])
                 .output();
+        } else {
+            tracing::warn!("Failed to resolve absolute path for busctl; skipping D-Bus call to XDG Background Portal");
+        }
         return;
     }
 
@@ -514,21 +517,29 @@ amplitude = 1.5"#;
                 self.status_msg = "Viewing Patch Notes. Select a file to return to editing.".into();
             }
             Message::ReportIssue => {
-                let _ = std::process::Command::new(
-                    resolve_binary("xdg-open").unwrap_or_else(|| "xdg-open".into()),
-                )
-                .arg("https://github.com/Kenyon-J/cosmic-wpengine/issues")
-                .spawn();
+                if let Some(xdg_open_path) = resolve_binary("xdg-open") {
+                    let _ = std::process::Command::new(xdg_open_path)
+                        .arg("https://github.com/Kenyon-J/cosmic-wpengine/issues")
+                        .spawn();
+                } else {
+                    tracing::warn!(
+                        "Failed to resolve absolute path for xdg-open; skipping issue report link"
+                    );
+                }
             }
             Message::UpdateCheckDone(version) => {
                 self.update_available = version;
             }
             Message::OpenUpdateLink => {
-                let _ = std::process::Command::new(
-                    resolve_binary("xdg-open").unwrap_or_else(|| "xdg-open".into()),
-                )
-                .arg("https://github.com/Kenyon-J/cosmic-wpengine/releases/latest")
-                .spawn();
+                if let Some(xdg_open_path) = resolve_binary("xdg-open") {
+                    let _ = std::process::Command::new(xdg_open_path)
+                        .arg("https://github.com/Kenyon-J/cosmic-wpengine/releases/latest")
+                        .spawn();
+                } else {
+                    tracing::warn!(
+                        "Failed to resolve absolute path for xdg-open; skipping update link"
+                    );
+                }
             }
         }
         Task::none()
