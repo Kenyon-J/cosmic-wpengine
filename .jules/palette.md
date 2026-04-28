@@ -10,3 +10,6 @@
 ## 2024-04-21 - Actionable Empty States
 **Learning:** Generic empty states like "No items found" are dead-ends for users. Providing actionable paths (like the directory to place files) directly in the UI placeholder makes the empty state helpful instead of frustrating.
 **Action:** When a UI element relies on user-provided files or configurations that are missing, use the empty state to tell the user exactly where and how to add them.
+## 2024-04-28 - Conditional Disabled States Tooltips
+**Learning:** For dependent child settings (like "Hide Weather Effects" which requires "Enable Weather"), simply disabling the widget can leave the user confused as to why they can't click it.
+**Action:** When conditionally disabling child configuration toggles, always wrap them in a `tooltip` explaining the dependency (e.g., "Enable Weather first to configure effects.") so the user understands the exact state and dependency logic. Explicitly type the result as `cosmic::Element` and call `.into()` on all branches.
