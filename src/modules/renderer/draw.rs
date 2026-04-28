@@ -227,8 +227,14 @@ pub(crate) fn draw_frame(
     };
     let album_art_bg_alpha = 1.0 - renderer.state.transparent_fade;
     let album_art_texture_res = [
-        renderer.current_album_size.map(|s| s.0 as f32).unwrap_or(1.0),
-        renderer.current_album_size.map(|s| s.1 as f32).unwrap_or(1.0),
+        renderer
+            .current_album_size
+            .map(|s| s.0 as f32)
+            .unwrap_or(1.0),
+        renderer
+            .current_album_size
+            .map(|s| s.1 as f32)
+            .unwrap_or(1.0),
     ];
 
     let mut album_art_fg_pos = renderer.theme.album_art.position;
@@ -253,8 +259,14 @@ pub(crate) fn draw_frame(
     };
     let custom_bg_alpha = 1.0 - renderer.state.transparent_fade;
     let custom_bg_texture_res = [
-        renderer.current_custom_bg_size.map(|s| s.0 as f32).unwrap_or(1.0),
-        renderer.current_custom_bg_size.map(|s| s.1 as f32).unwrap_or(1.0),
+        renderer
+            .current_custom_bg_size
+            .map(|s| s.0 as f32)
+            .unwrap_or(1.0),
+        renderer
+            .current_custom_bg_size
+            .map(|s| s.1 as f32)
+            .unwrap_or(1.0),
     ];
 
     let mut last_text_params = None;
