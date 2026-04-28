@@ -33,6 +33,7 @@ iced = { git = "https://github.com/pop-os/libcosmic.git", package = "iced", feat
 mimalloc = "0.1"
 lru = "0.12"
 ffmpeg-next = "8.1.0"
+rustc-hash = "2.1.2"
 
 [profile.release]
 opt-level = 3
