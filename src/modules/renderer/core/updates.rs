@@ -122,6 +122,7 @@ impl Renderer {
         self.album_art_bg_bind_group = Some(bg_bind_group);
         self.album_art_fg_bind_group = Some(fg_bind_group);
         self.current_album_texture = Some(texture);
+        self.current_album_size = Some(dimensions);
     }
 
     pub(crate) fn update_canvas_video_frame(&mut self, rgba: &image::RgbaImage) {
@@ -307,6 +308,7 @@ impl Renderer {
         let Some(path) = path else {
             self.custom_bg_bind_group = None;
             self.current_custom_bg_texture = None;
+            self.current_custom_bg_size = None;
             return;
         };
 

@@ -83,6 +83,7 @@ impl Renderer {
                     self.album_art_bg_bind_group = None;
                     self.album_art_fg_bind_group = None;
                     self.current_album_texture = None;
+                    self.current_album_size = None;
                 }
                 self.state.has_album_art = has_art;
                 self.cached_track_str =
@@ -132,6 +133,7 @@ impl Renderer {
                 self.album_art_bg_bind_group = None;
                 self.album_art_fg_bind_group = None;
                 self.current_album_texture = None;
+                self.current_album_size = None;
                 self.state.has_album_art = false;
                 self.state.current_track = None;
                 self.update_theme_colors();
