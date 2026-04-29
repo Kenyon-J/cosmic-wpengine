@@ -22,11 +22,10 @@
 **Learning:** Sometimes an MPRIS player (like some web browsers or lightweight players) will emit metadata but leave the `track_id` empty or default. If we only update metadata when `current_track_id != last_track_id`, consecutive tracks with empty IDs will be ignored.
 **Action:** Always process the metadata update if the `current_track_id` is empty, ensuring that song changes without valid track IDs still propagate.
 
-<<<<<<< bolt-video-memcpy-fastpath-16645586428494396973
 ## 2023-10-24 - Optimize densely packed image buffers with bulk memcpy
 **Learning:** Looping row-by-row to copy image or video frames (e.g. `ffmpeg` or `image` crate buffers) introduces severe overhead from redundant bounds checks and pointer arithmetic. When `stride == width * channels` (densely packed buffers, common for RGBA video), this is completely unnecessary.
 **Action:** Always check if `stride == expected_row_bytes`. If true, bypass the `for` loop and copy the entire frame in a single bulk operation using `copy_from_slice(&data[..frame_size])` to leverage highly optimized `memcpy` routines.
-=======
+
 ## 23-05-2024- Optimize Staging Buffers and Hot-Loop Math
 **Learning:** Re-using staging buffers (like `video_frame_buffer`) without calling `clear()` prevents redundant zero-filling by `Vec::resize()` in subsequent frames. Additionally, pre-calculating the reciprocal of viewport dimensions (`inv_width`, `inv_height`) outside of nested loops allows replacing multiple divisions with multiplications, which are significantly faster on most CPUs.
 **Action:** Preserve capacity in scratch buffers between frames to avoid deallocations and reallocations. Use reciprocal multiplication for viewport normalization in performance-critical rendering loops.
@@ -38,7 +37,7 @@
 ## 08-02-2025- Optimize Padded Buffer Copies with Iterators
 **Learning:** When copying image data with row padding, manual indexing and slicing in a loop (e.g. `raw_rgba[src_start..src_end]`) prevents the compiler from fully optimizing the memory transfer. Using iterator-based patterns like `chunks_exact_mut().zip()` eliminates manual bounds checking and enables LLVM to apply auto-vectorization (SIMD).
 **Action:** For all bulk memory copies involving stride or padding, prefer iterator-based `chunks_exact` and `zip` patterns over manual index arithmetic.
->>>>>>> master
+
 ## 2026-04-11 - Optimize Padded Buffer Copies with Iterators
 **Learning:** When copying image data with row padding, manual indexing and slicing in a loop (e.g. `raw_rgba[src_start..src_end]`) prevents the compiler from fully optimizing the memory transfer. Using iterator-based patterns like `chunks_exact_mut().zip()` eliminates manual bounds checking and enables LLVM to apply auto-vectorization (SIMD).
 **Action:** For all bulk memory copies involving stride or padding, prefer iterator-based `chunks_exact` and `zip` patterns over manual index arithmetic.
@@ -54,3 +53,7 @@
 ## 10-02-2025- Cache O(N) Scene Detection Metrics
 **Learning:** The `scene_description` logic was performing an O(N) sum over audio bands on every call. In the rendering hot path, especially with multiple monitors, this adds up to thousands of redundant iterations per second.
 **Action:** Cache the average audio energy in `AppState` during the `Event::AudioFrame` handler, where the bands are already being iterated. This reduces `scene_description` to an O(1) field retrieval, eliminating redundant passes over the audio data.
+
+## 10-02-2025- Optimize Multi-Monitor Rendering with Loop-Invariant Hoisting
+**Learning:** Redundant calculations in nested rendering loops (like monitor loops) multiply CPU overhead significantly. Pre-calculating display-invariant color deltas and monitor-invariant theme positions/scaling factors outside the line-by-line lyric loop reduces the number of operations per frame from O(Monitors * Lines) to O(Monitors + Lines). Replacing divisions with reciprocal multiplications and simplifying linear interpolation (a + (b-a)*t) further streamlines the hot path.
+**Action:** Always identify and hoist loop-invariant expressions and display-invariant constants outside of nested rendering loops. Use strength reduction (reciprocal multiplication) for values that remain constant within a frame or for a specific monitor output.

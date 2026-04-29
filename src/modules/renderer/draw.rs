@@ -205,6 +205,15 @@ pub(crate) fn draw_frame(
     let primary_text = renderer.primary_text_color;
     let secondary_text = renderer.secondary_text_color;
 
+    // Optimization: Pre-calculate text color delta to simplify linear interpolation
+    // in the lyric rendering loop.
+    let text_color_diff = [
+        primary_text[0] - secondary_text[0],
+        primary_text[1] - secondary_text[1],
+        primary_text[2] - secondary_text[2],
+        primary_text[3] - secondary_text[3],
+    ];
+
     let map_align = |a: &TextAlign| -> cosmic_text::Align {
         match a {
             TextAlign::Left => cosmic_text::Align::Left,
@@ -510,6 +519,20 @@ pub(crate) fn draw_frame(
             scale_factor as u32,
         );
 
+        // Pre-calculate theme positions multiplied by resolution for O(1) retrieval in nested loops
+        let lyric_theme_pos = [
+            renderer.theme.lyrics.position[0] * width_f,
+            renderer.theme.lyrics.position[1] * height_f,
+        ];
+        let track_theme_pos = [
+            renderer.theme.track_info.position[0] * width_f,
+            renderer.theme.track_info.position[1] * height_f,
+        ];
+        let weather_theme_pos = [
+            renderer.theme.weather.position[0] * width_f,
+            renderer.theme.weather.position[1] * height_f,
+        ];
+
         if last_text_params != Some(current_text_params) {
             for p_buf in renderer.text_buffers.drain(..) {
                 renderer
@@ -523,10 +546,18 @@ pub(crate) fn draw_frame(
                         let base_font_size =
                             (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
                         let active_font_size = base_font_size * 1.5;
+                        let inv_active_font_size = 1.0 / active_font_size;
                         let line_spacing = active_font_size * 1.2;
 
                         let start_idx = renderer.current_lyric_idx.saturating_sub(2);
                         let end_idx = (renderer.current_lyric_idx + 2).min(lyrics.len());
+
+                        // Optimization: Pre-calculate monitor-invariant lyric scaling
+                        // factors and bounce offsets outside the line loop.
+                        let base_to_active_diff = active_font_size - base_font_size;
+                        let lyric_bounce_base = renderer.lyric_bounce_value * scale_factor;
+                        let scale_bounce = lyric_bounce_base * 8.0;
+                        let pos_bounce = lyric_bounce_base * 12.0;
 
                         for line_idx in start_idx..=end_idx {
                             if line_idx == 0 || line_idx > lyrics.len() {
@@ -546,26 +577,19 @@ pub(crate) fn draw_frame(
 
                             let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
 
-                            let scale = base_font_size
-                                + (active_font_size - base_font_size) * center_weight;
-                            let final_scale = scale
-                                + (renderer.lyric_bounce_value * 8.0 * scale_factor)
-                                    * center_weight;
+                            let scale = base_font_size + base_to_active_diff * center_weight;
+                            let final_scale = scale + scale_bounce * center_weight;
 
-                            let render_scale = final_scale / active_font_size;
-                            let bounce_y =
-                                (renderer.lyric_bounce_value * 12.0 * scale_factor) * center_weight;
+                            let render_scale = final_scale * inv_active_font_size;
+                            let bounce_y = pos_bounce * center_weight;
                             let y_pos = (dist * line_spacing) - bounce_y;
 
+                            // Optimization: Use pre-calculated text_color_diff
                             let color = [
-                                secondary_text[0]
-                                    + (primary_text[0] - secondary_text[0]) * center_weight,
-                                secondary_text[1]
-                                    + (primary_text[1] - secondary_text[1]) * center_weight,
-                                secondary_text[2]
-                                    + (primary_text[2] - secondary_text[2]) * center_weight,
-                                secondary_text[3]
-                                    + (primary_text[3] - secondary_text[3]) * center_weight,
+                                secondary_text[0] + text_color_diff[0] * center_weight,
+                                secondary_text[1] + text_color_diff[1] * center_weight,
+                                secondary_text[2] + text_color_diff[2] * center_weight,
+                                secondary_text[3] + text_color_diff[3] * center_weight,
                             ];
 
                             // Fade out gracefully to prevent popping strings at top/bottom
@@ -608,10 +632,7 @@ pub(crate) fn draw_frame(
                                     },
                                 );
 
-                                let pos = [
-                                    renderer.theme.lyrics.position[0] * width_f,
-                                    renderer.theme.lyrics.position[1] * height_f + y_pos,
-                                ];
+                                let pos = [lyric_theme_pos[0], lyric_theme_pos[1] + y_pos];
 
                                 renderer.text_buffers.push(PositionedBuffer {
                                     buffer,
@@ -666,10 +687,7 @@ pub(crate) fn draw_frame(
                     .for_each(|line: &mut cosmic_text::BufferLine| {
                         line.set_align(Some(align));
                     });
-                let pos = [
-                    renderer.theme.track_info.position[0] * width_f,
-                    renderer.theme.track_info.position[1] * height_f,
-                ];
+                let pos = track_theme_pos;
                 renderer.text_buffers.push(PositionedBuffer {
                     buffer,
                     text_key,
@@ -722,10 +740,7 @@ pub(crate) fn draw_frame(
                     .for_each(|line: &mut cosmic_text::BufferLine| {
                         line.set_align(Some(align));
                     });
-                let pos = [
-                    renderer.theme.weather.position[0] * width_f,
-                    renderer.theme.weather.position[1] * height_f,
-                ];
+                let pos = weather_theme_pos;
                 renderer.text_buffers.push(PositionedBuffer {
                     buffer,
                     text_key,
