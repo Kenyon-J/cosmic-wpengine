@@ -55,7 +55,8 @@ pub struct TextRenderer {
     pub vertex_capacity: usize,
     pub index_capacity: usize,
     // Optimization: Use FxHashMap for faster hashing of glyph cache keys in the hot rendering path
-    pub glyph_cache: std::collections::HashMap<cosmic_text::CacheKey, CachedGlyph, rustc_hash::FxBuildHasher>,
+    pub glyph_cache:
+        std::collections::HashMap<cosmic_text::CacheKey, CachedGlyph, rustc_hash::FxBuildHasher>,
     pub cache_x: u32,
     pub cache_y: u32,
     pub cache_row_height: u32,
