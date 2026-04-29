@@ -21,7 +21,8 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
             &super::BackgroundMode::ALL[..],
             Some(current_bg_mode),
             super::Message::BackgroundModeSelected,
-        ),
+        )
+        .placeholder("Select a style..."),
         "Changes the desktop background effect.",
         cosmic::iced::widget::tooltip::Position::Top,
     );

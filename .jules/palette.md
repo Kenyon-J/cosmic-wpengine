@@ -10,3 +10,6 @@
 ## 2024-04-21 - Actionable Empty States
 **Learning:** Generic empty states like "No items found" are dead-ends for users. Providing actionable paths (like the directory to place files) directly in the UI placeholder makes the empty state helpful instead of frustrating.
 **Action:** When a UI element relies on user-provided files or configurations that are missing, use the empty state to tell the user exactly where and how to add them.
+## 2024-04-29 - pick_list Placeholders and unconditionally selected values
+**Learning:** Adding `.placeholder("Select...")` to `pick_list` widgets provides helpful descriptive states when the dropdown is empty. However, if the widget is unconditionally initialized with a `Some` value (e.g., `Some(current_bg_mode)`), the placeholder provides no UX value as the list will never be unselected and the text will remain invisible.
+**Action:** When adding placeholders to `pick_list` components, verify that the selected value binding can actually evaluate to `None`.
