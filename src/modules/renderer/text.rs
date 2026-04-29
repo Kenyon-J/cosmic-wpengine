@@ -54,7 +54,8 @@ pub struct TextRenderer {
     pub texture: wgpu::Texture,
     pub vertex_capacity: usize,
     pub index_capacity: usize,
-    pub glyph_cache: std::collections::HashMap<cosmic_text::CacheKey, CachedGlyph>,
+    // Optimization: Use FxHashMap for faster hashing of glyph cache keys in the hot rendering path
+    pub glyph_cache: std::collections::HashMap<cosmic_text::CacheKey, CachedGlyph, rustc_hash::FxBuildHasher>,
     pub cache_x: u32,
     pub cache_y: u32,
     pub cache_row_height: u32,
@@ -183,7 +184,7 @@ impl TextRenderer {
         });
 
         Ok(Self {
-            glyph_cache: std::collections::HashMap::new(),
+            glyph_cache: std::collections::HashMap::with_hasher(rustc_hash::FxBuildHasher),
             pipeline,
             vertices,
             indices,
