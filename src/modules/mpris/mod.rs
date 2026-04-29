@@ -621,9 +621,14 @@ impl MprisWatcher {
     }
 
     fn is_safe_path(path: &std::path::Path) -> bool {
+        let canonical_path = match std::fs::canonicalize(path) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+
         // Ensure path is absolute and does not contain any '..' components
-        if !path.is_absolute()
-            || path
+        if !canonical_path.is_absolute()
+            || canonical_path
                 .components()
                 .any(|c| matches!(c, std::path::Component::ParentDir))
         {
@@ -639,7 +644,11 @@ impl MprisWatcher {
             std::path::Path::new("/run/user"),
         ];
 
-        if safe_prefixes.iter().any(|p| path.starts_with(p)) {
+        if safe_prefixes.iter().any(|p| {
+            std::fs::canonicalize(p)
+                .map(|cp| canonical_path.starts_with(cp))
+                .unwrap_or(false)
+        }) {
             return true;
         }
 
@@ -647,7 +656,11 @@ impl MprisWatcher {
             let home_path = std::path::Path::new(&home);
             let music_path = home_path.join("Music");
             let cache_path = home_path.join(".cache");
-            if path.starts_with(music_path) || path.starts_with(cache_path) {
+            if [music_path, cache_path].iter().any(|p| {
+                std::fs::canonicalize(p)
+                    .map(|cp| canonical_path.starts_with(cp))
+                    .unwrap_or(false)
+            }) {
                 return true;
             }
         }
