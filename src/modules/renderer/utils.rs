@@ -31,7 +31,11 @@ pub(crate) fn build_a_weighting_curve(band_count: usize) -> Vec<f32> {
 
 pub fn hash_str(s: &str) -> u64 {
     use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    // Optimization: Use `rustc_hash::FxHasher` instead of `std::collections::hash_map::DefaultHasher`.
+    // The default hasher uses SipHash, which protects against HashDoS but is significantly slower.
+    // For internal caching keys inside a 60FPS render loop, collision resistance is unnecessary
+    // and FxHash provides a measurable speedup.
+    let mut hasher = rustc_hash::FxHasher::default();
     s.hash(&mut hasher);
     hasher.finish()
 }

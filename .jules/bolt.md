@@ -58,3 +58,7 @@
 ## 10-02-2025- Cache O(N) Scene Detection Metrics
 **Learning:** The `scene_description` logic was performing an O(N) sum over audio bands on every call. In the rendering hot path, especially with multiple monitors, this adds up to thousands of redundant iterations per second.
 **Action:** Cache the average audio energy in `AppState` during the `Event::AudioFrame` handler, where the bands are already being iterated. This reduces `scene_description` to an O(1) field retrieval, eliminating redundant passes over the audio data.
+
+## 2026-05-18 - Optimize non-cryptographic hashing
+**Learning:** Using `std::collections::hash_map::DefaultHasher` (SipHash) inside high-frequency paths (like the 60FPS render loop's caching system) introduces measurable CPU overhead due to its cryptographic collision resistance.
+**Action:** Always prefer `rustc_hash::FxHasher` for internal hashing and caching where HashDoS protection is unnecessary, as it provides significantly better performance.
