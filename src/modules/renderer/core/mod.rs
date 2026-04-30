@@ -43,6 +43,7 @@ pub struct Renderer {
     pub(crate) album_art_bg_bind_group: Option<wgpu::BindGroup>,
     pub(crate) album_art_fg_bind_group: Option<wgpu::BindGroup>,
     pub(crate) current_album_texture: Option<wgpu::Texture>,
+    pub(crate) current_album_size: Option<(u32, u32)>,
     pub(crate) album_art_sampler: wgpu::Sampler,
     pub(crate) ambient_pipeline: wgpu::RenderPipeline,
     pub(crate) ambient_bind_group: wgpu::BindGroup,

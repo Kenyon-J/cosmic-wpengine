@@ -164,6 +164,77 @@ pub(crate) fn draw_frame(
         None
     };
 
+    // Optimization: Pre-calculate display-invariant components for the visualizer.
+    let vis_shape_u32 = match renderer.theme.visualiser.shape {
+        VisShape::Circular => 0,
+        VisShape::Linear => 1,
+        VisShape::Square => 2,
+    };
+    let vis_align_u32 = match renderer.theme.visualiser.align {
+        VisAlign::Left => 0,
+        VisAlign::Center => 1,
+        VisAlign::Right => 2,
+    };
+    let vis_pos_size_rot = [
+        renderer.theme.visualiser.position[0],
+        renderer.theme.visualiser.position[1],
+        renderer.theme.visualiser.size,
+        renderer.theme.visualiser.rotation.to_radians(),
+    ];
+    let is_waveform_u32 = if renderer.is_waveform_style { 1 } else { 0 };
+
+    // Optimization: Pre-calculate display-invariant album art layout and dimensions.
+    let album_art_bg_mode = if show_color_bg {
+        3
+    } else if renderer.state.config.appearance.disable_blur {
+        2
+    } else {
+        0
+    };
+    let album_art_bg_alpha = 1.0 - renderer.state.transparent_fade;
+    let album_art_texture_res = [
+        renderer
+            .current_album_size
+            .map(|s| s.0 as f32)
+            .unwrap_or(1.0),
+        renderer
+            .current_album_size
+            .map(|s| s.1 as f32)
+            .unwrap_or(1.0),
+    ];
+
+    let mut album_art_fg_pos = renderer.theme.album_art.position;
+    let mut album_art_fg_size = renderer.theme.album_art.size;
+    let mut album_art_fg_shape = if renderer.theme.album_art.shape == ArtShape::Circular {
+        1
+    } else {
+        0
+    };
+
+    if has_audio && renderer.theme.visualiser.shape == VisShape::Circular {
+        album_art_fg_pos = renderer.theme.visualiser.position;
+        album_art_fg_size = renderer.theme.visualiser.size;
+        album_art_fg_shape = 1;
+    }
+
+    // Optimization: Pre-calculate custom background layout.
+    let custom_bg_mode = if renderer.state.config.appearance.disable_blur {
+        2
+    } else {
+        0
+    };
+    let custom_bg_alpha = 1.0 - renderer.state.transparent_fade;
+    let custom_bg_texture_res = [
+        renderer
+            .current_custom_bg_size
+            .map(|s| s.0 as f32)
+            .unwrap_or(1.0),
+        renderer
+            .current_custom_bg_size
+            .map(|s| s.1 as f32)
+            .unwrap_or(1.0),
+    ];
+
     let mut last_text_params = None;
     let mut last_uniform_res = None;
 
@@ -239,33 +310,19 @@ pub(crate) fn draw_frame(
                 is_waveform: u32,
                 _padding: [u32; 3],
             }
-            let shape_u32 = match renderer.theme.visualiser.shape {
-                VisShape::Circular => 0,
-                VisShape::Linear => 1,
-                VisShape::Square => 2,
-            };
-            let align_u32 = match renderer.theme.visualiser.align {
-                VisAlign::Left => 0,
-                VisAlign::Center => 1,
-                VisAlign::Right => 2,
-            };
+
             let vis_uniforms = VisUniforms {
                 res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                 bands: renderer.state.config.audio.bands as u32,
                 pulse: beat_pulse_mul, // Multiplier guarantees visible beat effects
                 top: top_col,
                 bottom: bottom_col,
-                pos_size_rot: [
-                    renderer.theme.visualiser.position[0],
-                    renderer.theme.visualiser.position[1],
-                    renderer.theme.visualiser.size,
-                    renderer.theme.visualiser.rotation.to_radians(),
-                ],
+                pos_size_rot: vis_pos_size_rot,
                 amplitude: renderer.theme.visualiser.amplitude,
-                shape: shape_u32,
+                shape: vis_shape_u32,
                 time: elapsed,
-                align: align_u32,
-                is_waveform: if renderer.is_waveform_style { 1 } else { 0 },
+                align: vis_align_u32,
+                is_waveform: is_waveform_u32,
                 _padding: [0; 3],
             };
             let vis_bytes = unsafe {
@@ -283,15 +340,6 @@ pub(crate) fn draw_frame(
         if (show_art_fg || show_art_bg || show_color_bg) && last_uniform_res != Some(current_res) {
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
-                let bg_mode = if show_color_bg {
-                    3
-                } else if renderer.state.config.appearance.disable_blur {
-                    2
-                } else {
-                    0
-                };
-                // Fade out the album art background completely when transparent background is enabled
-                let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
 
                 let bg_uniforms = ArtUniforms {
                     color_and_transition: [
@@ -303,23 +351,12 @@ pub(crate) fn draw_frame(
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                     art_position: [0.5, 0.5],
                     audio_energy,
-                    mode: bg_mode,
-                    bg_alpha: bg_alpha_val,
+                    mode: album_art_bg_mode,
+                    bg_alpha: album_art_bg_alpha,
                     art_size: 1.0,
                     shape: 0,
                     blur_opacity: renderer.state.config.appearance.blur_opacity,
-                    image_res: [
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().width as f32)
-                            .unwrap_or(1.0),
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().height as f32)
-                            .unwrap_or(1.0),
-                    ],
+                    image_res: album_art_texture_res,
                 };
                 let bg_bytes = unsafe {
                     std::slice::from_raw_parts(
@@ -331,18 +368,6 @@ pub(crate) fn draw_frame(
                     .queue
                     .write_buffer(&renderer.album_art_bg_uniform_buffer, 0, bg_bytes);
 
-                let mut art_position = renderer.theme.album_art.position;
-                let mut art_size = renderer.theme.album_art.size;
-                let mut art_shape = renderer.theme.album_art.shape;
-
-                // If the circular visualiser is active, dynamically override the album art
-                // layout to fit perfectly inside of it.
-                if has_audio && renderer.theme.visualiser.shape == VisShape::Circular {
-                    art_position = renderer.theme.visualiser.position;
-                    art_size = renderer.theme.visualiser.size;
-                    art_shape = ArtShape::Circular; // Force circular shape to match
-                }
-
                 let fg_uniforms = ArtUniforms {
                     color_and_transition: [
                         color[0],
@@ -351,29 +376,14 @@ pub(crate) fn draw_frame(
                         renderer.state.transition_progress,
                     ],
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
-                    art_position,
+                    art_position: album_art_fg_pos,
                     audio_energy,
                     mode: 1,
                     bg_alpha: 1.0, // The sharp foreground art never fades!
-                    art_size,
-                    shape: if art_shape == ArtShape::Circular {
-                        1
-                    } else {
-                        0
-                    },
+                    art_size: album_art_fg_size,
+                    shape: album_art_fg_shape,
                     blur_opacity: 1.0,
-                    image_res: [
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().width as f32)
-                            .unwrap_or(1.0),
-                        renderer
-                            .current_album_texture
-                            .as_ref()
-                            .map(|t| t.size().height as f32)
-                            .unwrap_or(1.0),
-                    ],
+                    image_res: album_art_texture_res,
                 };
                 let fg_bytes = unsafe {
                     std::slice::from_raw_parts(
@@ -390,33 +400,17 @@ pub(crate) fn draw_frame(
         if last_uniform_res != Some(current_res) {
             if renderer.custom_bg_bind_group.is_some() {
                 // 4. Process custom background uniforms
-                let bg_mode = if renderer.state.config.appearance.disable_blur {
-                    2
-                } else {
-                    0
-                };
-                let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
-
                 let custom_bg_uniforms = ArtUniforms {
                     color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                     art_position: [0.5, 0.5],
                     audio_energy,
-                    mode: bg_mode,
-                    bg_alpha: bg_alpha_val,
+                    mode: custom_bg_mode,
+                    bg_alpha: custom_bg_alpha,
                     art_size: 1.0,
                     shape: 0,
                     blur_opacity: renderer.state.config.appearance.blur_opacity,
-                    image_res: [
-                        renderer
-                            .current_custom_bg_size
-                            .map(|s| s.0 as f32)
-                            .unwrap_or(1.0),
-                        renderer
-                            .current_custom_bg_size
-                            .map(|s| s.1 as f32)
-                            .unwrap_or(1.0),
-                    ],
+                    image_res: custom_bg_texture_res,
                 };
                 let cbg_bytes = unsafe {
                     std::slice::from_raw_parts(
@@ -429,8 +423,6 @@ pub(crate) fn draw_frame(
                     .write_buffer(&renderer.custom_bg_uniform_buffer, 0, cbg_bytes);
             } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
                 // 3. Process ambient uniforms
-                let bg_alpha_val = 1.0 - renderer.state.transparent_fade;
-
                 #[repr(C, align(16))]
                 struct AmbUniforms {
                     res: [f32; 2],
@@ -446,7 +438,7 @@ pub(crate) fn draw_frame(
                     time: elapsed,
                     weather: weather_type,
                     sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
-                    bg_alpha: bg_alpha_val,
+                    bg_alpha: custom_bg_alpha, // Can reuse the same bg_alpha logic
                     _padding: [0.0; 3],
                 };
                 let amb_bytes = unsafe {

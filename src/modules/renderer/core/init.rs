@@ -186,6 +186,7 @@ impl Renderer {
             album_art_bg_bind_group: None,
             album_art_fg_bind_group: None,
             current_album_texture: Some(empty_texture),
+            current_album_size: None,
             album_art_sampler,
             ambient_pipeline,
             ambient_bind_group,
