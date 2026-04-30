@@ -103,14 +103,28 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
                     "Displays current weather information on the desktop.",
                     cosmic::iced::widget::tooltip::Position::Top,
                 ))
-                .push(cosmic::iced::widget::tooltip(
-                    checkbox(app.wp_config.weather.hide_effects)
-                        .on_toggle(super::Message::ToggleHideWeatherEffects)
+                .push({
+                    let cb = checkbox(app.wp_config.weather.hide_effects)
                         .label("Hide Weather Effects")
-                        .font(font),
-                    "Disables rain and snow animations to save performance.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                ))
+                        .font(font);
+                    let element: cosmic::Element<'_, super::Message> =
+                        if app.wp_config.weather.enabled {
+                            cosmic::iced::widget::tooltip(
+                                cb.on_toggle(super::Message::ToggleHideWeatherEffects),
+                                "Disables rain and snow animations to save performance.",
+                                cosmic::iced::widget::tooltip::Position::Top,
+                            )
+                            .into()
+                        } else {
+                            cosmic::iced::widget::tooltip(
+                                cb,
+                                "Enable Weather first to use this setting.",
+                                cosmic::iced::widget::tooltip::Position::Top,
+                            )
+                            .into()
+                        };
+                    element
+                })
                 .spacing(20),
         )
         .spacing(15);
