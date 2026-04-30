@@ -65,7 +65,6 @@ impl Config {
         }
     }
 
-    #[allow(dead_code)]
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path();
         if let Some(parent) = path.parent() {
@@ -75,8 +74,6 @@ impl Config {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    #[allow(dead_code)]
     pub fn available_videos() -> Vec<String> {
         let mut videos = Vec::new();
         let videos_dir = Self::config_dir().join("videos");
