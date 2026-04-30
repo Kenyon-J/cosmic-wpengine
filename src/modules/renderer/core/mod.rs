@@ -86,6 +86,12 @@ pub struct Renderer {
     // --- Cached Performance Values ---
     pub(crate) primary_text_color: [f32; 4],
     pub(crate) secondary_text_color: [f32; 4],
+    pub(crate) text_color_diff: [f32; 4],
+    pub(crate) active_particles: u32,
+    pub(crate) weather_gravity: f32,
+    pub(crate) weather_wind_x: f32,
+    pub(crate) weather_type: u32,
+    pub(crate) is_weather_active: bool,
     pub(crate) audio_max_energy: f32,
     pub(crate) audio_base_energy: f32,
     pub(crate) is_waveform_style: bool,
