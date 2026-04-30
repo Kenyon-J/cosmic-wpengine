@@ -630,6 +630,13 @@ impl MprisWatcher {
             return false;
         }
 
+        // Canonicalize to resolve symlinks and prevent bypasses.
+        // If the path does not exist, we reject it.
+        let real_path = match std::fs::canonicalize(path) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+
         // Restrict to common album art locations for desktop media players:
         // 1. /tmp/ (used by some players for temporary art)
         // 2. /run/user/ (used by some players for art storage)
@@ -639,16 +646,25 @@ impl MprisWatcher {
             std::path::Path::new("/run/user"),
         ];
 
-        if safe_prefixes.iter().any(|p| path.starts_with(p)) {
+        if safe_prefixes
+            .iter()
+            .any(|p| std::fs::canonicalize(p).is_ok_and(|real_p| real_path.starts_with(real_p)))
+        {
             return true;
         }
 
         if let Ok(home) = std::env::var("HOME") {
             let home_path = std::path::Path::new(&home);
-            let music_path = home_path.join("Music");
-            let cache_path = home_path.join(".cache");
-            if path.starts_with(music_path) || path.starts_with(cache_path) {
-                return true;
+
+            if let Ok(real_music) = std::fs::canonicalize(home_path.join("Music")) {
+                if real_path.starts_with(real_music) {
+                    return true;
+                }
+            }
+            if let Ok(real_cache) = std::fs::canonicalize(home_path.join(".cache")) {
+                if real_path.starts_with(real_cache) {
+                    return true;
+                }
             }
         }
 
