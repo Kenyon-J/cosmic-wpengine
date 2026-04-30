@@ -50,56 +50,22 @@ pub(crate) fn draw_frame(
     let show_color_bg = (has_media_check_gpu || force_art)
         && renderer.state.config.appearance.album_color_background;
 
-    // Optimization: Calculate sky colors and clear color once per frame outside the monitor loop
-    let (weather_type, final_sky) = get_sky_state(renderer);
+    // Optimization: Use cached weather state and sky colors
+    let weather_type = renderer.weather_type;
+    let final_sky = get_final_sky_color(renderer);
     let clear_colour = get_clear_colour_from_sky(renderer, final_sky);
 
     // Use our new smart audio-reactive beat detector instead of the generic timer
     let pulse = renderer.beat_pulse;
 
-    let is_weather_active = renderer.state.config.weather.enabled
-        && !renderer.state.config.weather.hide_effects
-        && renderer.state.weather.as_ref().is_some_and(|w| {
-            matches!(
-                w.condition,
-                WeatherCondition::Rain | WeatherCondition::Snow | WeatherCondition::Thunderstorm
-            )
-        });
-
-    let active_particles = if is_weather_active {
-        if let Some(weather) = &renderer.state.weather {
-            match weather.condition {
-                WeatherCondition::Rain => 800,
-                WeatherCondition::Thunderstorm => 1500,
-                WeatherCondition::Snow => 2500,
-                _ => 0,
-            }
-        } else {
-            0
-        }
-    } else {
-        0
-    };
+    let is_weather_active = renderer.is_weather_active;
+    let active_particles = renderer.active_particles;
 
     if is_weather_active && active_particles > 0 {
         // --- Dispatch Weather Compute Shader ---
         // Only spend GPU time running particle physics if weather is actually visible!
-        let mut wind_x = 0.1f32;
-        let mut gravity = 0.5f32;
-
-        if let Some(weather) = &renderer.state.weather {
-            match weather.condition {
-                WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
-                    gravity = 0.85; // Slower, more elegant rain
-                    wind_x = 0.15;
-                }
-                WeatherCondition::Snow => {
-                    gravity = 0.2; // Snow drifts slowly
-                    wind_x = 0.5;
-                }
-                _ => {}
-            }
-        }
+        let wind_x = renderer.weather_wind_x;
+        let gravity = renderer.weather_gravity;
 
         let compute_uniforms = [delta, wind_x, gravity, 0.0f32];
         let compute_bytes =
@@ -202,8 +168,8 @@ pub(crate) fn draw_frame(
     let mut last_uniform_res = None;
 
     // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
-    let primary_text = renderer.primary_text_color;
     let secondary_text = renderer.secondary_text_color;
+    let text_color_diff = renderer.text_color_diff;
 
     let map_align = |a: &TextAlign| -> cosmic_text::Align {
         match a {
@@ -227,6 +193,10 @@ pub(crate) fn draw_frame(
         renderer.text_buffer_cache.clear();
         renderer.text_buffer_cache.shrink_to_fit();
     }
+
+    // Optimization: Capture bounce values and scaling factors once per frame
+    let lyric_bounce = renderer.lyric_bounce_value;
+    let beat_pulse_mul = pulse * 2.0;
 
     for (i_idx, gpu_out) in renderer.outputs.iter_mut().enumerate() {
         let i = i_idx as u32;
@@ -282,7 +252,7 @@ pub(crate) fn draw_frame(
             let vis_uniforms = VisUniforms {
                 res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                 bands: renderer.state.config.audio.bands as u32,
-                pulse: pulse * 2.0, // Multiplier guarantees visible beat effects
+                pulse: beat_pulse_mul, // Multiplier guarantees visible beat effects
                 top: top_col,
                 bottom: bottom_col,
                 pos_size_rot: [
@@ -523,16 +493,17 @@ pub(crate) fn draw_frame(
                         let base_font_size =
                             (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
                         let active_font_size = base_font_size * 1.5;
+                        let inv_active_font_size = 1.0 / active_font_size;
                         let line_spacing = active_font_size * 1.2;
 
-                        let start_idx = renderer.current_lyric_idx.saturating_sub(2);
+                        let start_idx = renderer.current_lyric_idx.saturating_sub(2).max(1);
                         let end_idx = (renderer.current_lyric_idx + 2).min(lyrics.len());
 
-                        for line_idx in start_idx..=end_idx {
-                            if line_idx == 0 || line_idx > lyrics.len() {
-                                continue;
-                            }
+                        // Pre-calculate bounce scalars for the current monitor's scale factor
+                        let bounce_8_scaled = lyric_bounce * 8.0 * scale_factor;
+                        let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
 
+                        for line_idx in start_idx..=end_idx {
                             let lyric_line = &lyrics[line_idx - 1];
                             // Compute exactly how far this string is from the "current active string"
                             let dist = (line_idx as f32)
@@ -548,24 +519,18 @@ pub(crate) fn draw_frame(
 
                             let scale = base_font_size
                                 + (active_font_size - base_font_size) * center_weight;
-                            let final_scale = scale
-                                + (renderer.lyric_bounce_value * 8.0 * scale_factor)
-                                    * center_weight;
+                            let final_scale = scale + bounce_8_scaled * center_weight;
 
-                            let render_scale = final_scale / active_font_size;
-                            let bounce_y =
-                                (renderer.lyric_bounce_value * 12.0 * scale_factor) * center_weight;
+                            let render_scale = final_scale * inv_active_font_size;
+                            let bounce_y = bounce_12_scaled * center_weight;
                             let y_pos = (dist * line_spacing) - bounce_y;
 
+                            // Optimization: Use cached color difference to replace 4 subtractions with 1 multiply-add
                             let color = [
-                                secondary_text[0]
-                                    + (primary_text[0] - secondary_text[0]) * center_weight,
-                                secondary_text[1]
-                                    + (primary_text[1] - secondary_text[1]) * center_weight,
-                                secondary_text[2]
-                                    + (primary_text[2] - secondary_text[2]) * center_weight,
-                                secondary_text[3]
-                                    + (primary_text[3] - secondary_text[3]) * center_weight,
+                                secondary_text[0] + text_color_diff[0] * center_weight,
+                                secondary_text[1] + text_color_diff[1] * center_weight,
+                                secondary_text[2] + text_color_diff[2] * center_weight,
+                                secondary_text[3] + text_color_diff[3] * center_weight,
                             ];
 
                             // Fade out gracefully to prevent popping strings at top/bottom
@@ -580,7 +545,7 @@ pub(crate) fn draw_frame(
                                     line: line_idx as u32,
                                     content_hash: lyric_line.text_hash,
                                 };
-                                let mut buffer = renderer
+                                let buffer = renderer
                                     .text_buffer_cache
                                     .remove(&text_key)
                                     .unwrap_or_else(|| {
@@ -598,6 +563,8 @@ pub(crate) fn draw_frame(
                                         );
                                         b
                                     });
+                                let mut buffer = buffer;
+                                // Re-apply metrics and size to ensure scaling is correct for the current monitor (multi-monitor/DPI support)
                                 buffer.set_metrics(&mut renderer.font_system, metrics);
                                 buffer.set_size(&mut renderer.font_system, width_f, height_f);
 
@@ -898,17 +865,10 @@ pub(crate) fn draw_frame(
     Ok(())
 }
 
-fn get_sky_state(renderer: &super::Renderer) -> (u32, [f32; 3]) {
-    let mut weather_type = 0u32;
+fn get_final_sky_color(renderer: &super::Renderer) -> [f32; 3] {
     let sky = time_to_sky_colour(renderer.state.time_of_day);
-    let final_sky = if let Some(weather) = &renderer.state.weather {
+    if let Some(weather) = &renderer.state.weather {
         if renderer.state.config.weather.enabled {
-            weather_type = match weather.condition {
-                WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
-                WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
-                WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
-                WeatherCondition::Snow => 3,
-            };
             match weather.condition {
                 WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
                     lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
@@ -921,8 +881,7 @@ fn get_sky_state(renderer: &super::Renderer) -> (u32, [f32; 3]) {
         }
     } else {
         sky
-    };
-    (weather_type, final_sky)
+    }
 }
 
 pub(crate) fn get_clear_colour_from_sky(

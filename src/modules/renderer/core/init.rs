@@ -228,6 +228,12 @@ impl Renderer {
             album_art_pad_buffer: Vec::new(),
             primary_text_color: [1.0, 1.0, 1.0, 1.0],
             secondary_text_color: [1.0, 1.0, 1.0, 0.7],
+            text_color_diff: [0.0, 0.0, 0.0, 0.3],
+            active_particles: 0,
+            weather_gravity: 0.5,
+            weather_wind_x: 0.1,
+            weather_type: 0,
+            is_weather_active: false,
             audio_max_energy: 0.0,
             audio_base_energy: 0.0,
             is_waveform_style,
@@ -248,6 +254,7 @@ impl Renderer {
         renderer.current_bg_path = path.clone();
         renderer.load_custom_background(path.as_deref());
         renderer.update_theme_colors();
+        renderer.update_weather_state();
 
         info!("Renderer initialised at {}fps", fps);
         Ok(renderer)

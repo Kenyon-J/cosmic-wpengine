@@ -458,6 +458,75 @@ impl Renderer {
             self.primary_text_color = [tint[0], tint[1], tint[2], 1.0];
             self.secondary_text_color = [tint[0], tint[1], tint[2], 0.45];
         }
+
+        self.text_color_diff = [
+            self.primary_text_color[0] - self.secondary_text_color[0],
+            self.primary_text_color[1] - self.secondary_text_color[1],
+            self.primary_text_color[2] - self.secondary_text_color[2],
+            self.primary_text_color[3] - self.secondary_text_color[3],
+        ];
+    }
+
+    pub(crate) fn update_weather_state(&mut self) {
+        self.is_weather_active = self.state.config.weather.enabled
+            && !self.state.config.weather.hide_effects
+            && self.state.weather.as_ref().is_some_and(|w| {
+                matches!(
+                    w.condition,
+                    WeatherCondition::Rain
+                        | WeatherCondition::Snow
+                        | WeatherCondition::Thunderstorm
+                )
+            });
+
+        if self.is_weather_active {
+            if let Some(weather) = &self.state.weather {
+                self.active_particles = match weather.condition {
+                    WeatherCondition::Rain => 800,
+                    WeatherCondition::Thunderstorm => 1500,
+                    WeatherCondition::Snow => 2500,
+                    _ => 0,
+                };
+                match weather.condition {
+                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
+                        self.weather_gravity = 0.85;
+                        self.weather_wind_x = 0.15;
+                        self.weather_type = 2;
+                    }
+                    WeatherCondition::Snow => {
+                        self.weather_gravity = 0.2;
+                        self.weather_wind_x = 0.5;
+                        self.weather_type = 3;
+                    }
+                    WeatherCondition::Cloudy | WeatherCondition::Fog => {
+                        self.weather_gravity = 0.5;
+                        self.weather_wind_x = 0.1;
+                        self.weather_type = 1;
+                    }
+                    _ => {
+                        self.weather_gravity = 0.5;
+                        self.weather_wind_x = 0.1;
+                        self.weather_type = 0;
+                    }
+                }
+            } else {
+                self.active_particles = 0;
+                self.is_weather_active = false;
+            }
+        } else {
+            self.active_particles = 0;
+            // Also update weather_type for the sky gradient even if effects are hidden
+            if let Some(weather) = &self.state.weather {
+                self.weather_type = match weather.condition {
+                    WeatherCondition::Clear | WeatherCondition::PartlyCloudy => 0,
+                    WeatherCondition::Cloudy | WeatherCondition::Fog => 1,
+                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => 2,
+                    WeatherCondition::Snow => 3,
+                };
+            } else {
+                self.weather_type = 0;
+            }
+        }
     }
 
     pub(crate) fn update_weather_string(&mut self) {
