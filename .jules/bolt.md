@@ -62,3 +62,6 @@
 ## 2026-05-18 - Optimize non-cryptographic hashing
 **Learning:** Using `std::collections::hash_map::DefaultHasher` (SipHash) inside high-frequency paths (like the 60FPS render loop's caching system) introduces measurable CPU overhead due to its cryptographic collision resistance.
 **Action:** Always prefer `rustc_hash::FxHasher` for internal hashing and caching where HashDoS protection is unnecessary, as it provides significantly better performance.
+## 2025-05-18 - Optimize non-cryptographic hashing
+**Learning:** Using `std::collections::hash_map::DefaultHasher` (SipHash) inside high-frequency paths (like the 60FPS render loop's caching system) introduces measurable CPU overhead due to its cryptographic collision resistance.
+**Action:** Always prefer `rustc_hash::FxHasher` for internal hashing and caching where HashDoS protection is unnecessary, as it provides significantly better performance.
