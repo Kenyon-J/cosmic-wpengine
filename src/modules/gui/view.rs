@@ -164,27 +164,6 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         ))
         .spacing(20);
 
-    let blur_row = row()
-        .push(
-            text(format!(
-                "Blur Strength: {:.2}",
-                app.wp_config.appearance.blur_opacity
-            ))
-            .font(font)
-            .width(Length::Fixed(200.0)),
-        )
-        .push(cosmic::iced::widget::tooltip(
-            slider(
-                0.0..=1.0,
-                app.wp_config.appearance.blur_opacity,
-                super::Message::BlurOpacityChanged,
-            )
-            .step(0.05),
-            "Controls the strength of the background blur (only applies to Frosted Glass mode).",
-            cosmic::iced::widget::tooltip::Position::Top,
-        ))
-        .spacing(20);
-
     let file_selector = cosmic::iced::widget::tooltip(
         pick_list(
             app.available_files.clone(),
@@ -359,12 +338,37 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         .push(report_btn)
         .spacing(15);
 
-    column()
+    let mut main_col = column()
         .push(text("COSMIC Wallpaper Settings").font(font).size(32))
         .push(toggles_row)
         .push(font_row)
-        .push(framerate_row)
-        .push(blur_row)
+        .push(framerate_row);
+
+    if current_bg_mode == super::BackgroundMode::FrostedGlass {
+        let blur_row = row()
+            .push(
+                text(format!(
+                    "Blur Strength: {:.2}",
+                    app.wp_config.appearance.blur_opacity
+                ))
+                .font(font)
+                .width(Length::Fixed(200.0)),
+            )
+            .push(cosmic::iced::widget::tooltip(
+                slider(
+                    0.0..=1.0,
+                    app.wp_config.appearance.blur_opacity,
+                    super::Message::BlurOpacityChanged,
+                )
+                .step(0.05),
+                "Controls the strength of the background blur.",
+                cosmic::iced::widget::tooltip::Position::Top,
+            ))
+            .spacing(20);
+        main_col = main_col.push(blur_row);
+    }
+
+    main_col
         .push(toolbar)
         .push(editor)
         .push(footer_row)
