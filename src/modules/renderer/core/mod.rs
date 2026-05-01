@@ -14,6 +14,8 @@ use crate::modules::wayland::{WaylandManager, WaylandOutput};
 
 pub const GLYPH_CACHE_WIDTH: u32 = 2048;
 pub const GLYPH_CACHE_HEIGHT: u32 = 2048;
+use rustc_hash::FxHashMap;
+
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer};
 
 use crate::modules::config::{TemperatureUnit, ThemeLayout};
@@ -32,7 +34,10 @@ pub struct Renderer {
     pub(crate) font_system: FontSystem,
     pub(crate) swash_cache: SwashCache,
     pub(crate) text_renderer: TextRenderer,
-    pub(crate) text_buffer_cache: std::collections::HashMap<TextCacheKey, Buffer>,
+    // Optimization: Use `FxHashMap` for high-frequency text buffer lookups.
+    // FxHash is significantly faster than the default SipHash for small, trusted keys,
+    // reducing frame preparation time in the 60FPS render loop.
+    pub(crate) text_buffer_cache: FxHashMap<TextCacheKey, Buffer>,
     pub(crate) text_buffers: Vec<PositionedBuffer>,
     pub(crate) current_outputs_cache: Vec<WaylandOutput>,
     pub(crate) visualiser_pass: VisualiserPass,
