@@ -3,6 +3,7 @@ use super::core::{GLYPH_CACHE_HEIGHT, GLYPH_CACHE_WIDTH};
 
 use anyhow::Result;
 use cosmic_text::{self, Buffer, FontSystem, SwashCache};
+use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TextCacheKey {
@@ -54,7 +55,7 @@ pub struct TextRenderer {
     pub texture: wgpu::Texture,
     pub vertex_capacity: usize,
     pub index_capacity: usize,
-    pub glyph_cache: std::collections::HashMap<cosmic_text::CacheKey, CachedGlyph>,
+    pub glyph_cache: FxHashMap<cosmic_text::CacheKey, CachedGlyph>,
     pub cache_x: u32,
     pub cache_y: u32,
     pub cache_row_height: u32,
@@ -183,7 +184,7 @@ impl TextRenderer {
         });
 
         Ok(Self {
-            glyph_cache: std::collections::HashMap::new(),
+            glyph_cache: FxHashMap::default(),
             pipeline,
             vertices,
             indices,

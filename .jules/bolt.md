@@ -62,3 +62,7 @@
 ## 2026-05-18 - Optimize non-cryptographic hashing
 **Learning:** Using `std::collections::hash_map::DefaultHasher` (SipHash) inside high-frequency paths (like the 60FPS render loop's caching system) introduces measurable CPU overhead due to its cryptographic collision resistance.
 **Action:** Always prefer `rustc_hash::FxHasher` for internal hashing and caching where HashDoS protection is unnecessary, as it provides significantly better performance.
+
+## 12-02-2025- Avoid hoisting property setters into content-keyed caches
+**Learning:** Hoisting reactive property setters (like `set_align` or `set_metrics`) into the `unwrap_or_else` creation block of a cache keyed by content (e.g., text strings) prevents the UI from responding to live configuration changes. The cache only invalidates when the content changes, meaning style updates are ignored for cached items.
+**Action:** Always perform reactive property updates (setters) every frame outside the cache's creation block to maintain real-time responsiveness to theme and configuration events.
