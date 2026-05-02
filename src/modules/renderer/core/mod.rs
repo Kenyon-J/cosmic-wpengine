@@ -3,6 +3,7 @@ mod init;
 mod updates;
 use anyhow::Result;
 use cosmic_text::{self, Buffer, FontSystem, SwashCache};
+use rustc_hash::FxHashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::Receiver;
 use tracing::{info, warn};
@@ -32,7 +33,7 @@ pub struct Renderer {
     pub(crate) font_system: FontSystem,
     pub(crate) swash_cache: SwashCache,
     pub(crate) text_renderer: TextRenderer,
-    pub(crate) text_buffer_cache: std::collections::HashMap<TextCacheKey, Buffer>,
+    pub(crate) text_buffer_cache: FxHashMap<TextCacheKey, Buffer>,
     pub(crate) text_buffers: Vec<PositionedBuffer>,
     pub(crate) current_outputs_cache: Vec<WaylandOutput>,
     pub(crate) visualiser_pass: VisualiserPass,
