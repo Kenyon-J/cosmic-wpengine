@@ -10,3 +10,6 @@
 ## 2024-04-21 - Actionable Empty States
 **Learning:** Generic empty states like "No items found" are dead-ends for users. Providing actionable paths (like the directory to place files) directly in the UI placeholder makes the empty state helpful instead of frustrating.
 **Action:** When a UI element relies on user-provided files or configurations that are missing, use the empty state to tell the user exactly where and how to add them.
+## 2024-05-19 - Conditionally Hiding Irrelevant UI Elements
+**Learning:** In `cosmic::iced`, it is a better UX practice to conditionally hide a setting (like a slider) entirely when it doesn't apply to the currently selected mode, rather than showing it constantly with an explanatory tooltip.
+**Action:** Use a mutable container (like `let mut main_col = column()...`) to conditionally push configuration rows to the UI based on top-level state selections.
