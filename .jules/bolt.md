@@ -62,3 +62,7 @@
 ## 2026-05-18 - Optimize non-cryptographic hashing
 **Learning:** Using `std::collections::hash_map::DefaultHasher` (SipHash) inside high-frequency paths (like the 60FPS render loop's caching system) introduces measurable CPU overhead due to its cryptographic collision resistance.
 **Action:** Always prefer `rustc_hash::FxHasher` for internal hashing and caching where HashDoS protection is unnecessary, as it provides significantly better performance.
+
+## $(date +%Y-%m-%d) - Optimize HashMaps with FxHash
+**Learning:** `std::collections::HashMap` uses SipHash by default, which is cryptographically secure but relatively slow. For internal caches in performance-critical paths (like rendering loops), collision resistance is unnecessary.
+**Action:** Replace `std::collections::HashMap` with `rustc_hash::FxHashMap` (or `HashMap<K, V, rustc_hash::FxBuildHasher>`) for internal state management to achieve measurable speedups in hot loops.
