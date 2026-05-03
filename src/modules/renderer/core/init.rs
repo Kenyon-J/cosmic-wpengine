@@ -175,7 +175,7 @@ impl Renderer {
             font_system,
             swash_cache,
             text_renderer,
-            text_buffer_cache: std::collections::HashMap::new(),
+            text_buffer_cache: rustc_hash::FxHashMap::default(),
             text_buffers: Vec::new(),
             current_outputs_cache: Vec::new(),
             visualiser_pass,
