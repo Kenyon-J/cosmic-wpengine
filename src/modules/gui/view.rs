@@ -359,12 +359,17 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         .push(report_btn)
         .spacing(15);
 
-    column()
+    let mut main_col = column()
         .push(text("COSMIC Wallpaper Settings").font(font).size(32))
         .push(toggles_row)
         .push(font_row)
-        .push(framerate_row)
-        .push(blur_row)
+        .push(framerate_row);
+
+    if current_bg_mode == super::BackgroundMode::FrostedGlass {
+        main_col = main_col.push(blur_row);
+    }
+
+    main_col
         .push(toolbar)
         .push(editor)
         .push(footer_row)
