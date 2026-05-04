@@ -66,3 +66,6 @@
 ## $(date +%Y-%m-%d) - Optimize HashMaps with FxHash
 **Learning:** `std::collections::HashMap` uses SipHash by default, which is cryptographically secure but relatively slow. For internal caches in performance-critical paths (like rendering loops), collision resistance is unnecessary.
 **Action:** Replace `std::collections::HashMap` with `rustc_hash::FxHashMap` (or `HashMap<K, V, rustc_hash::FxBuildHasher>`) for internal state management to achieve measurable speedups in hot loops.
+## 2026-05-04 - Use fixed-size array instead of Vec for uniform data in visualiser
+**Learning:** Pre-allocating and pushing to a `Vec` using `extend_from_slice` with a loop inside the visualiser pass initialization (where the uniform buffer is created) is unnecessary since the data is small and bounded (96 bytes).
+**Action:** Use a fixed-size array `[0u8; 96]` to eliminate the heap allocation overhead and avoid `Vec` methods when initializing small uniform buffers.

@@ -17,11 +17,7 @@ impl VisualiserPass {
         band_count: usize,
         style: &str,
     ) -> Result<Self> {
-        let mut uniform_data = Vec::with_capacity(96);
-        // Placeholder init data; the renderer loop immediately overwrites this
-        for _ in 0..24 {
-            uniform_data.extend_from_slice(&[0u8; 4]);
-        }
+        let uniform_data = [0u8; 96];
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Visualiser Uniform Buffer"),
