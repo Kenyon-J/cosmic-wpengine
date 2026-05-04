@@ -4,10 +4,10 @@ use super::*;
 use std::fs;
 use std::path::Path;
 
-/// Tests the `is_safe_path` function to ensure it properly blocks path traversal and arbitrary file reads.
+/// Tests the `resolve_safe_path` function to ensure it properly blocks path traversal and arbitrary file reads.
 /// This prevents untrusted MPRIS metadata (like album art paths) from leaking sensitive local files.
 #[test]
-fn test_is_safe_path() {
+fn test_resolve_safe_path() {
     let old_home = std::env::var("HOME").ok();
 
     // Create a mock home directory structure outside of /tmp and /run/user
@@ -64,30 +64,26 @@ fn test_is_safe_path() {
     }
 
     // Valid absolute paths in safe locations
-    assert!(MprisWatcher::is_safe_path(&tmp_art));
+    assert!(MprisWatcher::resolve_safe_path(&tmp_art).is_some());
     if let Some(ref p) = run_user_art {
-        assert!(MprisWatcher::is_safe_path(p));
+        assert!(MprisWatcher::resolve_safe_path(p).is_some());
     }
-    assert!(MprisWatcher::is_safe_path(&art1));
-    assert!(MprisWatcher::is_safe_path(&art2));
+    assert!(MprisWatcher::resolve_safe_path(&art1).is_some());
+    assert!(MprisWatcher::resolve_safe_path(&art2).is_some());
 
     // Path traversal attempts
     let fake_passwd = home_path.join("passwd");
     fs::write(&fake_passwd, "").unwrap();
-    assert!(!MprisWatcher::is_safe_path(
-        &tmp_test_dir.path().join("../etc/passwd")
-    ));
-    assert!(!MprisWatcher::is_safe_path(Path::new(
-        "/run/user/../../var/log"
-    )));
+    assert!(MprisWatcher::resolve_safe_path(&tmp_test_dir.path().join("../etc/passwd")).is_none());
+    assert!(MprisWatcher::resolve_safe_path(Path::new("/run/user/../../var/log")).is_none());
 
     // Blocked home directory access attempts
-    assert!(!MprisWatcher::is_safe_path(&rsa_key));
-    assert!(!MprisWatcher::is_safe_path(&doc));
+    assert!(MprisWatcher::resolve_safe_path(&rsa_key).is_none());
+    assert!(MprisWatcher::resolve_safe_path(&doc).is_none());
 
     // Relative paths
-    assert!(!MprisWatcher::is_safe_path(Path::new("art.png")));
-    assert!(!MprisWatcher::is_safe_path(Path::new("./art.png")));
+    assert!(MprisWatcher::resolve_safe_path(Path::new("art.png")).is_none());
+    assert!(MprisWatcher::resolve_safe_path(Path::new("./art.png")).is_none());
 
     // Symlink bypass attempt
     let symlink_path = tmp_test_dir.path().join("symlink_to_passwd.png");
@@ -98,7 +94,7 @@ fn test_is_safe_path() {
 
     // The symlink is inside /tmp, but it points to an unsafe location.
     // It should be rejected.
-    assert!(!MprisWatcher::is_safe_path(&symlink_path));
+    assert!(MprisWatcher::resolve_safe_path(&symlink_path).is_none());
 
     if let Some(old) = old_home {
         std::env::set_var("HOME", old);

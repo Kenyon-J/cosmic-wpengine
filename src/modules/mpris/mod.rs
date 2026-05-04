@@ -525,20 +525,24 @@ impl MprisWatcher {
         if let Ok(url) = Url::parse(url_str) {
             if url.scheme() == "file" {
                 if let Ok(path) = url.to_file_path() {
-                    if !Self::is_safe_path(&path) {
-                        anyhow::bail!(
+                    let real_path = match Self::resolve_safe_path(&path) {
+                        Some(p) => p,
+                        None => anyhow::bail!(
                             "Security violation: Attempted path traversal via file:// URL: {:?}",
                             path
+                        ),
+                    };
+                    info!("Successfully parsed file path: {:?}", real_path);
+                    let bytes = tokio::fs::read(&real_path).await.map_err(|e| {
+                        warn!(
+                            "Failed to read art file from disk at {:?}: {}",
+                            real_path, e
                         );
-                    }
-                    info!("Successfully parsed file path: {:?}", path);
-                    let bytes = tokio::fs::read(&path).await.map_err(|e| {
-                        warn!("Failed to read art file from disk at {:?}: {}", path, e);
                         e
                     })?;
                     return tokio::task::spawn_blocking(move || {
                         Self::decode_image_safely(&bytes).map_err(|e| {
-                            warn!("Failed to decode image from disk {:?}: {}", path, e);
+                            warn!("Failed to decode image from disk {:?}: {}", real_path, e);
                             e
                         })
                     })
@@ -557,14 +561,15 @@ impl MprisWatcher {
         // Fallback for absolute paths that are not valid file URLs (e.g. /tmp/art.png)
         info!("Attempting raw path fallback read for: {}", url_str);
         let path = std::path::Path::new(url_str);
-        if !Self::is_safe_path(path) {
-            anyhow::bail!(
+        let real_path = match Self::resolve_safe_path(path) {
+            Some(p) => p,
+            None => anyhow::bail!(
                 "Security violation: Attempted path traversal or unsafe raw path: {}",
                 url_str
-            );
-        }
+            ),
+        };
 
-        let bytes = tokio::fs::read(path).await.map_err(|e| {
+        let bytes = tokio::fs::read(&real_path).await.map_err(|e| {
             warn!("Failed to read raw path {}: {}", url_str, e);
             e
         })?;
@@ -620,21 +625,21 @@ impl MprisWatcher {
         anyhow::bail!("No fallback art found on iTunes")
     }
 
-    fn is_safe_path(path: &std::path::Path) -> bool {
+    fn resolve_safe_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
         // Ensure path is absolute and does not contain any '..' components
         if !path.is_absolute()
             || path
                 .components()
                 .any(|c| matches!(c, std::path::Component::ParentDir))
         {
-            return false;
+            return None;
         }
 
         // Canonicalize to resolve symlinks and prevent bypasses.
         // If the path does not exist, we reject it.
         let real_path = match std::fs::canonicalize(path) {
             Ok(p) => p,
-            Err(_) => return false,
+            Err(_) => return None,
         };
 
         // Restrict to common album art locations for desktop media players:
@@ -650,7 +655,7 @@ impl MprisWatcher {
             .iter()
             .any(|p| std::fs::canonicalize(p).is_ok_and(|real_p| real_path.starts_with(real_p)))
         {
-            return true;
+            return Some(real_path);
         }
 
         if let Ok(home) = std::env::var("HOME") {
@@ -658,17 +663,17 @@ impl MprisWatcher {
 
             if let Ok(real_music) = std::fs::canonicalize(home_path.join("Music")) {
                 if real_path.starts_with(real_music) {
-                    return true;
+                    return Some(real_path);
                 }
             }
             if let Ok(real_cache) = std::fs::canonicalize(home_path.join(".cache")) {
                 if real_path.starts_with(real_cache) {
-                    return true;
+                    return Some(real_path);
                 }
             }
         }
 
-        false
+        None
     }
 
     async fn fetch_spotify_canvas(track_id: &str, client: &reqwest::Client) -> Option<String> {
