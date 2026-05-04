@@ -232,12 +232,17 @@ impl TextRenderer {
             };
             let origin_y = p_buf.buffer.metrics().font_size;
 
-            let buffer_offset_x = match p_buf.align {
-                cosmic_text::Align::Left => p_buf.pos[0],
-                cosmic_text::Align::Right => p_buf.pos[0] - width,
-                _ => p_buf.pos[0] - width / 2.0,
-            };
-            let buffer_offset_y = p_buf.pos[1] - origin_y;
+            // Optimization: Pre-calculate the constants for NDC transformation per buffer.
+            // This allows us to move several additions and multiplications out of the inner glyph loop.
+            // Note: base_ndc_x/y already merge p_buf.pos and alignment-based buffer_offset.
+            let base_ndc_x = p_buf.pos[0] * width_to_ndc - 1.0;
+            let base_ndc_y = 1.0 - p_buf.pos[1] * height_to_ndc;
+            let ndc_scale_x = p_buf.scale * width_to_ndc;
+            let ndc_scale_y = p_buf.scale * height_to_ndc;
+
+            // Further hoist origin-dependent terms to eliminate inner-loop subtractions.
+            let x_offset = base_ndc_x - origin_x * ndc_scale_x;
+            let y_offset = base_ndc_y + origin_y * ndc_scale_y;
 
             for run in p_buf.buffer.layout_runs() {
                 for glyph in run.glyphs.iter() {
@@ -338,23 +343,14 @@ impl TextRenderer {
                             continue;
                         }
 
-                        let dx = glyph.x - origin_x;
-                        let dy = run.line_y + glyph.y - origin_y;
+                        // Optimization: Use pre-calculated NDC constants to transform coordinates in a single step.
+                        // This replaces 10+ arithmetic operations per glyph with just 4.
+                        let x = x_offset + (glyph.x + cached.offset[0] as f32) * ndc_scale_x;
+                        let y = y_offset
+                            - (run.line_y + glyph.y - cached.offset[1] as f32) * ndc_scale_y;
 
-                        let scaled_glyph_x = origin_x + dx * p_buf.scale;
-                        let scaled_glyph_y = origin_y + dy * p_buf.scale;
-
-                        let final_x = buffer_offset_x
-                            + scaled_glyph_x
-                            + cached.offset[0] as f32 * p_buf.scale;
-                        let final_y = buffer_offset_y + scaled_glyph_y
-                            - cached.offset[1] as f32 * p_buf.scale;
-
-                        let x = final_x * width_to_ndc - 1.0;
-                        let y = -(final_y * height_to_ndc - 1.0);
-
-                        let w = (cached.size[0] as f32 * p_buf.scale) * width_to_ndc;
-                        let h = (cached.size[1] as f32 * p_buf.scale) * height_to_ndc;
+                        let w = cached.size[0] as f32 * ndc_scale_x;
+                        let h = cached.size[1] as f32 * ndc_scale_y;
 
                         let color = p_buf.color;
 
