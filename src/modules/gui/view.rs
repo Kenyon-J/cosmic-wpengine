@@ -141,7 +141,11 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
                     .or_else(|| Some("System Default".to_string())),
                 super::Message::FontFamilySelected,
             )
-            .placeholder("Select a font..."),
+            .placeholder(if app.available_fonts.is_empty() {
+                "No system fonts found"
+            } else {
+                "Select a font..."
+            }),
             "Select the font used for displaying the clock, weather, and lyrics.",
             cosmic::iced::widget::tooltip::Position::Top,
         ))
@@ -191,7 +195,11 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
             app.selected_file.clone(),
             super::Message::FileSelected,
         )
-        .placeholder("Select a file..."),
+        .placeholder(if app.available_files.is_empty() {
+            "Place files in ~/.config/cosmic-wallpaper/"
+        } else {
+            "Select a file..."
+        }),
         "Select a configuration or shader theme file to edit.",
         cosmic::iced::widget::tooltip::Position::Top,
     );
