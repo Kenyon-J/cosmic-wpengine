@@ -509,6 +509,8 @@ amplitude = 1.5"#;
                             self.status_msg = format!("Error creating theme: {}", e);
                         }
                     }
+                } else {
+                    self.status_msg = "Please enter a valid theme name first.".into();
                 }
             }
             Message::ShowPatchNotes => {
