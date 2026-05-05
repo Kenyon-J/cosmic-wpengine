@@ -72,28 +72,52 @@ pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
     const DUSK: [f32; 3] = [0.7, 0.3, 0.15];
 
     // Optimization: Pre-calculate color differences to eliminate redundant subtractions in lerp_colour
-    const DIFF_MID_DAWN: [f32; 3] = [DAWN[0] - MIDNIGHT[0], DAWN[1] - MIDNIGHT[1], DAWN[2] - MIDNIGHT[2]];
+    const DIFF_MID_DAWN: [f32; 3] = [
+        DAWN[0] - MIDNIGHT[0],
+        DAWN[1] - MIDNIGHT[1],
+        DAWN[2] - MIDNIGHT[2],
+    ];
     const DIFF_DAWN_NOON: [f32; 3] = [NOON[0] - DAWN[0], NOON[1] - DAWN[1], NOON[2] - DAWN[2]];
     const DIFF_NOON_DUSK: [f32; 3] = [DUSK[0] - NOON[0], DUSK[1] - NOON[1], DUSK[2] - NOON[2]];
-    const DIFF_DUSK_MID: [f32; 3] = [MIDNIGHT[0] - DUSK[0], MIDNIGHT[1] - DUSK[1], MIDNIGHT[2] - DUSK[2]];
+    const DIFF_DUSK_MID: [f32; 3] = [
+        MIDNIGHT[0] - DUSK[0],
+        MIDNIGHT[1] - DUSK[1],
+        MIDNIGHT[2] - DUSK[2],
+    ];
 
     match time {
         // Optimization: Replace divisions by 0.25 with multiplications by 4.0
         t if t < 0.25 => {
             let progress = t * 4.0;
-            [MIDNIGHT[0] + DIFF_MID_DAWN[0] * progress, MIDNIGHT[1] + DIFF_MID_DAWN[1] * progress, MIDNIGHT[2] + DIFF_MID_DAWN[2] * progress]
+            [
+                MIDNIGHT[0] + DIFF_MID_DAWN[0] * progress,
+                MIDNIGHT[1] + DIFF_MID_DAWN[1] * progress,
+                MIDNIGHT[2] + DIFF_MID_DAWN[2] * progress,
+            ]
         }
         t if t < 0.5 => {
             let progress = (t - 0.25) * 4.0;
-            [DAWN[0] + DIFF_DAWN_NOON[0] * progress, DAWN[1] + DIFF_DAWN_NOON[1] * progress, DAWN[2] + DIFF_DAWN_NOON[2] * progress]
+            [
+                DAWN[0] + DIFF_DAWN_NOON[0] * progress,
+                DAWN[1] + DIFF_DAWN_NOON[1] * progress,
+                DAWN[2] + DIFF_DAWN_NOON[2] * progress,
+            ]
         }
         t if t < 0.75 => {
             let progress = (t - 0.5) * 4.0;
-            [NOON[0] + DIFF_NOON_DUSK[0] * progress, NOON[1] + DIFF_NOON_DUSK[1] * progress, NOON[2] + DIFF_NOON_DUSK[2] * progress]
+            [
+                NOON[0] + DIFF_NOON_DUSK[0] * progress,
+                NOON[1] + DIFF_NOON_DUSK[1] * progress,
+                NOON[2] + DIFF_NOON_DUSK[2] * progress,
+            ]
         }
         t => {
             let progress = (t - 0.75) * 4.0;
-            [DUSK[0] + DIFF_DUSK_MID[0] * progress, DUSK[1] + DIFF_DUSK_MID[1] * progress, DUSK[2] + DIFF_DUSK_MID[2] * progress]
+            [
+                DUSK[0] + DIFF_DUSK_MID[0] * progress,
+                DUSK[1] + DIFF_DUSK_MID[1] * progress,
+                DUSK[2] + DIFF_DUSK_MID[2] * progress,
+            ]
         }
     }
 }
