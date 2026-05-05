@@ -117,9 +117,19 @@ pub(crate) fn draw_frame(
     let (top_col, bottom_col) = if has_audio {
         if renderer.state.transition_progress < 1.0 {
             let t = renderer.state.transition_progress;
-            let top_rgb = lerp_colour(renderer.vis_prev_colors.0, renderer.vis_target_colors.0, t);
-            let bottom_rgb =
-                lerp_colour(renderer.vis_prev_colors.1, renderer.vis_target_colors.1, t);
+            // Optimization: Replace 6 subtractions and 3 lerp_colour calls with direct multiply-add
+            // using pre-calculated color differences.
+            let (top_diff, bottom_diff) = renderer.vis_color_diff;
+            let top_rgb = [
+                renderer.vis_prev_colors.0[0] + top_diff[0] * t,
+                renderer.vis_prev_colors.0[1] + top_diff[1] * t,
+                renderer.vis_prev_colors.0[2] + top_diff[2] * t,
+            ];
+            let bottom_rgb = [
+                renderer.vis_prev_colors.1[0] + bottom_diff[0] * t,
+                renderer.vis_prev_colors.1[1] + bottom_diff[1] * t,
+                renderer.vis_prev_colors.1[2] + bottom_diff[2] * t,
+            ];
             (
                 [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
                 [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
@@ -139,11 +149,13 @@ pub(crate) fn draw_frame(
     // 2. Pre-calculate Album Art colors
     let art_tint_color = if show_art_fg || show_art_bg || show_color_bg {
         if renderer.state.transition_progress < 1.0 {
-            lerp_colour(
-                renderer.art_prev_color,
-                renderer.art_target_color,
-                renderer.state.transition_progress,
-            )
+            // Optimization: Replace 3 subtractions and 1 lerp_colour call with direct multiply-add.
+            let t = renderer.state.transition_progress;
+            [
+                renderer.art_prev_color[0] + renderer.art_color_diff[0] * t,
+                renderer.art_prev_color[1] + renderer.art_color_diff[1] * t,
+                renderer.art_prev_color[2] + renderer.art_color_diff[2] * t,
+            ]
         } else {
             renderer.art_target_color
         }
@@ -495,12 +507,15 @@ pub(crate) fn draw_frame(
                         let bounce_8_scaled = lyric_bounce * 8.0 * scale_factor;
                         let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
 
+                        // Optimization: Hoist monitor-invariant and line-invariant factors outside the loop.
+                        let active_lyric_pos =
+                            renderer.current_lyric_idx as f32 + renderer.lyric_scroll_offset;
+                        let scale_diff = active_font_size - base_font_size;
+
                         for line_idx in start_idx..=end_idx {
                             let lyric_line = &lyrics[line_idx - 1];
                             // Compute exactly how far this string is from the "current active string"
-                            let dist = (line_idx as f32)
-                                - (renderer.current_lyric_idx as f32)
-                                - renderer.lyric_scroll_offset;
+                            let dist = (line_idx as f32) - active_lyric_pos;
                             let abs_dist = dist.abs();
 
                             if abs_dist > 2.0 {
@@ -509,8 +524,7 @@ pub(crate) fn draw_frame(
 
                             let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
 
-                            let scale = base_font_size
-                                + (active_font_size - base_font_size) * center_weight;
+                            let scale = base_font_size + scale_diff * center_weight;
                             let final_scale = scale + bounce_8_scaled * center_weight;
 
                             let render_scale = final_scale * inv_active_font_size;

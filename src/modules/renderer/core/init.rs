@@ -244,6 +244,8 @@ impl Renderer {
             vis_prev_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
             art_target_color: [0.1, 0.1, 0.1],
             art_prev_color: [0.1, 0.1, 0.1],
+            vis_color_diff: ([0.0; 3], [0.0; 3]),
+            art_color_diff: [0.0; 3],
         };
 
         let path = renderer

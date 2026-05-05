@@ -302,6 +302,26 @@ impl Renderer {
                 .as_ref()
                 .and_then(|t| t.palette.as_deref()),
         );
+
+        // Pre-calculate color differences for optimized lerp in the hot path
+        self.vis_color_diff = (
+            [
+                self.vis_target_colors.0[0] - self.vis_prev_colors.0[0],
+                self.vis_target_colors.0[1] - self.vis_prev_colors.0[1],
+                self.vis_target_colors.0[2] - self.vis_prev_colors.0[2],
+            ],
+            [
+                self.vis_target_colors.1[0] - self.vis_prev_colors.1[0],
+                self.vis_target_colors.1[1] - self.vis_prev_colors.1[1],
+                self.vis_target_colors.1[2] - self.vis_prev_colors.1[2],
+            ],
+        );
+
+        self.art_color_diff = [
+            self.art_target_color[0] - self.art_prev_color[0],
+            self.art_target_color[1] - self.art_prev_color[1],
+            self.art_target_color[2] - self.art_prev_color[2],
+        ];
     }
 
     pub fn load_custom_background(&mut self, path: Option<&str>) {

@@ -103,6 +103,8 @@ pub struct Renderer {
     pub(crate) vis_prev_colors: ([f32; 3], [f32; 3]),
     pub(crate) art_target_color: [f32; 3],
     pub(crate) art_prev_color: [f32; 3],
+    pub(crate) vis_color_diff: ([f32; 3], [f32; 3]),
+    pub(crate) art_color_diff: [f32; 3],
 }
 
 impl Renderer {
