@@ -1,3 +1,6 @@
 ## 2024-05-19 - Explicit Type Signatures for Iced Conditional Elements
 **Learning:** When conditionally rendering elements in `cosmic::iced` with differing `.into()` traits (e.g., branching between an active widget with `.on_toggle()` and a disabled widget without it), the Rust compiler can fail to infer the exact type of the unified `Element`, resulting in `E0283: type annotations needed`.
 **Action:** When creating conditionally configured UI branches in `iced` that require coercion into a generic `Element` container, assign the `if/else` block to a strictly typed intermediate variable (e.g., `let element: cosmic::Element<'_, super::Message> = if ... { ... };`) to guide the compiler's type inference.
+## 2024-05-19 - Vertical Alignment of Row Elements
+**Learning:** In `cosmic::iced`, mixing elements like text, checkboxes, and buttons in a single `row()` results in them being top-aligned by default, which can look messy if they have varying heights.
+**Action:** Append `.align_y(cosmic::iced::Alignment::Center)` to `row()` constructions to consistently vertically center mixed-height elements for a cleaner, more professional appearance. Ensure you import `cosmic::iced::Alignment`. Do not use `.align_items()` which may not be available depending on the `iced` version used.
