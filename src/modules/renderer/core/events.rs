@@ -224,16 +224,21 @@ impl Renderer {
                             .zip(&self.a_weighting_curve),
                     )
                 {
-                    let max_val =
-                        bands
-                            .get(bin_lo..bin_hi.min(bands_len))
-                            .map_or(0.0, |slice: &[f32]| {
-                                slice
-                                    .iter()
-                                    .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
-                            });
+                    // Optimization: Use direct slicing instead of `.get()` and `.min(bands_len)`.
+                    // The bin ranges are already pre-clamped to valid FFT bins [0, 1024] in `build_frequency_bin_ranges`.
+                    let slice = &bands[bin_lo..bin_hi];
 
-                    let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
+                    // Optimization: Use a simple loop for max search to avoid `fold` closure overhead
+                    // and better facilitate LLVM auto-vectorization.
+                    let mut max_val = 0.0f32;
+                    for &val in slice {
+                        if val > max_val {
+                            max_val = val;
+                        }
+                    }
+
+                    // Optimization: Use the pre-multiplied `a_weighting_norm` which already includes the 2.5 factor.
+                    let target = (max_val * a_weighting_norm).clamp(0.0, 1.0);
 
                     // Optimization: Use more efficient lerp formula a + (b - a) * t
                     // and use pre-calculated inv_smoothing.
@@ -261,7 +266,6 @@ impl Renderer {
                     self.state.audio_waveform = vec![0.0; target_len].into_boxed_slice();
                 }
 
-                let wave_len = waveform.len();
                 let mut max_energy = 0.0f32;
                 // Optimization: Use zipped iterators for the waveform smoothing loop.
                 for (current, &(start, end)) in self
@@ -272,13 +276,15 @@ impl Renderer {
                 {
                     let mut peak = 0.0f32;
                     let mut peak_abs = 0.0f32;
-                    if let Some(slice) = waveform.get(start..end.min(wave_len)) {
-                        for &val in slice {
-                            let val_abs: f32 = val.abs();
-                            if val_abs > peak_abs {
-                                peak_abs = val_abs;
-                                peak = val;
-                            }
+
+                    // Optimization: Use direct slicing instead of `.get()` and `.min(wave_len)`.
+                    // The bin ranges are already pre-clamped to valid FFT bins [0, 2048] in `build_waveform_bin_ranges`.
+                    let slice = &waveform[start..end];
+                    for &val in slice {
+                        let val_abs: f32 = val.abs();
+                        if val_abs > peak_abs {
+                            peak_abs = val_abs;
+                            peak = val;
                         }
                     }
 

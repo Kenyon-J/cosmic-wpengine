@@ -70,3 +70,7 @@
 ## 04-05-2026- Optimize Text Rendering Coordinate Transformation
 **Learning:** Coordinate transformation in high-frequency hot loops (like text rendering at 60+ FPS) can be significantly optimized by hoisting buffer-invariant NDC factors and origin-dependent offsets outside the per-glyph loop. Redundantly calculating alignment offsets and NDC transformations for every glyph consumes unnecessary CPU cycles.
 **Action:** For all nested rendering loops, identify arithmetic terms that are constant for a group of elements (like a text buffer's position and scale) and pre-calculate their Normalized Device Coordinate (NDC) equivalents outside the innermost loop to reduce per-element operations to a minimal set of multiplications and additions.
+
+## 06-05-2026- Optimize Audio Processing Hot Path
+**Learning:** In high-frequency audio processing (like `Event::AudioFrame`), redundant arithmetic, closure overhead from `fold`, and safety checks on pre-clamped ranges significantly impact performance. Pre-calculating internal scaling factors into normalization curves and using direct slicing/manual loops allows LLVM to better optimize and auto-vectorize the code.
+**Action:** Bake visualizer scaling constants into pre-calculated curves (e.g. A-weighting). Use direct slicing for guaranteed bin ranges and prefer simple `for` loops over `fold` for arithmetic reductions in hot paths.

@@ -24,7 +24,9 @@ pub(crate) fn build_a_weighting_curve(band_count: usize) -> Vec<f32> {
                     * (f2 + 12200.0 * 12200.0)
                     * ((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)).sqrt());
 
-            a_weighting * 1.2589
+            // Optimization: Combine the standard A-weighting normalization (1.2589)
+            // with our internal visualizer scaling factor (2.5) into a single pre-calculated coefficient.
+            a_weighting * 3.14725
         })
         .collect()
 }
