@@ -71,6 +71,7 @@ pub struct Renderer {
     pub(crate) treble_moving_average: f32,
     pub(crate) treble_pulse: f32,
     pub(crate) last_treble_time: Instant,
+    pub(crate) last_art_uniform_data: Option<([f32; 4], f32)>,
     pub(crate) theme: ThemeLayout,
     pub(crate) a_weighting_curve: Vec<f32>,
     pub(crate) frequency_bin_ranges: Vec<(usize, usize)>,

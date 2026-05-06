@@ -213,6 +213,7 @@ impl Renderer {
             treble_moving_average: 0.0,
             treble_pulse: 0.0,
             last_treble_time: Instant::now(),
+            last_art_uniform_data: None,
             theme,
             a_weighting_curve,
             frequency_bin_ranges,

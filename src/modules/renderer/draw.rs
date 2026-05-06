@@ -337,17 +337,21 @@ pub(crate) fn draw_frame(
         }
 
         // 2. Process album art uniforms
-        if (show_art_fg || show_art_bg || show_color_bg) && last_uniform_res != Some(current_res) {
-            if let Some(_track) = &renderer.state.current_track {
-                let color = art_tint_color;
+        let current_color_and_transition = [
+            art_tint_color[0],
+            art_tint_color[1],
+            art_tint_color[2],
+            renderer.state.transition_progress,
+        ];
+        let current_art_data = (current_color_and_transition, audio_energy);
 
+        if (show_art_fg || show_art_bg || show_color_bg)
+            && (last_uniform_res != Some(current_res)
+                || renderer.last_art_uniform_data != Some(current_art_data))
+        {
+            if let Some(_track) = &renderer.state.current_track {
                 let bg_uniforms = ArtUniforms {
-                    color_and_transition: [
-                        color[0],
-                        color[1],
-                        color[2],
-                        renderer.state.transition_progress,
-                    ],
+                    color_and_transition: current_color_and_transition,
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                     art_position: [0.5, 0.5],
                     audio_energy,
@@ -369,12 +373,7 @@ pub(crate) fn draw_frame(
                     .write_buffer(&renderer.album_art_bg_uniform_buffer, 0, bg_bytes);
 
                 let fg_uniforms = ArtUniforms {
-                    color_and_transition: [
-                        color[0],
-                        color[1],
-                        color[2],
-                        renderer.state.transition_progress,
-                    ],
+                    color_and_transition: current_color_and_transition,
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                     art_position: album_art_fg_pos,
                     audio_energy,
@@ -396,6 +395,8 @@ pub(crate) fn draw_frame(
                     .write_buffer(&renderer.album_art_fg_uniform_buffer, 0, fg_bytes);
             }
         }
+
+        // (Caching will be done after the outputs loop)
 
         if last_uniform_res != Some(current_res) {
             if renderer.custom_bg_bind_group.is_some() {
@@ -853,6 +854,15 @@ pub(crate) fn draw_frame(
             .text_buffer_cache
             .insert(p_buf.text_key, p_buf.buffer);
     }
+
+    // Cache the art uniform data computed for this frame
+    let current_color_and_transition = [
+        art_tint_color[0],
+        art_tint_color[1],
+        art_tint_color[2],
+        renderer.state.transition_progress,
+    ];
+    renderer.last_art_uniform_data = Some((current_color_and_transition, audio_energy));
 
     Ok(())
 }
