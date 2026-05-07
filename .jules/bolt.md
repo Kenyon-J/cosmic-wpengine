@@ -70,3 +70,7 @@
 ## 04-05-2026- Optimize Text Rendering Coordinate Transformation
 **Learning:** Coordinate transformation in high-frequency hot loops (like text rendering at 60+ FPS) can be significantly optimized by hoisting buffer-invariant NDC factors and origin-dependent offsets outside the per-glyph loop. Redundantly calculating alignment offsets and NDC transformations for every glyph consumes unnecessary CPU cycles.
 **Action:** For all nested rendering loops, identify arithmetic terms that are constant for a group of elements (like a text buffer's position and scale) and pre-calculate their Normalized Device Coordinate (NDC) equivalents outside the innermost loop to reduce per-element operations to a minimal set of multiplications and additions.
+
+## 07-05-2026- Optimize Sky Color Interpolation with Const Diff Tables
+**Learning:** Performing multiple subtractions and floating-point divisions inside a high-frequency function (like sky color calculation for every frame) can be optimized by pre-calculating constants. Pre-calculating (target - previous) differences as `const` arrays and replacing divisions with reciprocal multiplications (`* 4.0` instead of `/ 0.25`) improves throughput.
+**Action:** For all interpolation-heavy logic (like time-of-day gradients), use `const` difference tables and reciprocal multiplication to minimize per-frame arithmetic.
