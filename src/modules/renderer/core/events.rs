@@ -16,12 +16,8 @@ impl Renderer {
                     self.state.audio_bands = vec![0.0; config.audio.bands].into_boxed_slice();
                     self.state.audio_waveform = vec![0.0; config.audio.bands].into_boxed_slice();
                     self.state.audio_energy = 0.0;
-                    self.a_weighting_curve =
-                        crate::modules::renderer::utils::build_a_weighting_curve(
-                            config.audio.bands,
-                        );
-                    self.frequency_bin_ranges =
-                        crate::modules::renderer::utils::build_frequency_bin_ranges(
+                    self.audio_processing_bins =
+                        crate::modules::renderer::utils::build_audio_processing_bins(
                             config.audio.bands,
                         );
                     self.waveform_bin_ranges =
@@ -217,23 +213,23 @@ impl Renderer {
                 let mut total_energy = 0.0;
                 // Optimization: Use zipped iterators instead of manual indexing
                 // to eliminate bounds checking and enable auto-vectorization.
-                for (current, (&(bin_lo, bin_hi), &a_weighting_norm)) in
-                    self.state.audio_bands.iter_mut().zip(
-                        self.frequency_bin_ranges
-                            .iter()
-                            .zip(&self.a_weighting_curve),
-                    )
+                for (&(bin_lo, bin_hi, combined_coeff), current) in
+                    self.audio_processing_bins.iter().zip(self.state.audio_bands.iter_mut())
                 {
-                    let max_val =
-                        bands
-                            .get(bin_lo..bin_hi.min(bands_len))
-                            .map_or(0.0, |slice: &[f32]| {
-                                slice
-                                    .iter()
-                                    .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
-                            });
+                    let bin_hi_clamped: usize = bin_hi;
+                    let max_val = bands
+                        .get(bin_lo..bin_hi_clamped.min(bands_len as usize))
+                        .map_or(0.0, |slice: &[f32]| {
+                            let mut peak = 0.0f32;
+                            for &val in slice {
+                                if val > peak {
+                                    peak = val;
+                                }
+                            }
+                            peak
+                        });
 
-                    let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
+                    let target = (max_val * combined_coeff).clamp(0.0, 1.0);
 
                     // Optimization: Use more efficient lerp formula a + (b - a) * t
                     // and use pre-calculated inv_smoothing.
