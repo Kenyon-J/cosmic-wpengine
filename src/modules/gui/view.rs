@@ -265,10 +265,14 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         }
     };
 
+    let mut theme_input = text_input("New Theme Name...", &app.new_theme_name)
+        .on_input(super::Message::NewThemeNameChanged);
+    if !app.new_theme_name.trim().is_empty() {
+        theme_input = theme_input.on_submit(|_| super::Message::CreateTheme);
+    }
+
     let new_theme_input = cosmic::iced::widget::tooltip(
-        text_input("New Theme Name...", &app.new_theme_name)
-            .on_input(super::Message::NewThemeNameChanged)
-            .on_submit(|_| super::Message::CreateTheme),
+        theme_input,
         "Enter a name to create a new copy of the current theme.",
         cosmic::iced::widget::tooltip::Position::Top,
     );
