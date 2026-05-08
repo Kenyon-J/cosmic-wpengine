@@ -219,9 +219,9 @@ impl Renderer {
                     .zip(self.state.audio_bands.iter_mut())
                 {
                     let bin_hi_clamped: usize = bin_hi;
-                    let max_val = bands
-                        .get(bin_lo..bin_hi_clamped.min(bands_len))
-                        .map_or(0.0, |slice: &[f32]| {
+                    let max_val = bands.get(bin_lo..bin_hi_clamped.min(bands_len)).map_or(
+                        0.0,
+                        |slice: &[f32]| {
                             let mut peak = 0.0f32;
                             for &val in slice {
                                 if val > peak {
@@ -229,7 +229,8 @@ impl Renderer {
                                 }
                             }
                             peak
-                        });
+                        },
+                    );
 
                     let target = (max_val * combined_coeff).clamp(0.0, 1.0);
 
