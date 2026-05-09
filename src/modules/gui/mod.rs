@@ -470,8 +470,11 @@ impl Application for SettingsApp {
                 self.new_theme_name = name;
             }
             Message::CreateTheme => {
-                if !self.new_theme_name.is_empty() {
-                    let name = self.new_theme_name.trim().trim_end_matches(".toml");
+                let name = self.new_theme_name.trim();
+                if name.is_empty() {
+                    self.status_msg = "Please enter a valid theme name.".into();
+                } else {
+                    let name = name.trim_end_matches(".toml");
                     let file_name = format!("shaders/{}.toml", name);
 
                     if !is_safe_path(&file_name) {
