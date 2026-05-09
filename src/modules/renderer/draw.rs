@@ -294,7 +294,7 @@ pub(crate) fn draw_frame(
         let current_res = (gpu_out.config.width, gpu_out.config.height);
 
         // 1. Process visualizer uniforms
-        if has_audio && last_uniform_res != Some(current_res) {
+        if has_audio {
             #[repr(C, align(16))]
             struct VisUniforms {
                 res: [f32; 2],
@@ -337,7 +337,7 @@ pub(crate) fn draw_frame(
         }
 
         // 2. Process album art uniforms
-        if (show_art_fg || show_art_bg || show_color_bg) && last_uniform_res != Some(current_res) {
+        if (show_art_fg || show_art_bg || show_color_bg) {
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
 

@@ -165,7 +165,7 @@ impl VideoDecoder {
                                 first_pts = Some(pts);
                             }
 
-                            let pts_diff = pts - first_pts.unwrap();
+                            let pts_diff = pts - first_pts.unwrap_or(0);
                             let target_time = pts_diff as f64 * time_base_f64;
                             let elapsed = start_time.elapsed().as_secs_f64();
 

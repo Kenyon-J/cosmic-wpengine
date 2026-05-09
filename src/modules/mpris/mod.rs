@@ -34,7 +34,7 @@ impl MetadataUpdate {
 }
 
 enum MprisUpdate {
-    Metadata(MetadataUpdate),
+    Metadata(Box<MetadataUpdate>),
     Status(mpris::PlaybackStatus),
     Position(std::time::Duration),
 }
@@ -143,7 +143,8 @@ impl MprisWatcher {
 
                     if effective_track_id != last_track_id {
                         if let Some(metadata) = metadata_update {
-                            let _ = update_tx.blocking_send(MprisUpdate::Metadata(metadata));
+                            let _ =
+                                update_tx.blocking_send(MprisUpdate::Metadata(Box::new(metadata)));
                         }
                         last_track_id = effective_track_id;
                     }
@@ -223,7 +224,8 @@ impl MprisWatcher {
                 is_timed_out = false;
 
                 match update {
-                    MprisUpdate::Metadata(meta) => {
+                    MprisUpdate::Metadata(box_meta) => {
+                        let meta = *box_meta;
                         let is_empty = (meta.title == "Unknown" || meta.title.trim().is_empty())
                             && meta.artist.trim().is_empty();
                         if !is_empty {
@@ -333,10 +335,10 @@ impl MprisWatcher {
             .art_url
             .clone()
             .unwrap_or_else(|| format!("fallback:{}:{}", meta.artist, meta.album));
-        let cached_palette = palette_cache.get(&cache_key).cloned();
+        let mut cached_palette = palette_cache.get(&cache_key).cloned();
 
         let lyrics_cache_key = format!("{}:{}:{}", meta.artist, meta.album, meta.title);
-        let cached_lyrics = lyrics_cache.get(&lyrics_cache_key).cloned();
+        let mut cached_lyrics = lyrics_cache.get(&lyrics_cache_key).cloned();
 
         let art_future = async {
             let mut local_img = None;
@@ -383,7 +385,7 @@ impl MprisWatcher {
             };
 
             if let Some(img) = final_img {
-                let cached = cached_palette.clone();
+                let cached = cached_palette.take();
                 // Optimization: Offload heavy CPU-bound palette extraction and image conversion
                 // to a dedicated blocking thread. This saves ~50-100ms of executor stall time.
                 tokio::task::spawn_blocking(move || {
@@ -409,7 +411,7 @@ impl MprisWatcher {
         let lyrics_future = async {
             if !fetch_lyrics {
                 None
-            } else if let Some(cached) = cached_lyrics.clone() {
+            } else if let Some(cached) = cached_lyrics.take() {
                 cached
             } else {
                 lrclib::fetch_synced_lyrics(&meta.title, &meta.artist, &meta.album, client).await
