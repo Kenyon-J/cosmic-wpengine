@@ -337,7 +337,7 @@ pub(crate) fn draw_frame(
         }
 
         // 2. Process album art uniforms
-        if (show_art_fg || show_art_bg || show_color_bg) {
+        if show_art_fg || show_art_bg || show_color_bg {
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
 
