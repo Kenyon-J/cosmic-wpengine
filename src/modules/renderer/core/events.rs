@@ -213,8 +213,11 @@ impl Renderer {
                 let mut total_energy = 0.0;
                 // Optimization: Use consolidated bins to eliminate triple-zipped iterators.
                 // Replaced .fold() with a manual loop to facilitate LLVM auto-vectorization and avoid closure overhead.
-                for (current, &(bin_lo, bin_hi, weighting_norm)) in
-                    self.state.audio_bands.iter_mut().zip(&self.audio_processing_bins)
+                for (current, &(bin_lo, bin_hi, weighting_norm)) in self
+                    .state
+                    .audio_bands
+                    .iter_mut()
+                    .zip(&self.audio_processing_bins)
                 {
                     let mut max_val = 0.0f32;
                     if let Some(slice) = bands.get(bin_lo..bin_hi.min(bands_len)) {

@@ -490,8 +490,10 @@ pub(crate) fn draw_frame(
 
                         // Optimization: Hoist monitor-invariant scaling factors and differences outside the lyric line loop.
                         let base_active_ratio = base_font_size * inv_active_font_size;
-                        let size_diff_ratio = (active_font_size - base_font_size) * inv_active_font_size;
-                        let bounce_8_ratio = (lyric_bounce * 8.0 * scale_factor) * inv_active_font_size;
+                        let size_diff_ratio =
+                            (active_font_size - base_font_size) * inv_active_font_size;
+                        let bounce_8_ratio =
+                            (lyric_bounce * 8.0 * scale_factor) * inv_active_font_size;
                         let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
 
                         let start_idx = renderer.current_lyric_idx.saturating_sub(2).max(1);
@@ -512,7 +514,8 @@ pub(crate) fn draw_frame(
                             let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
 
                             // Optimization: Use pre-calculated ratios to minimize arithmetic in the lyric rendering loop.
-                            let render_scale = base_active_ratio + (size_diff_ratio + bounce_8_ratio) * center_weight;
+                            let render_scale = base_active_ratio
+                                + (size_diff_ratio + bounce_8_ratio) * center_weight;
                             let bounce_y = bounce_12_scaled * center_weight;
                             let y_pos = (dist * line_spacing) - bounce_y;
 
