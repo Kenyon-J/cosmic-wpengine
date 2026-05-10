@@ -70,3 +70,7 @@
 ## 04-05-2026- Optimize Text Rendering Coordinate Transformation
 **Learning:** Coordinate transformation in high-frequency hot loops (like text rendering at 60+ FPS) can be significantly optimized by hoisting buffer-invariant NDC factors and origin-dependent offsets outside the per-glyph loop. Redundantly calculating alignment offsets and NDC transformations for every glyph consumes unnecessary CPU cycles.
 **Action:** For all nested rendering loops, identify arithmetic terms that are constant for a group of elements (like a text buffer's position and scale) and pre-calculate their Normalized Device Coordinate (NDC) equivalents outside the innermost loop to reduce per-element operations to a minimal set of multiplications and additions.
+
+## 10-05-2026- Optimize Audio Processing with Consolidated Bins and Hoisted Logic
+**Learning:** In high-frequency hot loops (like audio processing or rendering), iterating over multiple zipped collections and performing redundant arithmetic or closure-based operations (like `fold`) can accumulate significant CPU overhead. Consolidating data into pre-calculated tuples and using manual loops can better facilitate LLVM auto-vectorization and reduce per-element costs.
+**Action:** Identify multi-collection iterations in hot paths and consolidate them into a single "processing-ready" structure. Hoist invariant arithmetic out of inner loops to minimize redundant calculations across frames or monitors.

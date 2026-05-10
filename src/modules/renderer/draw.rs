@@ -488,12 +488,14 @@ pub(crate) fn draw_frame(
                         let inv_active_font_size = 1.0 / active_font_size;
                         let line_spacing = active_font_size * 1.2;
 
+                        // Optimization: Hoist monitor-invariant scaling factors and differences outside the lyric line loop.
+                        let base_active_ratio = base_font_size * inv_active_font_size;
+                        let size_diff_ratio = (active_font_size - base_font_size) * inv_active_font_size;
+                        let bounce_8_ratio = (lyric_bounce * 8.0 * scale_factor) * inv_active_font_size;
+                        let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
+
                         let start_idx = renderer.current_lyric_idx.saturating_sub(2).max(1);
                         let end_idx = (renderer.current_lyric_idx + 2).min(lyrics.len());
-
-                        // Pre-calculate bounce scalars for the current monitor's scale factor
-                        let bounce_8_scaled = lyric_bounce * 8.0 * scale_factor;
-                        let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
 
                         for line_idx in start_idx..=end_idx {
                             let lyric_line = &lyrics[line_idx - 1];
@@ -509,11 +511,8 @@ pub(crate) fn draw_frame(
 
                             let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
 
-                            let scale = base_font_size
-                                + (active_font_size - base_font_size) * center_weight;
-                            let final_scale = scale + bounce_8_scaled * center_weight;
-
-                            let render_scale = final_scale * inv_active_font_size;
+                            // Optimization: Use pre-calculated ratios to minimize arithmetic in the lyric rendering loop.
+                            let render_scale = base_active_ratio + (size_diff_ratio + bounce_8_ratio) * center_weight;
                             let bounce_y = bounce_12_scaled * center_weight;
                             let y_pos = (dist * line_spacing) - bounce_y;
 
