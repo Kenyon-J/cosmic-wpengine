@@ -1,4 +1,3 @@
-
 pub(crate) fn build_audio_processing_bins(band_count: usize) -> Vec<(usize, usize, f32)> {
     let min_freq = 40.0f32;
     let max_freq = 16000.0f32;
@@ -53,7 +52,6 @@ pub fn hash_str(s: &str) -> u64 {
     s.hash(&mut hasher);
     hasher.finish()
 }
-
 
 pub(crate) fn build_waveform_bin_ranges(band_count: usize) -> Vec<(usize, usize)> {
     let chunk_size = 2048.0 / band_count as f32;
