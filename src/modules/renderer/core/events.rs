@@ -52,6 +52,7 @@ impl Renderer {
                 self.text_buffer_cache.shrink_to_fit();
 
                 self.is_waveform_style = self.state.config.audio.style == "waveform";
+                self.inv_smoothing = 1.0 - self.state.config.audio.smoothing;
                 self.update_weather_state();
                 self.update_weather_string();
                 info!("Live settings applied!");
@@ -156,10 +157,8 @@ impl Renderer {
             }
 
             Event::AudioFrame { bands, waveform } => {
-                let smoothing = self.state.config.audio.smoothing;
-                let inv_smoothing = 1.0 - smoothing;
+                let inv_smoothing = self.inv_smoothing;
                 let target_len = self.state.audio_bands.len();
-
                 let bands_len = bands.len();
 
                 // --- Smart Beat Detection ---
@@ -224,16 +223,19 @@ impl Renderer {
                             .zip(&self.a_weighting_curve),
                     )
                 {
-                    let max_val =
-                        bands
-                            .get(bin_lo..bin_hi.min(bands_len))
-                            .map_or(0.0, |slice: &[f32]| {
-                                slice
-                                    .iter()
-                                    .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
-                            });
+                    // Optimization: Prefer manual for loop with simple if comparison over fold
+                    // to reduce closure overhead and facilitate auto-vectorization.
+                    let mut max_val = 0.0f32;
+                    if let Some(slice) = bands.get(bin_lo..bin_hi.min(bands_len)) {
+                        for &val in slice {
+                            if val > max_val {
+                                max_val = val;
+                            }
+                        }
+                    }
 
-                    let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
+                    // Optimization: A-weighting curve now pre-bakes the 2.5x scaling factor.
+                    let target = (max_val * a_weighting_norm).clamp(0.0, 1.0);
 
                     // Optimization: Use more efficient lerp formula a + (b - a) * t
                     // and use pre-calculated inv_smoothing.

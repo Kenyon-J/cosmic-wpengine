@@ -97,6 +97,7 @@ pub struct Renderer {
     pub(crate) audio_max_energy: f32,
     pub(crate) audio_base_energy: f32,
     pub(crate) is_waveform_style: bool,
+    pub(crate) inv_smoothing: f32,
     pub(crate) bass_bin_range: (usize, usize),
     pub(crate) treble_bin_range: (usize, usize),
     pub(crate) vis_target_colors: ([f32; 3], [f32; 3]),

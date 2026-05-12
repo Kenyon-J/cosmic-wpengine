@@ -150,6 +150,7 @@ impl Renderer {
         let waveform_bin_ranges =
             crate::modules::renderer::utils::build_waveform_bin_ranges(state.config.audio.bands);
         let is_waveform_style = state.config.audio.style == "waveform";
+        let inv_smoothing = 1.0 - state.config.audio.smoothing;
 
         // Optimization: Pre-calculate the FFT bin ranges for beat and treble detection
         // to avoid redundant math on every single audio frame (typically 60-100 times per second).
@@ -238,6 +239,7 @@ impl Renderer {
             audio_max_energy: 0.0,
             audio_base_energy: 0.0,
             is_waveform_style,
+            inv_smoothing,
             bass_bin_range,
             treble_bin_range,
             vis_target_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),

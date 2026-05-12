@@ -4,27 +4,32 @@ pub(crate) fn build_a_weighting_curve(band_count: usize) -> Vec<f32> {
     let min_log = min_freq.log2();
     let max_log = max_freq.log2();
 
-    // Optimization: Use an exact size iterator with `.collect()` instead of a manual
-    // `for` loop with `.push()` to leverage standard library optimizations
-    // and eliminate capacity checking / redundant bounds checking.
+    // Optimization: Pre-calculate constants to avoid redundant math in the mapping loop.
+    let log_range = max_log - min_log;
+    let inv_band_count = 1.0 / band_count as f32;
+    let c1 = 12200.0 * 12200.0;
+    let c2 = 20.6 * 20.6;
+    let c3 = 107.7 * 107.7;
+    let c4 = 737.9 * 737.9;
+
+    // Optimization: Bake the visualizer's 2.5x scaling factor directly into the normalized weights
+    // to eliminate one multiplication for every band in the hot audio processing loop.
+    let visualizer_normalization = 1.2589 * 2.5;
+
     (0..band_count)
         .map(|i| {
-            let t_lo = i as f32 / band_count as f32;
-            let t_hi = (i + 1) as f32 / band_count as f32;
+            let t_lo = i as f32 * inv_band_count;
+            let t_hi = (i + 1) as f32 * inv_band_count;
 
-            let freq_lo = (min_log + t_lo * (max_log - min_log)).exp2();
-            let freq_hi = (min_log + t_hi * (max_log - min_log)).exp2();
+            let freq_lo = (min_log + t_lo * log_range).exp2();
+            let freq_hi = (min_log + t_hi * log_range).exp2();
 
-            let f = (freq_lo * freq_hi).sqrt();
-            let f2 = f * f;
+            let f2 = freq_lo * freq_hi; // f = sqrt(lo*hi) -> f^2 = lo*hi
             let f4 = f2 * f2;
 
-            let a_weighting = (12200.0 * 12200.0 * f4)
-                / ((f2 + 20.6 * 20.6)
-                    * (f2 + 12200.0 * 12200.0)
-                    * ((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)).sqrt());
+            let a_weighting = (c1 * f4) / ((f2 + c2) * (f2 + c1) * ((f2 + c3) * (f2 + c4)).sqrt());
 
-            a_weighting * 1.2589
+            a_weighting * visualizer_normalization
         })
         .collect()
 }
