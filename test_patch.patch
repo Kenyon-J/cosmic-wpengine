@@ -1,0 +1,20 @@
+--- src/modules/gui/view.rs
++++ src/modules/gui/view.rs
+@@ -266,10 +266,14 @@
+         cosmic::iced::widget::tooltip::Position::Top,
+     );
+
++    let mut theme_inp = text_input("New Theme Name...", &app.new_theme_name)
++        .on_input(super::Message::NewThemeNameChanged);
++    if !app.new_theme_name.trim().is_empty() {
++        theme_inp = theme_inp.on_submit(|_| super::Message::CreateTheme);
++    }
++
+     let new_theme_input = cosmic::iced::widget::tooltip(
+-        text_input("New Theme Name...", &app.new_theme_name)
+-            .on_input(super::Message::NewThemeNameChanged)
+-            .on_submit(|_| super::Message::CreateTheme),
++        theme_inp,
+         "Enter a name to create a new copy of the current theme.",
+         cosmic::iced::widget::tooltip::Position::Top,
+     );
