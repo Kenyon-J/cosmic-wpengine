@@ -94,17 +94,26 @@ Name=COSMIC Wallpaper"#,
     }
 }
 
-pub(crate) fn is_safe_path(path_str: &str) -> bool {
-    let path = std::path::Path::new(path_str);
-    if path.is_absolute() {
-        return false;
+pub(crate) fn get_safe_path(path_str: &str) -> Option<std::path::PathBuf> {
+    let base_dir = config::Config::config_dir();
+    let combined_path = base_dir.join(path_str);
+
+    let canonical_base = std::fs::canonicalize(&base_dir).unwrap_or(base_dir);
+    // If the combined path does not exist yet (e.g. creating a new theme),
+    // we canonicalize the parent directory and verify it's within base_dir.
+    let target_to_check = if combined_path.exists() {
+        combined_path.clone()
+    } else {
+        combined_path.parent()?.to_path_buf()
+    };
+
+    let canonical_target = std::fs::canonicalize(&target_to_check).ok()?;
+
+    if canonical_target.starts_with(canonical_base) {
+        Some(combined_path)
+    } else {
+        None
     }
-    for component in path.components() {
-        if matches!(component, std::path::Component::ParentDir) {
-            return false;
-        }
-    }
-    true
 }
 
 fn load_files() -> Vec<String> {
@@ -383,9 +392,8 @@ impl Application for SettingsApp {
                 self.refresh_editor();
             }
             Message::FileSelected(file) => {
-                if is_safe_path(&file) {
+                if let Some(path) = get_safe_path(&file) {
                     self.selected_file = Some(file.clone());
-                    let path = config::Config::config_dir().join(&file);
                     let content_str = std::fs::read_to_string(path).unwrap_or_default();
                     self.editor_content =
                         cosmic::widget::text_editor::Content::with_text(&content_str);
@@ -399,11 +407,13 @@ impl Application for SettingsApp {
             }
             Message::SaveFile => {
                 if let Some(file) = &self.selected_file {
-                    if !is_safe_path(file) {
-                        self.status_msg = format!("Blocked unsafe save path: {}", file);
-                        return Task::none();
-                    }
-                    let path = config::Config::config_dir().join(file);
+                    let path = match get_safe_path(file) {
+                        Some(p) => p,
+                        None => {
+                            self.status_msg = format!("Blocked unsafe save path: {}", file);
+                            return Task::none();
+                        }
+                    };
                     let text = self.editor_content.text();
                     match std::fs::write(&path, text) {
                         Ok(_) => {
@@ -474,12 +484,13 @@ impl Application for SettingsApp {
                     let name = self.new_theme_name.trim().trim_end_matches(".toml");
                     let file_name = format!("shaders/{}.toml", name);
 
-                    if !is_safe_path(&file_name) {
-                        self.status_msg = format!("Blocked unsafe theme name: {}", name);
-                        return Task::none();
-                    }
-
-                    let path = config::Config::config_dir().join(&file_name);
+                    let path = match get_safe_path(&file_name) {
+                        Some(p) => p,
+                        None => {
+                            self.status_msg = format!("Blocked unsafe theme name: {}", name);
+                            return Task::none();
+                        }
+                    };
 
                     let mut options = std::fs::OpenOptions::new();
                     options.write(true).create_new(true);

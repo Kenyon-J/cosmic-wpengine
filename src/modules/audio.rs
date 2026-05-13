@@ -21,12 +21,12 @@ impl AudioCapture {
     ) -> Result<()> {
         info!("Audio capture started");
 
-        let (audio_tx, mut audio_rx) = tokio::sync::mpsc::channel::<Vec<f32>>(16);
+        let (audio_tx, mut audio_rx) = tokio::sync::mpsc::channel::<Box<[f32]>>(16);
         let (recycle_bands_tx, mut recycle_bands_rx) = tokio::sync::mpsc::channel::<Box<[f32]>>(4);
         let (recycle_waveform_tx, recycle_waveform_rx) =
             tokio::sync::mpsc::channel::<Box<[f32]>>(4);
         let (recycle_complex_tx, mut recycle_complex_rx) =
-            tokio::sync::mpsc::channel::<Vec<Complex<f32>>>(4);
+            tokio::sync::mpsc::channel::<Box<[Complex<f32>]>>(4);
 
         std::thread::spawn(move || {
             if let Err(e) = Self::run_pipewire_capture(audio_tx, recycle_waveform_rx) {
@@ -60,7 +60,7 @@ impl AudioCapture {
                                 continue;
                             }
 
-                            let mut process_buffer = recycle_complex_rx.try_recv().unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE));
+                            let mut process_buffer = recycle_complex_rx.try_recv().map(|b| b.into_vec()).unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE));
                             process_buffer.clear();
                             // Optimization: Use zipped iterators and `.extend()` instead of manual `.push()`
                             // to enable LLVM auto-vectorization and eliminate bounds checking overhead
@@ -85,7 +85,7 @@ impl AudioCapture {
                                 norm_buffer.extend(process_buffer[0..half]
                                     .iter()
                                     .map(|c| (c.norm() / SCALE_FACTOR).clamp(0.0, 1.0)));
-                                let _ = recycle_complex_tx_clone.try_send(process_buffer);
+                                let _ = recycle_complex_tx_clone.try_send(process_buffer.into_boxed_slice());
                                 (norm_buffer, samples) // Return the processed data
                             }).await {
                                 Ok(res) => res,
@@ -95,14 +95,14 @@ impl AudioCapture {
                                     default_norm.extend(std::iter::repeat_n(0.0, FFT_SIZE / 2));
                                     let mut default_wave = Vec::with_capacity(FFT_SIZE);
                                     default_wave.extend(std::iter::repeat_n(0.0, FFT_SIZE));
-                                    (default_norm, default_wave)
+                                    (default_norm, default_wave.into_boxed_slice())
                                 }
                             };
 
                             let _ = tx
                                 .send(Event::AudioFrame {
                                     bands: PooledAudioBuffer::new(normalised.into_boxed_slice(), recycle_bands_tx.clone()),
-                                    waveform: PooledAudioBuffer::new(original_waveform.into_boxed_slice(), recycle_waveform_tx.clone()),
+                                    waveform: PooledAudioBuffer::new(original_waveform, recycle_waveform_tx.clone()),
                                 })
                                 .await;
                         }
@@ -135,7 +135,7 @@ impl AudioCapture {
     }
 
     fn run_pipewire_capture(
-        tx: tokio::sync::mpsc::Sender<Vec<f32>>,
+        tx: tokio::sync::mpsc::Sender<Box<[f32]>>,
         mut recycle_rx: tokio::sync::mpsc::Receiver<Box<[f32]>>,
     ) -> Result<()> {
         pipewire::init();
@@ -266,7 +266,7 @@ impl AudioCapture {
                         frame.clear();
                         frame.extend_from_slice(&sample_buffer[..FFT_SIZE]);
                         sample_buffer.drain(..FFT_SIZE);
-                        match tx.try_send(frame) {
+                        match tx.try_send(frame.into_boxed_slice()) {
                             Ok(_) => {}
                             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
                                 tracing::warn!(

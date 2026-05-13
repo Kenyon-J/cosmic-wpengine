@@ -29,9 +29,11 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
         }
     }
 
-    // Convert buckets to a vector for sorting, filtering out empty buckets and invalid brightness.
-    // We filter before sorting to reduce the number of elements handled by the sort algorithm.
-    let mut sorted: Vec<((u8, u8, u8), u32)> = Vec::with_capacity(512);
+    // Convert buckets to an array for sorting, filtering out empty buckets and invalid brightness.
+    // We use a fixed-size array instead of a Vec to prevent heap allocations.
+    let mut sorted = [((0u8, 0u8, 0u8), 0u32); 512];
+    let mut valid_count = 0;
+
     for (index, &count) in buckets.iter().enumerate() {
         if count == 0 {
             continue;
@@ -43,13 +45,15 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
 
         let brightness = (r as u32 + g as u32 + b as u32) / 3;
         if brightness > 30 && brightness < 220 {
-            sorted.push(((r, g, b), count));
+            sorted[valid_count] = ((r, g, b), count);
+            valid_count += 1;
         }
     }
 
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    let valid_slice = &mut sorted[..valid_count];
+    valid_slice.sort_unstable_by_key(|x| std::cmp::Reverse(x.1));
 
-    sorted
+    valid_slice
         .iter()
         .take(5)
         .map(|((r, g, b), _)| [*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0])

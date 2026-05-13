@@ -235,6 +235,7 @@ impl Renderer {
             weather_wind_x: 0.1,
             weather_type: 0,
             is_weather_active: false,
+            last_weather_compute_vars: None,
             audio_max_energy: 0.0,
             audio_base_energy: 0.0,
             is_waveform_style,

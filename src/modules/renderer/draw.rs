@@ -68,11 +68,15 @@ pub(crate) fn draw_frame(
         let gravity = renderer.weather_gravity;
 
         let compute_uniforms = [delta, wind_x, gravity, 0.0f32];
-        let compute_bytes =
-            unsafe { std::slice::from_raw_parts(compute_uniforms.as_ptr() as *const u8, 16) };
-        renderer
-            .queue
-            .write_buffer(&renderer.weather_compute_uniform_buffer, 0, compute_bytes);
+
+        if renderer.last_weather_compute_vars != Some(compute_uniforms) {
+            let compute_bytes =
+                unsafe { std::slice::from_raw_parts(compute_uniforms.as_ptr() as *const u8, 16) };
+            renderer
+                .queue
+                .write_buffer(&renderer.weather_compute_uniform_buffer, 0, compute_bytes);
+            renderer.last_weather_compute_vars = Some(compute_uniforms);
+        }
 
         let mut compute_encoder =
             renderer

@@ -94,6 +94,7 @@ pub struct Renderer {
     pub(crate) weather_wind_x: f32,
     pub(crate) weather_type: u32,
     pub(crate) is_weather_active: bool,
+    pub(crate) last_weather_compute_vars: Option<[f32; 4]>,
     pub(crate) audio_max_energy: f32,
     pub(crate) audio_base_energy: f32,
     pub(crate) is_waveform_style: bool,

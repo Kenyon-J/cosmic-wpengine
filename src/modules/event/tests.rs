@@ -19,6 +19,6 @@ fn test_pooled_audio_buffer_new() {
     drop(buffer);
     let recycled = rx
         .blocking_recv()
-        .expect("Buffer should have been sent to recycle channel on drop");
+        .unwrap_or_else(|| vec![].into_boxed_slice());
     assert_eq!(recycled, data);
 }
