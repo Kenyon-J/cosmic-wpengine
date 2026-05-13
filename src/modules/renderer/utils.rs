@@ -29,6 +29,17 @@ pub(crate) fn build_a_weighting_curve(band_count: usize) -> Vec<f32> {
         .collect()
 }
 
+pub(crate) fn build_audio_processing_bins(band_count: usize) -> Vec<(usize, usize, f32)> {
+    let a_weighting = build_a_weighting_curve(band_count);
+    let bin_ranges = build_frequency_bin_ranges(band_count);
+
+    bin_ranges
+        .into_iter()
+        .zip(a_weighting)
+        .map(|((lo, hi), a)| (lo, hi, a * 2.5))
+        .collect()
+}
+
 pub fn hash_str(s: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     // Optimization: Use `rustc_hash::FxHasher` instead of `std::collections::hash_map::DefaultHasher`.

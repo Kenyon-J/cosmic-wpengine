@@ -59,6 +59,10 @@
 **Learning:** The `scene_description` logic was performing an O(N) sum over audio bands on every call. In the rendering hot path, especially with multiple monitors, this adds up to thousands of redundant iterations per second.
 **Action:** Cache the average audio energy in `AppState` during the `Event::AudioFrame` handler, where the bands are already being iterated. This reduces `scene_description` to an O(1) field retrieval, eliminating redundant passes over the audio data.
 
+## 12-02-2025- Consolidate Audio Processing Data for Hot Paths
+**Learning:** Iterating over multiple separate vectors (frequency ranges, weighting curves) and performing arithmetic (scaling, reciprocals) inside high-frequency audio handlers (60-100Hz) introduces avoidable overhead. Consolidating these into a single "ready-to-use" data structure improves cache locality and simplifies loop logic.
+**Action:** Pre-calculate and consolidate all invariant scalars and indices into a single vector of tuples or structs. This allows the hot-path loop to focus purely on data processing with minimal arithmetic and zero branching.
+
 ## 2026-05-18 - Optimize non-cryptographic hashing
 **Learning:** Using `std::collections::hash_map::DefaultHasher` (SipHash) inside high-frequency paths (like the 60FPS render loop's caching system) introduces measurable CPU overhead due to its cryptographic collision resistance.
 **Action:** Always prefer `rustc_hash::FxHasher` for internal hashing and caching where HashDoS protection is unnecessary, as it provides significantly better performance.
