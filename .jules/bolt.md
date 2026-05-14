@@ -70,3 +70,7 @@
 ## 04-05-2026- Optimize Text Rendering Coordinate Transformation
 **Learning:** Coordinate transformation in high-frequency hot loops (like text rendering at 60+ FPS) can be significantly optimized by hoisting buffer-invariant NDC factors and origin-dependent offsets outside the per-glyph loop. Redundantly calculating alignment offsets and NDC transformations for every glyph consumes unnecessary CPU cycles.
 **Action:** For all nested rendering loops, identify arithmetic terms that are constant for a group of elements (like a text buffer's position and scale) and pre-calculate their Normalized Device Coordinate (NDC) equivalents outside the innermost loop to reduce per-element operations to a minimal set of multiplications and additions.
+
+## 11-02-2025- Consolidate and Bake Audio Processing Parameters
+**Learning:** In high-frequency audio DSP loops, redundant multiplications and zipping multiple vectors (like frequency ranges and weighting curves) significantly increase CPU overhead. Baking scaling factors directly into pre-calculated lookup tables and using a single consolidated vector of tuples improves cache locality and eliminates thousands of redundant multiplications per second.
+**Action:** Consolidate related per-element processing parameters into a single vector of tuples and bake as many static scaling factors as possible into the pre-calculated values before entering the hot path.
