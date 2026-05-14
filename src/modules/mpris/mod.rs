@@ -59,6 +59,78 @@ struct CanvasResponse {
 pub struct MprisWatcher;
 
 impl MprisWatcher {
+    fn is_safe_http_url(url_str: &str) -> bool {
+        let Ok(parsed_url) = url::Url::parse(url_str) else {
+            return false;
+        };
+
+        if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
+            return false;
+        }
+
+        // Explicitly check for standard loopback or special domain names
+        if let Some(host_str) = parsed_url.host_str() {
+            let host_lower = host_str.to_lowercase();
+            if host_lower == "localhost"
+                || host_lower.ends_with(".localhost")
+                || host_lower.ends_with(".localdomain")
+                || host_lower.ends_with(".local")
+                || host_lower == "host.docker.internal"
+            {
+                return false;
+            }
+        }
+
+        // Resolving the domain to verify it doesn't resolve to local/private IPs
+        // This is a blocking call to DNS resolution. In a deeply async context,
+        // it's better to configure reqwest, but doing it here prevents false negatives.
+        use std::net::ToSocketAddrs;
+        if let Some(host) = parsed_url.host_str() {
+            let port = parsed_url
+                .port()
+                .unwrap_or(if parsed_url.scheme() == "https" {
+                    443
+                } else {
+                    80
+                });
+            if let Ok(addrs) = (host, port).to_socket_addrs() {
+                for addr in addrs {
+                    let ip = addr.ip();
+                    if ip.is_loopback() || ip.is_unspecified() {
+                        return false;
+                    }
+
+                    // Fallback manual checks for private IPs since ip.is_global() is unstable
+                    match ip {
+                        std::net::IpAddr::V4(ipv4) => {
+                            if ipv4.is_private() || ipv4.is_link_local() || ipv4.is_broadcast() {
+                                return false;
+                            }
+                            // 169.254.169.254 check
+                            if ipv4.octets()[0] == 169 && ipv4.octets()[1] == 254 {
+                                return false;
+                            }
+                        }
+                        std::net::IpAddr::V6(ipv6) => {
+                            let segs = ipv6.segments();
+                            if (segs[0] & 0xfe00) == 0xfc00 // Unique Local Address
+                                || (segs[0] & 0xffc0) == 0xfe80
+                            // Link-Local Address
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // If DNS resolution fails, we can't be sure it's safe, so we reject it
+                return false;
+            }
+        }
+
+        true
+    }
+
     pub async fn run(
         tx: Sender<Event>,
         mut visible_rx: tokio::sync::watch::Receiver<bool>,
@@ -498,6 +570,13 @@ impl MprisWatcher {
     ) -> Result<image::DynamicImage> {
         info!("Attempting to fetch album art from: {}", url_str);
         if url_str.starts_with("http") {
+            if !Self::is_safe_http_url(url_str) {
+                anyhow::bail!(
+                    "Security violation: Attempted SSRF via unsafe HTTP URL: {}",
+                    url_str
+                );
+            }
+
             let bytes = client
                 .get(url_str)
                 .send()

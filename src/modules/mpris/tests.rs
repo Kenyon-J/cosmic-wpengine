@@ -102,3 +102,43 @@ fn test_resolve_safe_path() {
         std::env::remove_var("HOME");
     }
 }
+
+#[test]
+fn test_is_safe_http_url() {
+    // Valid external domains
+    assert!(MprisWatcher::is_safe_http_url("http://example.com/art.png"));
+    assert!(MprisWatcher::is_safe_http_url(
+        "https://open.spotify.com/image"
+    ));
+
+    // Invalid schemes
+    assert!(!MprisWatcher::is_safe_http_url("ftp://example.com/art.png"));
+    assert!(!MprisWatcher::is_safe_http_url("file:///etc/passwd"));
+    assert!(!MprisWatcher::is_safe_http_url("gopher://example.com"));
+
+    // Localhost
+    assert!(!MprisWatcher::is_safe_http_url("http://localhost/image"));
+    assert!(!MprisWatcher::is_safe_http_url(
+        "http://localhost:8080/admin"
+    ));
+    assert!(!MprisWatcher::is_safe_http_url("https://localhost"));
+
+    // Loopback IPs
+    assert!(!MprisWatcher::is_safe_http_url("http://127.0.0.1/art"));
+    assert!(!MprisWatcher::is_safe_http_url("http://127.1.2.3"));
+    assert!(!MprisWatcher::is_safe_http_url("http://[::1]"));
+
+    // Private IPs
+    assert!(!MprisWatcher::is_safe_http_url("http://10.0.0.1"));
+    assert!(!MprisWatcher::is_safe_http_url("http://192.168.1.100"));
+    assert!(!MprisWatcher::is_safe_http_url("http://172.16.0.5"));
+
+    // Link-local / Meta-data endpoints
+    assert!(!MprisWatcher::is_safe_http_url(
+        "http://169.254.169.254/latest/meta-data/"
+    ));
+    assert!(!MprisWatcher::is_safe_http_url("http://[fe80::1]"));
+
+    // Some weird parse failures
+    assert!(!MprisWatcher::is_safe_http_url("not_a_url"));
+}
