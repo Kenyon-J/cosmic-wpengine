@@ -13,3 +13,6 @@
 ## 2024-05-19 - Conditionally Hiding Irrelevant UI Elements
 **Learning:** In `cosmic::iced`, it is a better UX practice to conditionally hide a setting (like a slider) entirely when it doesn't apply to the currently selected mode, rather than showing it constantly with an explanatory tooltip.
 **Action:** Use a mutable container (like `let mut main_col = column()...`) to conditionally push configuration rows to the UI based on top-level state selections.
+## 2024-05-20 - Disabled Empty Input Submission
+**Learning:** In `cosmic::iced`, it's possible for users to submit empty strings in `text_input` fields by pressing the Enter key if the `.on_submit` event is unconditionally bound. This can lead to creation of invalidly named items (like empty themes) without explicitly pressing the "Create" button.
+**Action:** When creating forms with text inputs where an empty string is an invalid submission, conditionally bind the `.on_submit` event only if the trimmed input is not empty, similar to how adjacent submission buttons are conditionally enabled.
