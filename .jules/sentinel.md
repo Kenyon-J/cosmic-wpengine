@@ -54,3 +54,13 @@
 **Vulnerability:** A Time-of-Check to Time-of-Use (TOCTOU) vulnerability existed in `src/modules/mpris/mod.rs` when reading album art files. The path was first validated via `is_safe_path` (which correctly canonicalized the path internally to prevent symlink bypasses), but then the *original*, un-canonicalized path was passed to `tokio::fs::read`. An attacker could replace a safe file with a malicious symlink between the check and the read operation.
 **Learning:** Reusing the original unverified path after canonicalization validation creates a TOCTOU race condition.
 **Prevention:** To prevent TOCTOU file read vulnerabilities, ensure the exact canonicalized path returned by validation functions is passed directly to file read operations like `std::fs::read` or `tokio::fs::read`, rather than reusing the original unverified path.
+
+## 2024-12-07 - Server-Side Request Forgery in MPRIS art and Spotify Canvas URLs
+**Vulnerability:** The application was fetching HTTP URLs (`art_url` from D-Bus/MPRIS metadata) and hardcoded API proxy URLs without verifying the target host. An attacker with a malicious media player could return metadata pointing to `http://169.254.169.254/` (AWS IMDS) or `http://localhost:8080/` to explore the internal network via SSRF.
+**Learning:** Even internal functions fetching metadata images can be a vector for SSRF if the source of the URL (D-Bus properties exposed to all applications) is not fully trusted.
+**Prevention:** Enforce strict URL validation using the `url` crate and resolve the host to its IP addresses. Explicitly block connection attempts to loopback, unspecified, private, or link-local IP addresses before making requests with `reqwest`.
+
+## 2024-12-07 - DNS Rebinding Vulnerability in URL validation
+**Vulnerability:** Checking if a domain name resolves to a safe IP address and then subsequently making an HTTP request to that domain name creates a Time-of-Check to Time-of-Use (TOCTOU) vulnerability known as DNS Rebinding. An attacker could configure a DNS server to return a safe IP address during the validation phase, but return a malicious internal IP address (like `169.254.169.254`) during the actual `reqwest::get` phase.
+**Learning:** Validating a domain name is not sufficient if the underlying network client performs its own secondary DNS resolution.
+**Prevention:** Pin the HTTP request to the exact IP address validated during the check. This can be done by parsing the URL, setting the host to the validated IP address (`url.set_ip_host(...)`), and explicitly setting the `Host` header to the original domain name in the `reqwest` builder to ensure proper HTTP routing and SNI behavior.

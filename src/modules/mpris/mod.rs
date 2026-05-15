@@ -491,6 +491,47 @@ impl MprisWatcher {
             .decode()
             .map_err(|e| anyhow::anyhow!("Failed to decode image: {}", e))
     }
+    async fn is_safe_url(url_str: &str, is_proxy: bool) -> Option<std::net::SocketAddr> {
+        let parsed = match url::Url::parse(url_str) {
+            Ok(p) => p,
+            Err(_) => return None,
+        };
+
+        let host = match parsed.host_str() {
+            Some(h) => h.to_string(),
+            None => return None,
+        };
+        let port = parsed.port_or_known_default().unwrap_or(80);
+
+        let addrs_result = tokio::task::spawn_blocking(move || {
+            use std::net::ToSocketAddrs;
+            (host.as_str(), port).to_socket_addrs()
+        })
+        .await;
+
+        let addrs = match addrs_result {
+            Ok(Ok(a)) => a,
+            _ => return None,
+        };
+
+        for addr in addrs {
+            let ip = addr.ip();
+            // Do not block loopback if we are hitting our own known proxy URL
+            if !is_proxy {
+                if ip.is_loopback() || ip.is_unspecified() {
+                    continue;
+                }
+                if let std::net::IpAddr::V4(ipv4) = ip {
+                    if ipv4.is_private() || ipv4.is_link_local() {
+                        continue;
+                    }
+                }
+            }
+            // Return the first valid IP found
+            return Some(addr);
+        }
+        None
+    }
 
     async fn fetch_album_art(
         url_str: &str,
@@ -498,8 +539,29 @@ impl MprisWatcher {
     ) -> Result<image::DynamicImage> {
         info!("Attempting to fetch album art from: {}", url_str);
         if url_str.starts_with("http") {
+            let safe_ip = match Self::is_safe_url(url_str, false).await {
+                Some(ip) => ip,
+                None => anyhow::bail!("Security violation: Attempted SSRF or invalid domain via URL: {}", url_str),
+            };
+
+            // Pin the request to the verified IP to prevent DNS rebinding attacks
+            let mut parts = match url::Url::parse(url_str) {
+                Ok(p) => p,
+                Err(_) => anyhow::bail!("Invalid URL: {}", url_str),
+            };
+
+            let host_str = match parts.host_str() {
+                Some(h) => h.to_string(),
+                None => anyhow::bail!("No host in URL: {}", url_str),
+            };
+
+            if parts.set_ip_host(safe_ip.ip()).is_err() {
+                anyhow::bail!("Failed to pin IP for URL: {}", url_str);
+            }
+
             let bytes = client
-                .get(url_str)
+                .get(parts.as_str())
+                .header(reqwest::header::HOST, host_str)
                 .send()
                 .await
                 .map_err(|e| {
@@ -682,9 +744,29 @@ impl MprisWatcher {
         // handle the internal gRPC/Protobuf token auth (e.g. 'spotify-canvas-api').
         // Replace this URL with your local instance or a trusted public proxy API!
         let proxy_url = "http://localhost:3000/api/canvas";
+        let safe_ip = match Self::is_safe_url(proxy_url, true).await {
+            Some(ip) => ip,
+            None => {
+                warn!("Security violation: Attempted SSRF or invalid domain via canvas proxy URL: {}", proxy_url);
+                return None;
+            }
+        };
+
+        let mut parts = match url::Url::parse(proxy_url) {
+            Ok(p) => p,
+            Err(_) => return None,
+        };
+
+        let host_str = match parts.host_str() {
+            Some(h) => h.to_string(),
+            None => return None,
+        };
+
+        let _ = parts.set_ip_host(safe_ip.ip());
 
         if let Ok(resp) = client
-            .get(proxy_url)
+            .get(parts.as_str())
+            .header(reqwest::header::HOST, host_str)
             .query(&[("track_id", track_id)])
             .send()
             .await
