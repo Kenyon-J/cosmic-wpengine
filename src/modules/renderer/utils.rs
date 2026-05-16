@@ -1,34 +1,3 @@
-pub(crate) fn build_a_weighting_curve(band_count: usize) -> Vec<f32> {
-    let min_freq = 40.0f32;
-    let max_freq = 16000.0f32;
-    let min_log = min_freq.log2();
-    let max_log = max_freq.log2();
-
-    // Optimization: Use an exact size iterator with `.collect()` instead of a manual
-    // `for` loop with `.push()` to leverage standard library optimizations
-    // and eliminate capacity checking / redundant bounds checking.
-    (0..band_count)
-        .map(|i| {
-            let t_lo = i as f32 / band_count as f32;
-            let t_hi = (i + 1) as f32 / band_count as f32;
-
-            let freq_lo = (min_log + t_lo * (max_log - min_log)).exp2();
-            let freq_hi = (min_log + t_hi * (max_log - min_log)).exp2();
-
-            let f = (freq_lo * freq_hi).sqrt();
-            let f2 = f * f;
-            let f4 = f2 * f2;
-
-            let a_weighting = (12200.0 * 12200.0 * f4)
-                / ((f2 + 20.6 * 20.6)
-                    * (f2 + 12200.0 * 12200.0)
-                    * ((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)).sqrt());
-
-            a_weighting * 1.2589
-        })
-        .collect()
-}
-
 pub fn hash_str(s: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     // Optimization: Use `rustc_hash::FxHasher` instead of `std::collections::hash_map::DefaultHasher`.
@@ -40,7 +9,10 @@ pub fn hash_str(s: &str) -> u64 {
     hasher.finish()
 }
 
-pub(crate) fn build_frequency_bin_ranges(band_count: usize) -> Vec<(usize, usize)> {
+/// Optimization: Consolidates FFT frequency ranges and A-weighting coefficients into a single
+/// (usize, usize, f32) tuple. By baking in the 2.5x visualizer scaling factor at compile-time
+/// (1.2589 * 2.5 = 3.14725), we eliminate redundant arithmetic in the 60FPS hot path.
+pub(crate) fn build_audio_processing_bins(band_count: usize) -> Vec<(usize, usize, f32)> {
     let min_freq = 40.0f32;
     let max_freq = 16000.0f32;
     let sample_rate = 48000.0f32;
@@ -50,9 +22,6 @@ pub(crate) fn build_frequency_bin_ranges(band_count: usize) -> Vec<(usize, usize
     let max_log = max_freq.log2();
     let max_bins = (fft_size / 2.0) as usize; // 1024
 
-    // Optimization: Use an exact size iterator with `.collect()` instead of a manual
-    // `for` loop with `.push()` to leverage standard library optimizations
-    // and eliminate capacity checking / redundant bounds checking.
     (0..band_count)
         .map(|i| {
             let t_lo = i as f32 / band_count as f32;
@@ -69,7 +38,20 @@ pub(crate) fn build_frequency_bin_ranges(band_count: usize) -> Vec<(usize, usize
             if bin_hi <= bin_lo {
                 bin_hi = (bin_lo + 1).min(max_bins);
             }
-            (bin_lo, bin_hi)
+
+            let f = (freq_lo * freq_hi).sqrt();
+            let f2 = f * f;
+            let f4 = f2 * f2;
+
+            let a_weighting = (12200.0 * 12200.0 * f4)
+                / ((f2 + 20.6 * 20.6)
+                    * (f2 + 12200.0 * 12200.0)
+                    * ((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)).sqrt());
+
+            // Pre-calculate the combined normalization factor: A-weighting * 1.2589 * 2.5
+            let weight = a_weighting * 3.14725;
+
+            (bin_lo, bin_hi, weight)
         })
         .collect()
 }
@@ -113,5 +95,17 @@ mod tests {
             empty_hash, hash1,
             "Empty string hash should differ from non-empty string hash"
         );
+    }
+
+    #[test]
+    fn test_build_audio_processing_bins() {
+        let band_count = 64;
+        let bins = build_audio_processing_bins(band_count);
+        assert_eq!(bins.len(), band_count);
+        for (bin_lo, bin_hi, weight) in bins {
+            assert!(bin_hi > bin_lo);
+            assert!(bin_hi <= 1024);
+            assert!(weight >= 0.0);
+        }
     }
 }

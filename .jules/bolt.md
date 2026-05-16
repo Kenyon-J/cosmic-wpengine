@@ -47,6 +47,10 @@
 **Learning:** When copying image data with row padding, manual indexing and slicing in a loop (e.g. `raw_rgba[src_start..src_end]`) prevents the compiler from fully optimizing the memory transfer. Using iterator-based patterns like `chunks_exact_mut().zip()` eliminates manual bounds checking and enables LLVM to apply auto-vectorization (SIMD).
 **Action:** For all bulk memory copies involving stride or padding, prefer iterator-based `chunks_exact` and `zip` patterns over manual index arithmetic.
 
+## 12-02-2025- Consolidate Audio DSP Metadata to Improve Cache Locality
+**Learning:** Redundantly zipping multiple vectors (A-weighting curve and frequency bin ranges) in the 60FPS audio processing loop introduces iterator overhead and poor cache locality. Additionally, performing multiple multiplications for normalization (`A * 1.25 * 2.5`) every frame is wasteful.
+**Action:** Consolidate related metadata into a single `Vec` of tuples (e.g., `(usize, usize, f32)`) and bake combined scaling factors into the pre-calculated weights. This reduces the number of iterators the compiler must manage and ensures all data for a single unit of work is contiguous in memory.
+
 ## 15-05-2026 - Optimize High-Frequency Hashing in Rendering Path
 **Learning:** Repeatedly hashing the same strings (track info, weather, lyrics) inside a high-frequency rendering loop (60+ FPS) is a significant waste of CPU cycles, especially in multi-monitor setups where the loop executes multiple times per frame.
 **Action:** Pre-calculate string hashes once in data-parsing modules or event handlers and store them alongside the data. In the hot path, use the cached `u64` hash instead of recalculating it from the string.
