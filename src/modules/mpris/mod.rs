@@ -539,10 +539,20 @@ impl MprisWatcher {
                 .ok_or_else(|| anyhow::anyhow!("No safe IP address found for host"))?;
 
             // Create a custom client pinned to the safe IP to prevent DNS rebinding while preserving SNI.
-            // We explicitly disable redirects so attackers cannot bypass the `.resolve` pinning.
+            // Note: We sacrifice connection pooling here to ensure per-request DNS validation.
+            // We use a custom redirect policy to allow same-host redirects (e.g. HTTP to HTTPS)
+            // while blocking cross-host redirects that could bypass our `.resolve()` pinning.
             let safe_client = reqwest::Client::builder()
                 .resolve(&host_str, safe_addr)
-                .redirect(reqwest::redirect::Policy::none())
+                .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+                    if attempt.previous().len() > 5 {
+                        return attempt.error("Too many redirects");
+                    }
+                    if attempt.url().host_str() != attempt.previous()[0].host_str() {
+                        return attempt.error("Cross-host redirects blocked for SSRF protection");
+                    }
+                    attempt.follow()
+                }))
                 .timeout(std::time::Duration::from_secs(10))
                 .user_agent("cosmic-wallpaper/1.0")
                 .build()
