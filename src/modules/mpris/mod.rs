@@ -494,11 +494,61 @@ impl MprisWatcher {
 
     async fn fetch_album_art(
         url_str: &str,
-        client: &reqwest::Client,
+        _client: &reqwest::Client,
     ) -> Result<image::DynamicImage> {
         info!("Attempting to fetch album art from: {}", url_str);
         if url_str.starts_with("http") {
-            let bytes = client
+            let parsed_url = Url::parse(url_str)?;
+            let host_str = parsed_url
+                .host_str()
+                .ok_or_else(|| anyhow::anyhow!("No host found in URL"))?
+                .to_string();
+            let port = parsed_url.port_or_known_default().unwrap_or(80);
+            let host_port = format!("{}:{}", host_str, port);
+
+            let addrs = tokio::task::spawn_blocking(move || {
+                use std::net::ToSocketAddrs;
+                host_port
+                    .to_socket_addrs()
+                    .map(|iter| iter.collect::<Vec<_>>())
+            })
+            .await
+            .unwrap_or_else(|e| Err(std::io::Error::other(e)))
+            .map_err(|e| anyhow::anyhow!("Failed to resolve host: {}", e))?;
+
+            let safe_addr = addrs
+                .into_iter()
+                .find(|addr| {
+                    let ip = addr.ip();
+                    if ip.is_loopback() || ip.is_unspecified() {
+                        return false;
+                    }
+                    match ip {
+                        std::net::IpAddr::V4(ipv4) => !ipv4.is_private() && !ipv4.is_link_local(),
+                        std::net::IpAddr::V6(ipv6) => {
+                            if let Some(ipv4) = ipv6.to_ipv4() {
+                                !ipv4.is_private() && !ipv4.is_link_local() && !ipv4.is_loopback()
+                            } else {
+                                let segments = ipv6.segments();
+                                let is_unique_local = (segments[0] & 0xFE00) == 0xFC00;
+                                !is_unique_local
+                            }
+                        }
+                    }
+                })
+                .ok_or_else(|| anyhow::anyhow!("No safe IP address found for host"))?;
+
+            // Create a custom client pinned to the safe IP to prevent DNS rebinding while preserving SNI.
+            // We explicitly disable redirects so attackers cannot bypass the `.resolve` pinning.
+            let safe_client = reqwest::Client::builder()
+                .resolve(&host_str, safe_addr)
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(std::time::Duration::from_secs(10))
+                .user_agent("cosmic-wallpaper/1.0")
+                .build()
+                .map_err(|e| anyhow::anyhow!("Failed to build safe reqwest client: {}", e))?;
+
+            let bytes = safe_client
                 .get(url_str)
                 .send()
                 .await

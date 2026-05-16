@@ -54,3 +54,18 @@
 **Vulnerability:** A Time-of-Check to Time-of-Use (TOCTOU) vulnerability existed in `src/modules/mpris/mod.rs` when reading album art files. The path was first validated via `is_safe_path` (which correctly canonicalized the path internally to prevent symlink bypasses), but then the *original*, un-canonicalized path was passed to `tokio::fs::read`. An attacker could replace a safe file with a malicious symlink between the check and the read operation.
 **Learning:** Reusing the original unverified path after canonicalization validation creates a TOCTOU race condition.
 **Prevention:** To prevent TOCTOU file read vulnerabilities, ensure the exact canonicalized path returned by validation functions is passed directly to file read operations like `std::fs::read` or `tokio::fs::read`, rather than reusing the original unverified path.
+
+## 2024-05-16 - SSRF Protection via DNS Rebinding Mitigation
+**Vulnerability:** The application previously fetched MPRIS album art URLs blindly via `reqwest`, potentially enabling Server-Side Request Forgery (SSRF) or DNS Rebinding vulnerabilities. Malicious endpoints or local proxies could supply internal network IPs.
+**Learning:** Preventing SSRF in async network architectures requires performing manual IP resolution securely in blocking tasks without blocking the async executor (`spawn_blocking`), ensuring the resolved IP respects non-local scopes.
+**Prevention:** Always use `url` to parse URLs from untrusted sources. Resolve using `std::net::ToSocketAddrs`, validate that the IP is not loopback, private or unspecified. Then set the target URL using the safe IP and forge the `Host` header to simulate regular resolution behavior.
+
+## 2024-05-16 - SSRF Protection Corrected for SNI
+**Vulnerability:** Replacing the URL hostname with the resolved IP address breaks Server Name Indication (SNI) and TLS certificate validation in HTTPS requests.
+**Learning:** To safely prevent SSRF and DNS Rebinding in `reqwest` without breaking HTTPS, do not rewrite the URL. Instead, use a custom `Client` pinned to the safely resolved IP address by passing it via `reqwest::Client::builder().resolve(host, safe_socket_addr)`. This maintains the original host string for the TLS handshake.
+**Prevention:** Use `.resolve()` on `reqwest::ClientBuilder` for SSRF protection requiring host resolution, rather than manually setting URL IP and `Host` header.
+
+## 2024-05-16 - HTTP Redirects and IPv4-Mapped IPv6 Bypasses in SSRF
+**Vulnerability:** Even when resolving and pinning a safe IP using `.resolve()`, the `reqwest` client follows redirects by default. An attacker could respond with a 302 redirect to `127.0.0.1`, bypassing the `.resolve()` pinning completely. Additionally, simply filtering IPv4 addresses and blocking unique-local IPv6 addresses misses IPv4-mapped IPv6 addresses (e.g. `::ffff:127.0.0.1`), which can be routed to the local interface.
+**Learning:** SSRF mitigation must consider protocol-level behaviors like HTTP redirects. Disabling redirects via `.redirect(reqwest::redirect::Policy::none())` is critical when relying on DNS pinning. Furthermore, IP filtering logic must unwrap and validate IPv4 addresses embedded within IPv6 addresses using methods like `.to_ipv4()`.
+**Prevention:** Always disable redirects or use a custom redirect policy when mitigating SSRF. Always inspect `ipv6.to_ipv4()` to apply IPv4 blocking rules to mapped addresses.
