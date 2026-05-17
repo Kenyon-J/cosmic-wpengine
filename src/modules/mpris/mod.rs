@@ -474,6 +474,30 @@ impl MprisWatcher {
         }
     }
 
+    fn is_safe_ip(ip: &std::net::IpAddr) -> bool {
+        let mut ip_to_check = *ip;
+        if let std::net::IpAddr::V6(ipv6) = ip_to_check {
+            if let Some(ipv4) = ipv6.to_ipv4_mapped() {
+                ip_to_check = std::net::IpAddr::V4(ipv4);
+            }
+        }
+
+        match ip_to_check {
+            std::net::IpAddr::V4(ipv4) => {
+                // Prevent private, loopback, link local, broadcast, and unspecified.
+                // We avoid is_documentation() as it is unstable in Rust currently.
+                !(ipv4.is_private()
+                    || ipv4.is_loopback()
+                    || ipv4.is_link_local()
+                    || ipv4.is_broadcast()
+                    || ipv4.is_unspecified())
+            }
+            std::net::IpAddr::V6(ipv6) => {
+                !(ipv6.is_loopback() || ipv6.is_unspecified() || ipv6.is_multicast())
+            }
+        }
+    }
+
     fn decode_image_safely(bytes: impl AsRef<[u8]>) -> Result<image::DynamicImage> {
         let mut reader = image::io::Reader::new(std::io::Cursor::new(bytes))
             .with_guessed_format()
@@ -494,12 +518,36 @@ impl MprisWatcher {
 
     async fn fetch_album_art(
         url_str: &str,
-        client: &reqwest::Client,
+        _client: &reqwest::Client,
     ) -> Result<image::DynamicImage> {
         info!("Attempting to fetch album art from: {}", url_str);
         if url_str.starts_with("http") {
-            let bytes = client
-                .get(url_str)
+            let parsed_url = Url::parse(url_str).map_err(|e| anyhow::anyhow!("Invalid URL: {}", e))?;
+            let host = parsed_url.host_str().ok_or_else(|| anyhow::anyhow!("Missing host in URL"))?.to_string();
+            let port = parsed_url.port_or_known_default().unwrap_or(80);
+
+            // We only lookup host when there's an actual string to lookup, though `lookup_host` takes (host, port)
+            let mut addrs = tokio::net::lookup_host((host.as_str(), port)).await.map_err(|e| anyhow::anyhow!("DNS lookup failed: {}", e))?;
+
+            let mut safe_addr = None;
+            while let Some(addr) = addrs.next() {
+                if Self::is_safe_ip(&addr.ip()) {
+                    safe_addr = Some(addr);
+                    break;
+                }
+            }
+
+            let safe_addr = safe_addr.ok_or_else(|| anyhow::anyhow!("SSRF violation: Host resolved to a disallowed IP address"))?;
+
+            let safe_client = reqwest::Client::builder()
+                .user_agent("cosmic-wallpaper/1.0")
+                .timeout(std::time::Duration::from_secs(10))
+                .redirect(reqwest::redirect::Policy::none())
+                .resolve(&host, safe_addr)
+                .build()?;
+
+            let bytes = safe_client
+                .get(parsed_url)
                 .send()
                 .await
                 .map_err(|e| {
