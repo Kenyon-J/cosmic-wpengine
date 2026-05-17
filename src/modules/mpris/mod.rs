@@ -522,12 +522,18 @@ impl MprisWatcher {
     ) -> Result<image::DynamicImage> {
         info!("Attempting to fetch album art from: {}", url_str);
         if url_str.starts_with("http") {
-            let parsed_url = Url::parse(url_str).map_err(|e| anyhow::anyhow!("Invalid URL: {}", e))?;
-            let host = parsed_url.host_str().ok_or_else(|| anyhow::anyhow!("Missing host in URL"))?.to_string();
+            let parsed_url =
+                Url::parse(url_str).map_err(|e| anyhow::anyhow!("Invalid URL: {}", e))?;
+            let host = parsed_url
+                .host_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing host in URL"))?
+                .to_string();
             let port = parsed_url.port_or_known_default().unwrap_or(80);
 
             // We only lookup host when there's an actual string to lookup, though `lookup_host` takes (host, port)
-            let mut addrs = tokio::net::lookup_host((host.as_str(), port)).await.map_err(|e| anyhow::anyhow!("DNS lookup failed: {}", e))?;
+            let mut addrs = tokio::net::lookup_host((host.as_str(), port))
+                .await
+                .map_err(|e| anyhow::anyhow!("DNS lookup failed: {}", e))?;
 
             let mut safe_addr = None;
             while let Some(addr) = addrs.next() {
@@ -537,7 +543,9 @@ impl MprisWatcher {
                 }
             }
 
-            let safe_addr = safe_addr.ok_or_else(|| anyhow::anyhow!("SSRF violation: Host resolved to a disallowed IP address"))?;
+            let safe_addr = safe_addr.ok_or_else(|| {
+                anyhow::anyhow!("SSRF violation: Host resolved to a disallowed IP address")
+            })?;
 
             let safe_client = reqwest::Client::builder()
                 .user_agent("cosmic-wallpaper/1.0")
