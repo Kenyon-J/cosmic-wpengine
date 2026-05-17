@@ -213,8 +213,11 @@ impl Renderer {
                 let mut total_energy = 0.0;
                 // Optimization: Use zipped iterators instead of manual indexing
                 // to eliminate bounds checking and enable auto-vectorization.
-                for (current, &(bin_lo, bin_hi, a_weighting_norm_scaled)) in
-                    self.state.audio_bands.iter_mut().zip(&self.audio_processing_bins)
+                for (current, &(bin_lo, bin_hi, a_weighting_norm_scaled)) in self
+                    .state
+                    .audio_bands
+                    .iter_mut()
+                    .zip(&self.audio_processing_bins)
                 {
                     let mut max_val = 0.0f32;
                     if let Some(slice) = bands.get(bin_lo..bin_hi.min(bands_len)) {

@@ -103,8 +103,19 @@ mod tests {
         assert_eq!(bins.len(), band_count);
 
         for (i, &(bin_lo, bin_hi, weight)) in bins.iter().enumerate() {
-            assert!(bin_hi > bin_lo, "Bin {} has invalid range: {}..{}", i, bin_lo, bin_hi);
-            assert!(weight > 0.0, "Bin {} has non-positive weight: {}", i, weight);
+            assert!(
+                bin_hi > bin_lo,
+                "Bin {} has invalid range: {}..{}",
+                i,
+                bin_lo,
+                bin_hi
+            );
+            assert!(
+                weight > 0.0,
+                "Bin {} has non-positive weight: {}",
+                i,
+                weight
+            );
         }
 
         // Check if the 2.5x scaling is baked in.
@@ -115,11 +126,18 @@ mod tests {
         let mut found_mid = false;
         for (bin_lo, bin_hi, weight) in bins {
             if bin_lo <= 42 && bin_hi >= 42 {
-                assert!(weight > 2.0 && weight < 4.0, "Mid frequency weight {} out of expected range", weight);
+                assert!(
+                    weight > 2.0 && weight < 4.0,
+                    "Mid frequency weight {} out of expected range",
+                    weight
+                );
                 found_mid = true;
                 break;
             }
         }
-        assert!(found_mid, "Should have found a bin representing mid frequencies");
+        assert!(
+            found_mid,
+            "Should have found a bin representing mid frequencies"
+        );
     }
 }
