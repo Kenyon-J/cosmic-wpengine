@@ -531,12 +531,12 @@ impl MprisWatcher {
             let port = parsed_url.port_or_known_default().unwrap_or(80);
 
             // We only lookup host when there's an actual string to lookup, though `lookup_host` takes (host, port)
-            let mut addrs = tokio::net::lookup_host((host.as_str(), port))
+            let addrs = tokio::net::lookup_host((host.as_str(), port))
                 .await
                 .map_err(|e| anyhow::anyhow!("DNS lookup failed: {}", e))?;
 
             let mut safe_addr = None;
-            while let Some(addr) = addrs.next() {
+            for addr in addrs {
                 if Self::is_safe_ip(&addr.ip()) {
                     safe_addr = Some(addr);
                     break;
