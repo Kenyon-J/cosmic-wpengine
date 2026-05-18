@@ -316,7 +316,7 @@ impl AppearanceConfig {
             }
         }
 
-        entries_with_time.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        entries_with_time.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
 
         for (path, _) in entries_with_time {
             if let Ok(contents) = tokio::fs::read_to_string(&path).await {
