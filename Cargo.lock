@@ -1234,6 +1234,7 @@ name = "cosmic-wallpaper"
 version = "0.1.5"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "cosmic-text 0.11.2",
  "ffmpeg-next",
  "iced",

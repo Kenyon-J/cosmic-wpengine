@@ -1,5 +1,6 @@
 #[repr(C, align(16))]
 #[derive(Copy, Clone, Debug)]
+#[derive(bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ArtUniforms {
     pub color_and_transition: [f32; 4],
     pub res: [f32; 2],
@@ -15,6 +16,7 @@ pub struct ArtUniforms {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
+#[derive(bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Particle {
     pub pos: [f32; 2],
     pub vel: [f32; 2],

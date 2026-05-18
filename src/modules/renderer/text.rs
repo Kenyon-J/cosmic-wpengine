@@ -39,6 +39,7 @@ pub struct CachedGlyph {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
+#[derive(bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TextVertex {
     pub pos: [f32; 2],
     pub tex_pos: [f32; 2],

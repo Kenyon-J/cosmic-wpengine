@@ -288,12 +288,7 @@ pub(crate) fn create_weather_pipelines(
         mapped_at_creation: false,
     });
 
-    let particles_bytes = unsafe {
-        std::slice::from_raw_parts(
-            initial_particles.as_ptr() as *const u8,
-            particle_buffer_size as usize,
-        )
-    };
+    let particles_bytes = bytemuck::cast_slice(&initial_particles);
     queue.write_buffer(&particle_buffer, 0, particles_bytes);
 
     let weather_compute_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {

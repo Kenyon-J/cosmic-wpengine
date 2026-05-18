@@ -69,7 +69,7 @@ pub(crate) fn draw_frame(
 
         let compute_uniforms = [delta, wind_x, gravity, 0.0f32];
         let compute_bytes =
-            unsafe { std::slice::from_raw_parts(compute_uniforms.as_ptr() as *const u8, 16) };
+            bytemuck::cast_slice(&compute_uniforms);
         renderer
             .queue
             .write_buffer(&renderer.weather_compute_uniform_buffer, 0, compute_bytes);
@@ -99,12 +99,7 @@ pub(crate) fn draw_frame(
     }
 
     if has_audio {
-        let bands_bytes = unsafe {
-            std::slice::from_raw_parts(
-                audio_data.as_ptr() as *const u8,
-                audio_data.len() * std::mem::size_of::<f32>(),
-            )
-        };
+        let bands_bytes = bytemuck::cast_slice(audio_data);
         renderer
             .queue
             .write_buffer(&renderer.visualiser_pass.bands_buffer, 0, bands_bytes);
@@ -296,6 +291,7 @@ pub(crate) fn draw_frame(
         // 1. Process visualizer uniforms
         if has_audio && last_uniform_res != Some(current_res) {
             #[repr(C, align(16))]
+            #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
             struct VisUniforms {
                 res: [f32; 2],
                 bands: u32,
@@ -325,12 +321,7 @@ pub(crate) fn draw_frame(
                 is_waveform: is_waveform_u32,
                 _padding: [0; 3],
             };
-            let vis_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    &vis_uniforms as *const _ as *const u8,
-                    std::mem::size_of::<VisUniforms>(),
-                )
-            };
+            let vis_bytes = bytemuck::bytes_of(&vis_uniforms);
             renderer
                 .queue
                 .write_buffer(&renderer.visualiser_pass.uniform_buffer, 0, vis_bytes);
@@ -358,12 +349,7 @@ pub(crate) fn draw_frame(
                     blur_opacity: renderer.state.config.appearance.blur_opacity,
                     image_res: album_art_texture_res,
                 };
-                let bg_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &bg_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<ArtUniforms>(),
-                    )
-                };
+                let bg_bytes = bytemuck::bytes_of(&bg_uniforms);
                 renderer
                     .queue
                     .write_buffer(&renderer.album_art_bg_uniform_buffer, 0, bg_bytes);
@@ -385,12 +371,7 @@ pub(crate) fn draw_frame(
                     blur_opacity: 1.0,
                     image_res: album_art_texture_res,
                 };
-                let fg_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &fg_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<ArtUniforms>(),
-                    )
-                };
+                let fg_bytes = bytemuck::bytes_of(&fg_uniforms);
                 renderer
                     .queue
                     .write_buffer(&renderer.album_art_fg_uniform_buffer, 0, fg_bytes);
@@ -412,18 +393,14 @@ pub(crate) fn draw_frame(
                     blur_opacity: renderer.state.config.appearance.blur_opacity,
                     image_res: custom_bg_texture_res,
                 };
-                let cbg_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &custom_bg_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<ArtUniforms>(),
-                    )
-                };
+                let cbg_bytes = bytemuck::bytes_of(&custom_bg_uniforms);
                 renderer
                     .queue
                     .write_buffer(&renderer.custom_bg_uniform_buffer, 0, cbg_bytes);
             } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
                 // 3. Process ambient uniforms
                 #[repr(C, align(16))]
+                #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
                 struct AmbUniforms {
                     res: [f32; 2],
                     time: f32,
@@ -441,12 +418,7 @@ pub(crate) fn draw_frame(
                     bg_alpha: custom_bg_alpha, // Can reuse the same bg_alpha logic
                     _padding: [0.0; 3],
                 };
-                let amb_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &amb_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<AmbUniforms>(),
-                    )
-                };
+                let amb_bytes = bytemuck::bytes_of(&amb_uniforms);
                 renderer
                     .queue
                     .write_buffer(&renderer.ambient_uniform_buffer, 0, amb_bytes);
@@ -706,18 +678,8 @@ pub(crate) fn draw_frame(
                 height_f,
             );
 
-            let vertices_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    renderer.text_renderer.cpu_vertices.as_ptr() as *const u8,
-                    renderer.text_renderer.cpu_vertices.len() * std::mem::size_of::<TextVertex>(),
-                )
-            };
-            let indices_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    renderer.text_renderer.cpu_indices.as_ptr() as *const u8,
-                    renderer.text_renderer.cpu_indices.len() * std::mem::size_of::<u32>(),
-                )
-            };
+            let vertices_bytes = bytemuck::cast_slice(&renderer.text_renderer.cpu_vertices);
+            let indices_bytes = bytemuck::cast_slice(&renderer.text_renderer.cpu_indices);
 
             if renderer.text_renderer.vertex_capacity < renderer.text_renderer.cpu_vertices.len() {
                 renderer.text_renderer.vertex_capacity = renderer
