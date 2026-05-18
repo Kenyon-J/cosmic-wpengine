@@ -143,10 +143,9 @@ impl Renderer {
             config_format,
         );
         let theme = ThemeLayout::load(&state.config.audio.style);
-        let a_weighting_curve =
-            crate::modules::renderer::utils::build_a_weighting_curve(state.config.audio.bands);
-        let frequency_bin_ranges =
-            crate::modules::renderer::utils::build_frequency_bin_ranges(state.config.audio.bands);
+        let audio_processing_bins =
+            crate::modules::renderer::utils::build_audio_processing_bins(state.config.audio.bands);
+        let inv_smoothing = 1.0 - state.config.audio.smoothing;
         let waveform_bin_ranges =
             crate::modules::renderer::utils::build_waveform_bin_ranges(state.config.audio.bands);
         let is_waveform_style = state.config.audio.style == "waveform";
@@ -214,8 +213,8 @@ impl Renderer {
             treble_pulse: 0.0,
             last_treble_time: Instant::now(),
             theme,
-            a_weighting_curve,
-            frequency_bin_ranges,
+            audio_processing_bins,
+            inv_smoothing,
             waveform_bin_ranges,
             lyric_bounce_value: 0.0,
             lyric_bounce_velocity: 0.0,

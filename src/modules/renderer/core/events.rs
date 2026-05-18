@@ -16,18 +16,18 @@ impl Renderer {
                     self.state.audio_bands = vec![0.0; config.audio.bands].into_boxed_slice();
                     self.state.audio_waveform = vec![0.0; config.audio.bands].into_boxed_slice();
                     self.state.audio_energy = 0.0;
-                    self.a_weighting_curve =
-                        crate::modules::renderer::utils::build_a_weighting_curve(
-                            config.audio.bands,
-                        );
-                    self.frequency_bin_ranges =
-                        crate::modules::renderer::utils::build_frequency_bin_ranges(
+                    self.audio_processing_bins =
+                        crate::modules::renderer::utils::build_audio_processing_bins(
                             config.audio.bands,
                         );
                     self.waveform_bin_ranges =
                         crate::modules::renderer::utils::build_waveform_bin_ranges(
                             config.audio.bands,
                         );
+                }
+
+                if config.audio.smoothing != self.state.config.audio.smoothing {
+                    self.inv_smoothing = 1.0 - config.audio.smoothing;
                 }
 
                 // Always reload the shader pipeline so live WGSL edits apply instantly!
@@ -156,8 +156,7 @@ impl Renderer {
             }
 
             Event::AudioFrame { bands, waveform } => {
-                let smoothing = self.state.config.audio.smoothing;
-                let inv_smoothing = 1.0 - smoothing;
+                let inv_smoothing = self.inv_smoothing;
                 let target_len = self.state.audio_bands.len();
 
                 let bands_len = bands.len();
@@ -217,23 +216,24 @@ impl Renderer {
                 let mut total_energy = 0.0;
                 // Optimization: Use zipped iterators instead of manual indexing
                 // to eliminate bounds checking and enable auto-vectorization.
-                for (current, (&(bin_lo, bin_hi), &a_weighting_norm)) in
-                    self.state.audio_bands.iter_mut().zip(
-                        self.frequency_bin_ranges
-                            .iter()
-                            .zip(&self.a_weighting_curve),
-                    )
+                for (current, &(bin_lo, bin_hi, weight_norm)) in self
+                    .state
+                    .audio_bands
+                    .iter_mut()
+                    .zip(&self.audio_processing_bins)
                 {
-                    let max_val =
-                        bands
-                            .get(bin_lo..bin_hi.min(bands_len))
-                            .map_or(0.0, |slice: &[f32]| {
-                                slice
-                                    .iter()
-                                    .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
-                            });
+                    let mut max_val = 0.0f32;
+                    if let Some(slice) = bands.get(bin_lo..bin_hi.min(bands_len)) {
+                        // Optimization: Use a manual peak search loop instead of .fold()
+                        // to avoid closure overhead and better facilitate LLVM auto-vectorization.
+                        for &val in slice {
+                            if val > max_val {
+                                max_val = val;
+                            }
+                        }
+                    }
 
-                    let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
+                    let target = (max_val * weight_norm).clamp(0.0, 1.0);
 
                     // Optimization: Use more efficient lerp formula a + (b - a) * t
                     // and use pre-calculated inv_smoothing.
