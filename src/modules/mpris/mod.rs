@@ -1,7 +1,7 @@
 use anyhow::Result;
+use std::net::IpAddr;
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
-use std::net::IpAddr;
 use url::Url;
 
 use super::{
@@ -500,7 +500,9 @@ impl MprisWatcher {
         info!("Attempting to fetch album art from: {}", url_str);
         if url_str.starts_with("http") {
             let parsed_url = Url::parse(url_str)?;
-            let host_str = parsed_url.host_str().ok_or_else(|| anyhow::anyhow!("No host in URL"))?;
+            let host_str = parsed_url
+                .host_str()
+                .ok_or_else(|| anyhow::anyhow!("No host in URL"))?;
             let port = parsed_url.port_or_known_default().unwrap_or(80);
 
             let mut safe_addr = None;
@@ -514,7 +516,8 @@ impl MprisWatcher {
                 }
             }
 
-            let safe_addr = safe_addr.ok_or_else(|| anyhow::anyhow!("No safe IP found (SSRF protection)"))?;
+            let safe_addr =
+                safe_addr.ok_or_else(|| anyhow::anyhow!("No safe IP found (SSRF protection)"))?;
 
             let safe_client = reqwest::Client::builder()
                 .user_agent("cosmic-wallpaper/1.0")
@@ -721,7 +724,6 @@ impl MprisWatcher {
         None
     }
 }
-
 
 fn is_safe_ip(ip: IpAddr) -> bool {
     match ip {
