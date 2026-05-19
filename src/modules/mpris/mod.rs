@@ -334,10 +334,12 @@ impl MprisWatcher {
             .art_url
             .clone()
             .unwrap_or_else(|| format!("fallback:{}:{}", meta.artist, meta.album));
-        let cached_palette = palette_cache.get(&cache_key).cloned();
+        let mut cached_palette = palette_cache.get(&cache_key).cloned();
+        let has_cached_palette = cached_palette.is_some();
 
         let lyrics_cache_key = format!("{}:{}:{}", meta.artist, meta.album, meta.title);
-        let cached_lyrics = lyrics_cache.get(&lyrics_cache_key).cloned();
+        let mut cached_lyrics = lyrics_cache.get(&lyrics_cache_key).cloned();
+        let has_cached_lyrics = cached_lyrics.is_some();
 
         let art_future = async {
             let mut local_img = None;
@@ -384,7 +386,9 @@ impl MprisWatcher {
             };
 
             if let Some(img) = final_img {
-                let cached = cached_palette.clone();
+                // Optimization: Use `take()` instead of `clone()` to consume the outer Option and avoid deep, redundant heap allocations.
+                // Expected impact: Eliminates deep memory allocations and copies for large structs.
+                let cached = cached_palette.take();
                 // Optimization: Offload heavy CPU-bound palette extraction and image conversion
                 // to a dedicated blocking thread. This saves ~50-100ms of executor stall time.
                 tokio::task::spawn_blocking(move || {
@@ -410,7 +414,7 @@ impl MprisWatcher {
         let lyrics_future = async {
             if !fetch_lyrics {
                 None
-            } else if let Some(cached) = cached_lyrics.clone() {
+            } else if let Some(cached) = cached_lyrics.take() {
                 cached
             } else {
                 lrclib::fetch_synced_lyrics(&meta.title, &meta.artist, &meta.album, client).await
@@ -444,13 +448,13 @@ impl MprisWatcher {
         let ((album_art, palette), lyrics, video_url) =
             tokio::join!(art_future, lyrics_future, video_future);
 
-        if cached_palette.is_none() {
+        if !has_cached_palette {
             if let Some(p) = &palette {
                 palette_cache.put(cache_key, p.clone());
             }
         }
 
-        if cached_lyrics.is_none() && fetch_lyrics {
+        if !has_cached_lyrics && fetch_lyrics {
             lyrics_cache.put(lyrics_cache_key, lyrics.clone());
         }
 
