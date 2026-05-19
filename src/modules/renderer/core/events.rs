@@ -220,8 +220,11 @@ impl Renderer {
                 let mut total_energy = 0.0;
                 // Optimization: Use consolidated processing bins to reduce zipping and pre-multiply scaling factors.
                 // This eliminates redundant arithmetic and improves LLVM auto-vectorization.
-                for (current, &(bin_lo, bin_hi, a_weighting_combined)) in
-                    self.state.audio_bands.iter_mut().zip(&self.audio_processing_bins)
+                for (current, &(bin_lo, bin_hi, a_weighting_combined)) in self
+                    .state
+                    .audio_bands
+                    .iter_mut()
+                    .zip(&self.audio_processing_bins)
                 {
                     let mut max_val = 0.0f32;
                     // Optimization: Direct loop for peak search facilitates better SIMD optimization than `fold`.
