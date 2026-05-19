@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::net::IpAddr;
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 use url::Url;
@@ -494,11 +495,38 @@ impl MprisWatcher {
 
     async fn fetch_album_art(
         url_str: &str,
-        client: &reqwest::Client,
+        _client: &reqwest::Client,
     ) -> Result<image::DynamicImage> {
         info!("Attempting to fetch album art from: {}", url_str);
         if url_str.starts_with("http") {
-            let bytes = client
+            let parsed_url = Url::parse(url_str)?;
+            let host_str = parsed_url
+                .host_str()
+                .ok_or_else(|| anyhow::anyhow!("No host in URL"))?;
+            let port = parsed_url.port_or_known_default().unwrap_or(80);
+
+            let mut safe_addr = None;
+            let host_port = format!("{}:{}", host_str, port);
+            if let Ok(mut addrs) = tokio::net::lookup_host(&host_port).await {
+                for addr in addrs.by_ref() {
+                    if is_safe_ip(addr.ip()) {
+                        safe_addr = Some(addr);
+                        break;
+                    }
+                }
+            }
+
+            let safe_addr =
+                safe_addr.ok_or_else(|| anyhow::anyhow!("No safe IP found (SSRF protection)"))?;
+
+            let safe_client = reqwest::Client::builder()
+                .user_agent("cosmic-wallpaper/1.0")
+                .timeout(std::time::Duration::from_secs(10))
+                .redirect(reqwest::redirect::Policy::none())
+                .resolve(host_str, safe_addr)
+                .build()?;
+
+            let bytes = safe_client
                 .get(url_str)
                 .send()
                 .await
@@ -694,6 +722,24 @@ impl MprisWatcher {
             }
         }
         None
+    }
+}
+
+fn is_safe_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ipv4) => {
+            !ipv4.is_loopback()
+                && !ipv4.is_private()
+                && !ipv4.is_link_local()
+                && !ipv4.is_unspecified()
+                && !ipv4.is_broadcast()
+        }
+        IpAddr::V6(ipv6) => {
+            if let Some(mapped_v4) = ipv6.to_ipv4_mapped() {
+                return is_safe_ip(IpAddr::V4(mapped_v4));
+            }
+            !ipv6.is_loopback() && !ipv6.is_unspecified()
+        }
     }
 }
 
