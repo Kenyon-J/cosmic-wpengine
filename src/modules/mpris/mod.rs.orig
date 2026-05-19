@@ -386,9 +386,7 @@ impl MprisWatcher {
 
             if let Some(img) = final_img {
                 // Optimization: Use `take()` instead of `clone()` to consume the outer Option and avoid deep, redundant heap allocations.
-                // Expected impact: Eliminates deep memory allocations and copies for large structs.
                 let cached = cached_palette.take();
-                // Optimization: Offload heavy CPU-bound palette extraction and image conversion
                 // to a dedicated blocking thread. This saves ~50-100ms of executor stall time.
                 tokio::task::spawn_blocking(move || {
                     let palette = cached.unwrap_or_else(|| extract_palette(&img));
@@ -414,7 +412,7 @@ impl MprisWatcher {
             if !fetch_lyrics {
                 None
             } else if let Some(cached) = cached_lyrics.take() {
-                cached
+                Some(cached)
             } else {
                 lrclib::fetch_synced_lyrics(&meta.title, &meta.artist, &meta.album, client).await
             }
