@@ -508,7 +508,7 @@ impl MprisWatcher {
             let mut safe_addr = None;
             let host_port = format!("{}:{}", host_str, port);
             if let Ok(mut addrs) = tokio::net::lookup_host(&host_port).await {
-                while let Some(addr) = addrs.next() {
+                for addr in addrs.by_ref() {
                     if is_safe_ip(addr.ip()) {
                         safe_addr = Some(addr);
                         break;
