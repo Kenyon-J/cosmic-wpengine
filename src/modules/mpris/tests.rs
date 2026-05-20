@@ -106,53 +106,67 @@ fn test_resolve_safe_path() {
 #[test]
 fn test_is_safe_ip() {
     // Valid public IPv4
-    assert!(super::is_safe_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::new(8, 8, 8, 8))));
-    assert!(super::is_safe_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::new(1, 1, 1, 1))));
+    assert!(super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(8, 8, 8, 8)
+    )));
+    assert!(super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(1, 1, 1, 1)
+    )));
 
     // Invalid IPv4
-    assert!(!super::is_safe_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))));
-    assert!(!super::is_safe_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1))));
-    assert!(!super::is_safe_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1))));
-    assert!(!super::is_safe_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::new(169, 254, 0, 1))));
-    assert!(!super::is_safe_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0))));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(127, 0, 0, 1)
+    )));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(10, 0, 0, 1)
+    )));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(192, 168, 1, 1)
+    )));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(169, 254, 0, 1)
+    )));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(0, 0, 0, 0)
+    )));
 
     // Valid public IPv6
-    assert!(super::is_safe_ip(std::net::IpAddr::V6(std::net::Ipv6Addr::new(
-        0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888
-    ))));
-    assert!(super::is_safe_ip(std::net::IpAddr::V6(std::net::Ipv6Addr::new(
-        0x2606, 0x4700, 0x4700, 0, 0, 0, 0, 0x1111
-    ))));
+    assert!(super::is_safe_ip(std::net::IpAddr::V6(
+        std::net::Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888)
+    )));
+    assert!(super::is_safe_ip(std::net::IpAddr::V6(
+        std::net::Ipv6Addr::new(0x2606, 0x4700, 0x4700, 0, 0, 0, 0, 0x1111)
+    )));
 
     // Invalid IPv6
     // Loopback
-    assert!(!super::is_safe_ip(std::net::IpAddr::V6(std::net::Ipv6Addr::new(
-        0, 0, 0, 0, 0, 0, 0, 1
-    ))));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V6(
+        std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)
+    )));
     // Unspecified
-    assert!(!super::is_safe_ip(std::net::IpAddr::V6(std::net::Ipv6Addr::new(
-        0, 0, 0, 0, 0, 0, 0, 0
-    ))));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V6(
+        std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)
+    )));
     // Unique Local (fc00::/7)
-    assert!(!super::is_safe_ip(std::net::IpAddr::V6(std::net::Ipv6Addr::new(
-        0xfc00, 0, 0, 0, 0, 0, 0, 1
-    ))));
-    assert!(!super::is_safe_ip(std::net::IpAddr::V6(std::net::Ipv6Addr::new(
-        0xfd00, 0, 0, 0, 0, 0, 0, 1
-    ))));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V6(
+        std::net::Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 1)
+    )));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V6(
+        std::net::Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1)
+    )));
     // Link Local (fe80::/10)
-    assert!(!super::is_safe_ip(std::net::IpAddr::V6(std::net::Ipv6Addr::new(
-        0xfe80, 0, 0, 0, 0, 0, 0, 1
-    ))));
-    assert!(!super::is_safe_ip(std::net::IpAddr::V6(std::net::Ipv6Addr::new(
-        0xfebf, 0, 0, 0, 0, 0, 0, 1
-    ))));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V6(
+        std::net::Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)
+    )));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V6(
+        std::net::Ipv6Addr::new(0xfebf, 0, 0, 0, 0, 0, 0, 1)
+    )));
     // IPv4-mapped loopback
-    assert!(!super::is_safe_ip(std::net::IpAddr::V6(std::net::Ipv6Addr::new(
-        0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x0001
-    ))));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V6(
+        std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x0001)
+    )));
     // IPv4-mapped private
-    assert!(!super::is_safe_ip(std::net::IpAddr::V6(std::net::Ipv6Addr::new(
-        0, 0, 0, 0, 0, 0xffff, 0xc0a8, 0x0101
-    ))));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V6(
+        std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc0a8, 0x0101)
+    )));
 }
