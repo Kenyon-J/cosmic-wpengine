@@ -265,13 +265,18 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         }
     };
 
-    let new_theme_input = cosmic::iced::widget::tooltip(
-        text_input("New Theme Name...", &app.new_theme_name)
-            .on_input(super::Message::NewThemeNameChanged)
-            .on_submit(|_| super::Message::CreateTheme),
-        "Enter a name to create a new copy of the current theme.",
-        cosmic::iced::widget::tooltip::Position::Top,
-    );
+    let new_theme_input = {
+        let mut input = text_input("New Theme Name...", &app.new_theme_name)
+            .on_input(super::Message::NewThemeNameChanged);
+        if !app.new_theme_name.trim().is_empty() {
+            input = input.on_submit(|_| super::Message::CreateTheme);
+        }
+        cosmic::iced::widget::tooltip(
+            input,
+            "Enter a name to create a new copy of the current theme.",
+            cosmic::iced::widget::tooltip::Position::Top,
+        )
+    };
 
     let create_btn: cosmic::Element<'_, super::Message> = {
         let btn = cosmic::iced::widget::button(text("Create Theme").font(font));
@@ -300,7 +305,8 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         .push(text(" | ").font(font))
         .push(new_theme_input)
         .push(create_btn)
-        .spacing(10);
+        .spacing(10)
+        .align_y(cosmic::iced::Alignment::Center);
 
     let editor = text_editor(&app.editor_content)
         .font(cosmic::iced::Font::MONOSPACE)
@@ -365,7 +371,8 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         .push(version_display)
         .push(notes_btn)
         .push(report_btn)
-        .spacing(15);
+        .spacing(15)
+        .align_y(cosmic::iced::Alignment::Center);
 
     let mut main_col = column()
         .push(text("COSMIC Wallpaper Settings").font(font).size(32))
