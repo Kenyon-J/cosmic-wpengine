@@ -742,7 +742,12 @@ fn is_safe_ip(ip: IpAddr) -> bool {
             if let Some(mapped_v4) = ipv6.to_ipv4_mapped() {
                 return is_safe_ip(IpAddr::V4(mapped_v4));
             }
-            !ipv6.is_loopback() && !ipv6.is_unspecified()
+
+            // `is_unique_local` and `is_unicast_link_local` are experimental
+            let is_unique_local = (ipv6.segments()[0] & 0xfe00) == 0xfc00;
+            let is_link_local = (ipv6.segments()[0] & 0xffc0) == 0xfe80;
+
+            !ipv6.is_loopback() && !ipv6.is_unspecified() && !is_unique_local && !is_link_local
         }
     }
 }
