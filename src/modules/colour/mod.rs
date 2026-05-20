@@ -47,7 +47,7 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
         }
     }
 
-    sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
+    sorted.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
 
     sorted
         .iter()

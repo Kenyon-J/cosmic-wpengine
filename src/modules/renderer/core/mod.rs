@@ -72,8 +72,7 @@ pub struct Renderer {
     pub(crate) treble_pulse: f32,
     pub(crate) last_treble_time: Instant,
     pub(crate) theme: ThemeLayout,
-    pub(crate) a_weighting_curve: Vec<f32>,
-    pub(crate) frequency_bin_ranges: Vec<(usize, usize)>,
+    pub(crate) audio_processing_bins: Vec<(usize, usize, f32)>,
     pub(crate) waveform_bin_ranges: Vec<(usize, usize)>,
     pub(crate) lyric_bounce_value: f32,
     pub(crate) lyric_bounce_velocity: f32,
@@ -103,6 +102,8 @@ pub struct Renderer {
     pub(crate) vis_prev_colors: ([f32; 3], [f32; 3]),
     pub(crate) art_target_color: [f32; 3],
     pub(crate) art_prev_color: [f32; 3],
+    pub(crate) inv_smoothing: f32,
+    pub(crate) inv_target_len: f32,
 }
 
 impl Renderer {

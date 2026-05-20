@@ -143,10 +143,8 @@ impl Renderer {
             config_format,
         );
         let theme = ThemeLayout::load(&state.config.audio.style);
-        let a_weighting_curve =
-            crate::modules::renderer::utils::build_a_weighting_curve(state.config.audio.bands);
-        let frequency_bin_ranges =
-            crate::modules::renderer::utils::build_frequency_bin_ranges(state.config.audio.bands);
+        let audio_processing_bins =
+            crate::modules::renderer::utils::build_audio_processing_bins(state.config.audio.bands);
         let waveform_bin_ranges =
             crate::modules::renderer::utils::build_waveform_bin_ranges(state.config.audio.bands);
         let is_waveform_style = state.config.audio.style == "waveform";
@@ -165,6 +163,13 @@ impl Renderer {
             (3000.0 / freq_per_bin).floor() as usize,
             (8000.0 / freq_per_bin).ceil() as usize,
         );
+
+        let inv_smoothing = 1.0 - state.config.audio.smoothing;
+        let inv_target_len = if state.config.audio.bands > 0 {
+            1.0 / state.config.audio.bands as f32
+        } else {
+            0.0
+        };
 
         let mut renderer = Self {
             instance,
@@ -214,8 +219,7 @@ impl Renderer {
             treble_pulse: 0.0,
             last_treble_time: Instant::now(),
             theme,
-            a_weighting_curve,
-            frequency_bin_ranges,
+            audio_processing_bins,
             waveform_bin_ranges,
             lyric_bounce_value: 0.0,
             lyric_bounce_velocity: 0.0,
@@ -244,6 +248,8 @@ impl Renderer {
             vis_prev_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
             art_target_color: [0.1, 0.1, 0.1],
             art_prev_color: [0.1, 0.1, 0.1],
+            inv_smoothing,
+            inv_target_len,
         };
 
         let path = renderer
