@@ -118,17 +118,31 @@ fn test_is_safe_ip() {
     assert!(is_safe_ip(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)))); // Safe public IP
 
     // IPv6 Tests
-    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)))); // Loopback
-    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)))); // Unspecified
+    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(
+        0, 0, 0, 0, 0, 0, 0, 1
+    )))); // Loopback
+    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(
+        0, 0, 0, 0, 0, 0, 0, 0
+    )))); // Unspecified
 
     // IPv6 Unique Local (fc00::/7)
-    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 1))));
-    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1))));
+    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(
+        0xfc00, 0, 0, 0, 0, 0, 0, 1
+    ))));
+    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(
+        0xfd00, 0, 0, 0, 0, 0, 0, 1
+    ))));
 
     // IPv6 Link-Local (fe80::/10)
-    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1))));
-    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(0xfe8f, 0, 0, 0, 0, 0, 0, 1))));
-    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(0xfebf, 0, 0, 0, 0, 0, 0, 1))));
+    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(
+        0xfe80, 0, 0, 0, 0, 0, 0, 1
+    ))));
+    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(
+        0xfe8f, 0, 0, 0, 0, 0, 0, 1
+    ))));
+    assert!(!is_safe_ip(IpAddr::V6(Ipv6Addr::new(
+        0xfebf, 0, 0, 0, 0, 0, 0, 1
+    ))));
 
     // IPv4-mapped IPv6 Tests
     let mapped_loopback = IpAddr::V6(Ipv4Addr::new(127, 0, 0, 1).to_ipv6_mapped());
@@ -137,5 +151,7 @@ fn test_is_safe_ip() {
     assert!(is_safe_ip(mapped_safe));
 
     // Safe public IPv6
-    assert!(is_safe_ip(IpAddr::V6(Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888))));
+    assert!(is_safe_ip(IpAddr::V6(Ipv6Addr::new(
+        0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888
+    ))));
 }
