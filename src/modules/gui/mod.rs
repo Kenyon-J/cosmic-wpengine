@@ -470,7 +470,7 @@ impl Application for SettingsApp {
                 self.new_theme_name = name;
             }
             Message::CreateTheme => {
-                if !self.new_theme_name.is_empty() {
+                if !self.new_theme_name.trim().is_empty() {
                     let name = self.new_theme_name.trim().trim_end_matches(".toml");
                     let file_name = format!("shaders/{}.toml", name);
 
@@ -509,6 +509,8 @@ amplitude = 1.5"#;
                             self.status_msg = format!("Error creating theme: {}", e);
                         }
                     }
+                } else {
+                    self.status_msg = "Theme name cannot be empty.".into();
                 }
             }
             Message::ShowPatchNotes => {
