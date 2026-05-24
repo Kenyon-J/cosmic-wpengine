@@ -228,9 +228,13 @@ impl Renderer {
                         bands
                             .get(bin_lo..bin_hi.min(bands_len))
                             .map_or(0.0, |slice: &[f32]| {
-                                slice
-                                    .iter()
-                                    .fold(0.0f32, |acc, &val| if val > acc { val } else { acc })
+                                let mut max = 0.0f32;
+                                for &val in slice {
+                                    if val > max {
+                                        max = val;
+                                    }
+                                }
+                                max
                             });
 
                     let target = (max_val * a_weighting_norm * 2.5).clamp(0.0, 1.0);
