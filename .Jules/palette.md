@@ -1,3 +1,6 @@
 ## 2024-05-19 - Explicit Type Signatures for Iced Conditional Elements
 **Learning:** When conditionally rendering elements in `cosmic::iced` with differing `.into()` traits (e.g., branching between an active widget with `.on_toggle()` and a disabled widget without it), the Rust compiler can fail to infer the exact type of the unified `Element`, resulting in `E0283: type annotations needed`.
 **Action:** When creating conditionally configured UI branches in `iced` that require coercion into a generic `Element` container, assign the `if/else` block to a strictly typed intermediate variable (e.g., `let element: cosmic::Element<'_, super::Message> = if ... { ... };`) to guide the compiler's type inference.
+## 2024-05-24 - Conditional text_input validation submission
+**Learning:** Preventing empty or whitespace-only submissions in `cosmic::iced`'s `text_input` avoids silent failures and creates a more robust user experience.
+**Action:** When a text input should not be submitted if it's empty, define the text input as a mutable base widget, then conditionally add `.on_submit(...)` only if the text validation passes. E.g., `let mut input = text_input(...); if !text.trim().is_empty() { input = input.on_submit(...); } input`.
