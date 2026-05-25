@@ -47,7 +47,8 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
         }
     }
 
-    sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
+    // Optimization: Use unstable sort for a small performance boost when relative order doesn't matter.
+    sorted.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
 
     sorted
         .iter()

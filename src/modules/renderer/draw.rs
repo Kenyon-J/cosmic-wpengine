@@ -259,10 +259,11 @@ pub(crate) fn draw_frame(
         .map_or(Family::SansSerif, Family::Name);
     let attrs = Attrs::new().family(family);
 
-    // Prevent unbound memory growth for weather/ambient setups left running for days
-    if renderer.text_buffer_cache.len() > 100 {
+    // Prevent unbound memory growth for weather/ambient setups left running for days.
+    // Optimization: Increase the cache limit to 500 to better accommodate multi-monitor setups
+    // and remove shrink_to_fit() in the hot path to avoid expensive reallocations.
+    if renderer.text_buffer_cache.len() > 500 {
         renderer.text_buffer_cache.clear();
-        renderer.text_buffer_cache.shrink_to_fit();
     }
 
     // Optimization: Capture bounce values and scaling factors once per frame
