@@ -646,12 +646,7 @@ impl MprisWatcher {
         if let Some(first) = resp.results.first() {
             if let Some(art_url) = &first.artwork_url {
                 let high_res_url = art_url.replace("100x100bb", "600x600bb");
-                let bytes = client.get(&high_res_url).send().await?.bytes().await?;
-                return tokio::task::spawn_blocking(move || Self::decode_image_safely(&bytes))
-                    .await
-                    .unwrap_or_else(|e| {
-                        Err(anyhow::anyhow!("Image decoding task panicked: {}", e))
-                    });
+                return Self::fetch_album_art(&high_res_url, client).await;
             }
         }
         anyhow::bail!("No fallback art found on iTunes")
