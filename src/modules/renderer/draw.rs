@@ -1,13 +1,40 @@
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
 use crate::modules::colour::{lerp_colour, time_to_sky_colour};
-use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
+use crate::modules::config::{ArtShape, VisShape, WallpaperMode};
 use crate::modules::event::WeatherCondition;
 use crate::modules::state::SceneHint;
 use crate::modules::wayland::WaylandManager;
 use anyhow::Result;
 use cosmic_text::{self, Attrs, Family, Metrics, Shaping};
 use tracing::warn;
+
+#[repr(C, align(16))]
+struct VisUniforms {
+    res: [f32; 2],
+    bands: u32,
+    pulse: f32,
+    top: [f32; 4],
+    bottom: [f32; 4],
+    pos_size_rot: [f32; 4],
+    amplitude: f32,
+    shape: u32,
+    time: f32,
+    align: u32,
+    is_waveform: u32,
+    _padding: [u32; 3],
+}
+
+#[repr(C, align(16))]
+struct AmbUniforms {
+    res: [f32; 2],
+    time: f32,
+    weather: u32,
+    sky: [f32; 4],
+    bg_alpha: f32,
+    // Padding to match std140 layout alignment rules for vec4/arrays
+    _padding: [f32; 3],
+}
 
 pub(crate) fn draw_frame(
     renderer: &mut super::Renderer,
@@ -165,16 +192,9 @@ pub(crate) fn draw_frame(
     };
 
     // Optimization: Pre-calculate display-invariant components for the visualizer.
-    let vis_shape_u32 = match renderer.theme.visualiser.shape {
-        VisShape::Circular => 0,
-        VisShape::Linear => 1,
-        VisShape::Square => 2,
-    };
-    let vis_align_u32 = match renderer.theme.visualiser.align {
-        VisAlign::Left => 0,
-        VisAlign::Center => 1,
-        VisAlign::Right => 2,
-    };
+    let vis_shape_u32 = renderer.vis_shape_u32;
+    let vis_align_u32 = renderer.vis_align_u32;
+
     let vis_pos_size_rot = [
         renderer.theme.visualiser.position[0],
         renderer.theme.visualiser.position[1],
@@ -184,13 +204,7 @@ pub(crate) fn draw_frame(
     let is_waveform_u32 = if renderer.is_waveform_style { 1 } else { 0 };
 
     // Optimization: Pre-calculate display-invariant album art layout and dimensions.
-    let album_art_bg_mode = if show_color_bg {
-        3
-    } else if renderer.state.config.appearance.disable_blur {
-        2
-    } else {
-        0
-    };
+    let album_art_bg_mode = renderer.album_art_bg_mode;
     let album_art_bg_alpha = 1.0 - renderer.state.transparent_fade;
     let album_art_texture_res = [
         renderer
@@ -242,13 +256,9 @@ pub(crate) fn draw_frame(
     let secondary_text = renderer.secondary_text_color;
     let text_color_diff = renderer.text_color_diff;
 
-    let map_align = |a: &TextAlign| -> cosmic_text::Align {
-        match a {
-            TextAlign::Left => cosmic_text::Align::Left,
-            TextAlign::Center => cosmic_text::Align::Center,
-            TextAlign::Right => cosmic_text::Align::Right,
-        }
-    };
+    let lyric_align = renderer.lyric_align;
+    let track_align = renderer.track_align;
+    let weather_align = renderer.weather_align;
 
     let family = renderer
         .state
@@ -296,22 +306,6 @@ pub(crate) fn draw_frame(
 
         // 1. Process visualizer uniforms
         if has_audio && last_uniform_res != Some(current_res) {
-            #[repr(C, align(16))]
-            struct VisUniforms {
-                res: [f32; 2],
-                bands: u32,
-                pulse: f32,
-                top: [f32; 4],
-                bottom: [f32; 4],
-                pos_size_rot: [f32; 4],
-                amplitude: f32,
-                shape: u32,
-                time: f32,
-                align: u32,
-                is_waveform: u32,
-                _padding: [u32; 3],
-            }
-
             let vis_uniforms = VisUniforms {
                 res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                 bands: renderer.state.config.audio.bands as u32,
@@ -424,16 +418,6 @@ pub(crate) fn draw_frame(
                     .write_buffer(&renderer.custom_bg_uniform_buffer, 0, cbg_bytes);
             } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
                 // 3. Process ambient uniforms
-                #[repr(C, align(16))]
-                struct AmbUniforms {
-                    res: [f32; 2],
-                    time: f32,
-                    weather: u32,
-                    sky: [f32; 4],
-                    bg_alpha: f32,
-                    // Padding to match std140 layout alignment rules for vec4/arrays
-                    _padding: [f32; 3],
-                }
                 let amb_uniforms = AmbUniforms {
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                     time: elapsed,
@@ -518,11 +502,21 @@ pub(crate) fn draw_frame(
                             let bounce_y = bounce_12_scaled * center_weight;
                             let y_pos = (dist * line_spacing) - bounce_y;
 
-                            // Optimization: Use cached color difference to replace 4 subtractions with 1 multiply-add
+                            // Optimization: Use inlined lerp_colour to maintain readability while being fast.
+                            // We manually combine the alpha later to account for the secondary_text[3] base.
+                            let color_rgb = lerp_colour(
+                                [secondary_text[0], secondary_text[1], secondary_text[2]],
+                                [
+                                    renderer.primary_text_color[0],
+                                    renderer.primary_text_color[1],
+                                    renderer.primary_text_color[2],
+                                ],
+                                center_weight,
+                            );
                             let color = [
-                                secondary_text[0] + text_color_diff[0] * center_weight,
-                                secondary_text[1] + text_color_diff[1] * center_weight,
-                                secondary_text[2] + text_color_diff[2] * center_weight,
+                                color_rgb[0],
+                                color_rgb[1],
+                                color_rgb[2],
                                 secondary_text[3] + text_color_diff[3] * center_weight,
                             ];
 
@@ -561,10 +555,9 @@ pub(crate) fn draw_frame(
                                 buffer.set_metrics(&mut renderer.font_system, metrics);
                                 buffer.set_size(&mut renderer.font_system, width_f, height_f);
 
-                                let align = map_align(&renderer.theme.lyrics.align);
                                 buffer.lines.iter_mut().for_each(
                                     |line: &mut cosmic_text::BufferLine| {
-                                        line.set_align(Some(align));
+                                        line.set_align(Some(lyric_align));
                                     },
                                 );
 
@@ -579,7 +572,7 @@ pub(crate) fn draw_frame(
                                     pos,
                                     color: final_color,
                                     scale: render_scale,
-                                    align,
+                                    align: lyric_align,
                                 });
                             }
                         }
@@ -619,12 +612,11 @@ pub(crate) fn draw_frame(
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                let align = map_align(&renderer.theme.track_info.align);
                 buffer
                     .lines
                     .iter_mut()
                     .for_each(|line: &mut cosmic_text::BufferLine| {
-                        line.set_align(Some(align));
+                        line.set_align(Some(track_align));
                     });
                 let pos = [
                     renderer.theme.track_info.position[0] * width_f,
@@ -636,7 +628,7 @@ pub(crate) fn draw_frame(
                     pos,
                     color: final_color,
                     scale: 1.0,
-                    align,
+                    align: track_align,
                 });
             }
 
@@ -675,12 +667,11 @@ pub(crate) fn draw_frame(
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                let align = map_align(&renderer.theme.weather.align);
                 buffer
                     .lines
                     .iter_mut()
                     .for_each(|line: &mut cosmic_text::BufferLine| {
-                        line.set_align(Some(align));
+                        line.set_align(Some(weather_align));
                     });
                 let pos = [
                     renderer.theme.weather.position[0] * width_f,
@@ -692,7 +683,7 @@ pub(crate) fn draw_frame(
                     pos,
                     color: final_color,
                     scale: 1.0,
-                    align,
+                    align: weather_align,
                 });
             }
 
