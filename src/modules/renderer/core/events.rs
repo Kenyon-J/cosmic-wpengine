@@ -54,6 +54,34 @@ impl Renderer {
                 self.text_buffer_cache.shrink_to_fit();
 
                 self.is_waveform_style = self.state.config.audio.style == "waveform";
+
+                // Optimization: Cache all display-invariant properties (resolutions, mapped enums,
+                // and layout decisions) to skip redundant matching and string comparisons in the hot path.
+                use crate::modules::config::{TextAlign, VisAlign, VisShape};
+
+                self.vis_shape_u32 = match self.theme.visualiser.shape {
+                    VisShape::Circular => 0,
+                    VisShape::Linear => 1,
+                    VisShape::Square => 2,
+                };
+                self.vis_align_u32 = match self.theme.visualiser.align {
+                    VisAlign::Left => 0,
+                    VisAlign::Center => 1,
+                    VisAlign::Right => 2,
+                };
+
+                let map_align = |a: &TextAlign| -> cosmic_text::Align {
+                    match a {
+                        TextAlign::Left => cosmic_text::Align::Left,
+                        TextAlign::Center => cosmic_text::Align::Center,
+                        TextAlign::Right => cosmic_text::Align::Right,
+                    }
+                };
+
+                self.lyric_align = map_align(&self.theme.lyrics.align);
+                self.track_align = map_align(&self.theme.track_info.align);
+                self.weather_align = map_align(&self.theme.weather.align);
+
                 self.update_weather_state();
                 self.update_weather_string();
                 info!("Live settings applied!");

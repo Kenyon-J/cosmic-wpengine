@@ -104,6 +104,12 @@ pub struct Renderer {
     pub(crate) vis_prev_colors: ([f32; 3], [f32; 3]),
     pub(crate) art_target_color: [f32; 3],
     pub(crate) art_prev_color: [f32; 3],
+    pub(crate) vis_shape_u32: u32,
+    pub(crate) vis_align_u32: u32,
+    pub(crate) album_art_bg_mode: u32,
+    pub(crate) lyric_align: cosmic_text::Align,
+    pub(crate) track_align: cosmic_text::Align,
+    pub(crate) weather_align: cosmic_text::Align,
 }
 
 impl Renderer {

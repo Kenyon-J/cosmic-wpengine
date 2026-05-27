@@ -302,6 +302,20 @@ impl Renderer {
                 .as_ref()
                 .and_then(|t| t.palette.as_deref()),
         );
+
+        // Optimization: Cache the album art background mode to skip redundant logic in the hot path.
+        // Pre-calculating this on track/config changes ensures background state remains reactive.
+        let force_art = self.state.config.mode == crate::modules::config::WallpaperMode::AlbumArt;
+        let show_color_bg = (self.state.has_album_art || force_art)
+            && self.state.config.appearance.album_color_background;
+
+        self.album_art_bg_mode = if show_color_bg {
+            3
+        } else if self.state.config.appearance.disable_blur {
+            2
+        } else {
+            0
+        };
     }
 
     pub fn load_custom_background(&mut self, path: Option<&str>) {

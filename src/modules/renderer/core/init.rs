@@ -250,6 +250,12 @@ impl Renderer {
             vis_prev_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
             art_target_color: [0.1, 0.1, 0.1],
             art_prev_color: [0.1, 0.1, 0.1],
+            vis_shape_u32: 0,
+            vis_align_u32: 0,
+            album_art_bg_mode: 0,
+            lyric_align: cosmic_text::Align::Left,
+            track_align: cosmic_text::Align::Left,
+            weather_align: cosmic_text::Align::Left,
         };
 
         let path = renderer
