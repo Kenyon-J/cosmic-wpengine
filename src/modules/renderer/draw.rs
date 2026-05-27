@@ -506,8 +506,12 @@ pub(crate) fn draw_frame(
                             // We manually combine the alpha later to account for the secondary_text[3] base.
                             let color_rgb = lerp_colour(
                                 [secondary_text[0], secondary_text[1], secondary_text[2]],
-                                [renderer.primary_text_color[0], renderer.primary_text_color[1], renderer.primary_text_color[2]],
-                                center_weight
+                                [
+                                    renderer.primary_text_color[0],
+                                    renderer.primary_text_color[1],
+                                    renderer.primary_text_color[2],
+                                ],
+                                center_weight,
                             );
                             let color = [
                                 color_rgb[0],
