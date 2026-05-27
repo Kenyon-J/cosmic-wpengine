@@ -27,7 +27,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
     );
 
     let mut toggles_row = column().push(
-        row()
+        row().align_y(cosmic::iced::Alignment::Center)
             .push(
                 text("Background Style:")
                     .font(font)
@@ -53,7 +53,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
             cosmic::iced::widget::tooltip::Position::Top,
         );
         toggles_row = toggles_row.push(
-            row()
+            row().align_y(cosmic::iced::Alignment::Center)
                 .push(
                     text("Selected Video:")
                         .font(font)
@@ -66,7 +66,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
 
     let toggles_row = toggles_row
         .push(
-            row()
+            row().align_y(cosmic::iced::Alignment::Center)
                 .push(cosmic::iced::widget::tooltip(
                     checkbox(app.wp_config.appearance.show_album_art)
                         .on_toggle(super::Message::ToggleShowAlbumArt)
@@ -94,7 +94,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
                 .spacing(20),
         )
         .push(
-            row()
+            row().align_y(cosmic::iced::Alignment::Center)
                 .push(cosmic::iced::widget::tooltip(
                     checkbox(app.wp_config.weather.enabled)
                         .on_toggle(super::Message::ToggleWeatherEnabled)
@@ -129,7 +129,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         )
         .spacing(15);
 
-    let font_row = row()
+    let font_row = row().align_y(cosmic::iced::Alignment::Center)
         .push(text("Font Family:").font(font).width(Length::Fixed(200.0)))
         .push(cosmic::iced::widget::tooltip(
             pick_list(
@@ -151,7 +151,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         ))
         .spacing(20);
 
-    let framerate_row = row()
+    let framerate_row = row().align_y(cosmic::iced::Alignment::Center)
         .push(
             text(format!("Target Framerate: {} FPS", app.wp_config.fps))
                 .font(font)
@@ -168,7 +168,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         ))
         .spacing(20);
 
-    let blur_row = row()
+    let blur_row = row().align_y(cosmic::iced::Alignment::Center)
         .push(
             text(format!(
                 "Blur Strength: {:.2}",
@@ -295,7 +295,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         }
     };
 
-    let toolbar = row()
+    let toolbar = row().align_y(cosmic::iced::Alignment::Center)
         .push(text("Edit File:").font(font).width(Length::Shrink))
         .push(file_selector)
         .push(save_btn)
@@ -358,7 +358,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
                 .into()
         };
 
-    let footer_row = row()
+    let footer_row = row().align_y(cosmic::iced::Alignment::Center)
         .push(
             text(&app.status_msg)
                 .font(font)
