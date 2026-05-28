@@ -5,3 +5,7 @@
 ## 2024-05-26 - Conditional Text Input Submission
 **Learning:** In `cosmic::iced`, simply leaving a text input active while disabling its corresponding submission button creates a poor user experience, as users can still submit empty forms via the Enter key if `.on_submit()` is always attached.
 **Action:** To correctly prevent form submission from empty or invalid inputs, extract the base `text_input` into a mutable variable, conditionally apply the `.on_submit()` method only if validation passes (e.g., `if !text.trim().is_empty()`), and then yield the input variable.
+
+## 2024-05-27 - Inline Error Visibility
+**Learning:** Subtle inline error text (like a status message in a footer) is easily overlooked by users if it shares the same formatting as success or informational messages.
+**Action:** Always provide clear visual distinction for error states. If theming libraries or rich text colors are unavailable, prepending a simple warning icon (e.g., '⚠️') conditionally based on error keywords significantly improves the discoverability of failure states without requiring structural changes.
