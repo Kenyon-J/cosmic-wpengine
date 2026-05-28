@@ -358,9 +358,20 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
                 .into()
         };
 
+    let is_error = app.status_msg.contains("Error")
+        || app.status_msg.contains("Blocked")
+        || app.status_msg.contains("Failed")
+        || app.status_msg.contains("error")
+        || app.status_msg.contains("failed");
+    let display_msg = if is_error {
+        format!("⚠️ {}", app.status_msg)
+    } else {
+        app.status_msg.clone()
+    };
+
     let footer_row = row()
         .push(
-            text(&app.status_msg)
+            text(display_msg)
                 .font(font)
                 .size(14)
                 .width(Length::Fill),
