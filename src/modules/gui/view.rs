@@ -370,12 +370,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
     };
 
     let footer_row = row()
-        .push(
-            text(display_msg)
-                .font(font)
-                .size(14)
-                .width(Length::Fill),
-        )
+        .push(text(display_msg).font(font).size(14).width(Length::Fill))
         .push(version_display)
         .push(notes_btn)
         .push(report_btn)
