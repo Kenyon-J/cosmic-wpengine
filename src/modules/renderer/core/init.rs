@@ -171,6 +171,14 @@ impl Renderer {
             0.0
         };
 
+        let map_align = |a: &TextAlign| -> cosmic_text::Align {
+            match a {
+                TextAlign::Left => cosmic_text::Align::Left,
+                TextAlign::Center => cosmic_text::Align::Center,
+                TextAlign::Right => cosmic_text::Align::Right,
+            }
+        };
+
         let mut renderer = Self {
             instance,
             adapter,
@@ -218,7 +226,6 @@ impl Renderer {
             treble_moving_average: 0.0,
             treble_pulse: 0.0,
             last_treble_time: Instant::now(),
-            theme,
             audio_processing_bins,
             inv_smoothing,
             inv_target_len,
@@ -250,6 +257,10 @@ impl Renderer {
             vis_prev_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
             art_target_color: [0.1, 0.1, 0.1],
             art_prev_color: [0.1, 0.1, 0.1],
+            lyric_align: map_align(&theme.lyrics.align),
+            track_align: map_align(&theme.track_info.align),
+            weather_align: map_align(&theme.weather.align),
+            theme,
         };
 
         let path = renderer

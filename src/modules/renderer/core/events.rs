@@ -48,10 +48,9 @@ impl Renderer {
                 self.state.config = *config;
                 self.update_theme_colors();
 
-                // Optimization: Clear and shrink the text buffer cache on config updates to ensure
-                // changes like font family or size are applied immediately and memory is reclaimed.
+                // Optimization: Clear the text buffer cache on config updates to ensure
+                // changes like font family or size are applied immediately.
                 self.text_buffer_cache.clear();
-                self.text_buffer_cache.shrink_to_fit();
 
                 self.is_waveform_style = self.state.config.audio.style == "waveform";
                 self.update_weather_state();
@@ -60,14 +59,12 @@ impl Renderer {
             }
             Event::TrackChanged(mut track) => {
                 self.text_buffer_cache.clear(); // Free old shaped lyrics from memory!
-                self.text_buffer_cache.shrink_to_fit();
 
                 // Optimization: Don't shrink staging buffers to fit on track changes;
                 // keep the allocations ready for the next track's album art or video loops.
                 // Recreate SwashCache to flush its internal rasterized glyph memory
                 self.swash_cache = SwashCache::new();
                 self.text_renderer.glyph_cache.clear();
-                self.text_renderer.glyph_cache.shrink_to_fit();
                 self.text_renderer.cache_x = 0;
                 self.text_renderer.cache_y = 0;
                 self.text_renderer.cache_row_height = 0;
@@ -127,7 +124,6 @@ impl Renderer {
                 self.cached_track_str.clear();
                 self.cached_track_hash = 0;
                 self.text_buffer_cache.clear();
-                self.text_buffer_cache.shrink_to_fit();
                 self.state.previous_palette = self
                     .state
                     .current_track
