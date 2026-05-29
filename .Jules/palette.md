@@ -5,3 +5,7 @@
 ## 2024-05-26 - Conditional Text Input Submission
 **Learning:** In `cosmic::iced`, simply leaving a text input active while disabling its corresponding submission button creates a poor user experience, as users can still submit empty forms via the Enter key if `.on_submit()` is always attached.
 **Action:** To correctly prevent form submission from empty or invalid inputs, extract the base `text_input` into a mutable variable, conditionally apply the `.on_submit()` method only if validation passes (e.g., `if !text.trim().is_empty()`), and then yield the input variable.
+
+## 2024-05-29 - Making Text Editor Read-Only
+**Learning:** When displaying read-only content like patch notes in a text editor (e.g., in `cosmic::iced`), allowing users to edit text that cannot be saved creates a confusing user experience. The text editor doesn't have a direct `disabled` property.
+**Action:** To make a `text_editor` read-only in `cosmic::iced`, conditionally apply the `.on_action()` method. By omitting `.on_action()`, the editor will no longer respond to keyboard input, effectively making it read-only.
