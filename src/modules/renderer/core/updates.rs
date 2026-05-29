@@ -302,6 +302,18 @@ impl Renderer {
                 .as_ref()
                 .and_then(|t| t.palette.as_deref()),
         );
+
+        let map_align = |a: &crate::modules::config::TextAlign| -> cosmic_text::Align {
+            match a {
+                crate::modules::config::TextAlign::Left => cosmic_text::Align::Left,
+                crate::modules::config::TextAlign::Center => cosmic_text::Align::Center,
+                crate::modules::config::TextAlign::Right => cosmic_text::Align::Right,
+            }
+        };
+
+        self.lyric_align = map_align(&self.theme.lyrics.align);
+        self.track_align = map_align(&self.theme.track_info.align);
+        self.weather_align = map_align(&self.theme.weather.align);
     }
 
     pub fn load_custom_background(&mut self, path: Option<&str>) {

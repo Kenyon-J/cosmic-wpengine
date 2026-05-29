@@ -220,11 +220,8 @@ impl TextRenderer {
         let width_to_ndc = 2.0 / width;
         let height_to_ndc = 2.0 / height;
 
-        for p_buf in positioned_buffers.iter_mut() {
-            p_buf.buffer.shape_until_scroll(font_system, false);
-        }
-
         for p_buf in positioned_buffers {
+            p_buf.buffer.shape_until_scroll(font_system, false);
             let origin_x = match p_buf.align {
                 cosmic_text::Align::Left => 0.0,
                 cosmic_text::Align::Right => width,
@@ -281,7 +278,6 @@ impl TextRenderer {
                                         "Glyph cache full! Clearing and starting fresh."
                                     );
                                     text_renderer.glyph_cache.clear();
-                                    text_renderer.glyph_cache.shrink_to_fit();
                                     text_renderer.cache_x = 0;
                                     text_renderer.cache_y = 0;
                                     text_renderer.cache_row_height = 0;
