@@ -70,3 +70,7 @@
 ## 04-05-2026- Optimize Text Rendering Coordinate Transformation
 **Learning:** Coordinate transformation in high-frequency hot loops (like text rendering at 60+ FPS) can be significantly optimized by hoisting buffer-invariant NDC factors and origin-dependent offsets outside the per-glyph loop. Redundantly calculating alignment offsets and NDC transformations for every glyph consumes unnecessary CPU cycles.
 **Action:** For all nested rendering loops, identify arithmetic terms that are constant for a group of elements (like a text buffer's position and scale) and pre-calculate their Normalized Device Coordinate (NDC) equivalents outside the innermost loop to reduce per-element operations to a minimal set of multiplications and additions.
+
+## 13-02-2025- Optimize Rendering Hot Path and Memory Management
+**Learning:** Frequent calls to `shrink_to_fit()` on internal caches (like those for text buffers or glyphs) cause expensive heap reallocations and memory copies. Caching display-invariant and frame-invariant values (like sky colors and alignments) in the `Renderer` state eliminates redundant arithmetic and `match` operations in the 60FPS draw loop.
+**Action:** Remove `shrink_to_fit()` from high-frequency caches and instead use `clear()` to preserve capacity. Pre-calculate and cache any values derived from events or configuration that don't change every frame.

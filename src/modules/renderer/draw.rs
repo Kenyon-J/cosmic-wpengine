@@ -1,7 +1,7 @@
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
 use crate::modules::colour::{lerp_colour, time_to_sky_colour};
-use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
+use crate::modules::config::{ArtShape, VisAlign, VisShape, WallpaperMode};
 use crate::modules::event::WeatherCondition;
 use crate::modules::state::SceneHint;
 use crate::modules::wayland::WaylandManager;
@@ -50,9 +50,14 @@ pub(crate) fn draw_frame(
     let show_color_bg = (has_media_check_gpu || force_art)
         && renderer.state.config.appearance.album_color_background;
 
-    // Optimization: Use cached weather state and sky colors
+    // Optimization: Use cached weather state and sky colors.
+    // Only recalculate the sky color if the time of day has changed to save arithmetic.
     let weather_type = renderer.weather_type;
-    let final_sky = get_final_sky_color(renderer);
+    if (renderer.state.time_of_day - renderer.last_time_of_day).abs() > 0.0001 {
+        renderer.cached_sky_color = get_final_sky_color(renderer);
+        renderer.last_time_of_day = renderer.state.time_of_day;
+    }
+    let final_sky = renderer.cached_sky_color;
     let clear_colour = get_clear_colour_from_sky(renderer, final_sky);
 
     // Use our new smart audio-reactive beat detector instead of the generic timer
@@ -241,14 +246,6 @@ pub(crate) fn draw_frame(
     // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
     let secondary_text = renderer.secondary_text_color;
     let text_color_diff = renderer.text_color_diff;
-
-    let map_align = |a: &TextAlign| -> cosmic_text::Align {
-        match a {
-            TextAlign::Left => cosmic_text::Align::Left,
-            TextAlign::Center => cosmic_text::Align::Center,
-            TextAlign::Right => cosmic_text::Align::Right,
-        }
-    };
 
     let family = renderer
         .state
@@ -496,6 +493,10 @@ pub(crate) fn draw_frame(
                         let bounce_8_scaled = lyric_bounce * 8.0 * scale_factor;
                         let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
 
+                        // Optimization: Hoist Metrics instantiation outside the line loop.
+                        let metrics = Metrics::new(active_font_size, active_font_size * 1.2);
+                        let align = renderer.lyric_align;
+
                         for line_idx in start_idx..=end_idx {
                             let lyric_line = &lyrics[line_idx - 1];
                             // Compute exactly how far this string is from the "current active string"
@@ -531,8 +532,6 @@ pub(crate) fn draw_frame(
                             let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
 
                             if final_color[3] > 0.01 {
-                                let metrics =
-                                    Metrics::new(active_font_size, active_font_size * 1.2);
                                 let text_key = TextCacheKey::Lyric {
                                     monitor: i,
                                     line: line_idx as u32,
@@ -561,7 +560,6 @@ pub(crate) fn draw_frame(
                                 buffer.set_metrics(&mut renderer.font_system, metrics);
                                 buffer.set_size(&mut renderer.font_system, width_f, height_f);
 
-                                let align = map_align(&renderer.theme.lyrics.align);
                                 buffer.lines.iter_mut().for_each(
                                     |line: &mut cosmic_text::BufferLine| {
                                         line.set_align(Some(align));
@@ -619,7 +617,7 @@ pub(crate) fn draw_frame(
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                let align = map_align(&renderer.theme.track_info.align);
+                let align = renderer.track_align;
                 buffer
                     .lines
                     .iter_mut()
@@ -675,7 +673,7 @@ pub(crate) fn draw_frame(
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                let align = map_align(&renderer.theme.weather.align);
+                let align = renderer.weather_align;
                 buffer
                     .lines
                     .iter_mut()

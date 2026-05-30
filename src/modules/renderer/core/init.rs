@@ -171,6 +171,18 @@ impl Renderer {
             0.0
         };
 
+        let map_align = |a: &TextAlign| -> cosmic_text::Align {
+            match a {
+                TextAlign::Left => cosmic_text::Align::Left,
+                TextAlign::Center => cosmic_text::Align::Center,
+                TextAlign::Right => cosmic_text::Align::Right,
+            }
+        };
+
+        let lyric_align = map_align(&theme.lyrics.align);
+        let track_align = map_align(&theme.track_info.align);
+        let weather_align = map_align(&theme.weather.align);
+
         let mut renderer = Self {
             instance,
             adapter,
@@ -250,6 +262,11 @@ impl Renderer {
             vis_prev_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
             art_target_color: [0.1, 0.1, 0.1],
             art_prev_color: [0.1, 0.1, 0.1],
+            lyric_align,
+            track_align,
+            weather_align,
+            cached_sky_color: [0.0; 3],
+            last_time_of_day: -1.0,
         };
 
         let path = renderer

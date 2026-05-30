@@ -281,7 +281,6 @@ impl TextRenderer {
                                         "Glyph cache full! Clearing and starting fresh."
                                     );
                                     text_renderer.glyph_cache.clear();
-                                    text_renderer.glyph_cache.shrink_to_fit();
                                     text_renderer.cache_x = 0;
                                     text_renderer.cache_y = 0;
                                     text_renderer.cache_row_height = 0;
