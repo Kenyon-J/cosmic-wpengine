@@ -255,6 +255,18 @@ impl Renderer {
     }
 
     pub(crate) fn update_theme_colors(&mut self) {
+        let map_align = |a: &TextAlign| -> cosmic_text::Align {
+            match a {
+                TextAlign::Left => cosmic_text::Align::Left,
+                TextAlign::Center => cosmic_text::Align::Center,
+                TextAlign::Right => cosmic_text::Align::Right,
+            }
+        };
+
+        self.lyric_align = map_align(&self.theme.lyrics.align);
+        self.track_align = map_align(&self.theme.track_info.align);
+        self.weather_align = map_align(&self.theme.weather.align);
+
         let get_vis_colors =
             |palette: Option<&[[f32; 3]]>, theme: &ThemeLayout| -> ([f32; 3], [f32; 3]) {
                 let top = theme.visualiser.color_top;

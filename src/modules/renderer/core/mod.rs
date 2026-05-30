@@ -16,7 +16,7 @@ pub const GLYPH_CACHE_WIDTH: u32 = 2048;
 pub const GLYPH_CACHE_HEIGHT: u32 = 2048;
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer};
 
-use crate::modules::config::{TemperatureUnit, ThemeLayout};
+use crate::modules::config::{TemperatureUnit, TextAlign, ThemeLayout};
 use crate::modules::event::WeatherCondition;
 pub struct GpuOutput {
     pub surface: wgpu::Surface<'static>,
@@ -104,6 +104,11 @@ pub struct Renderer {
     pub(crate) vis_prev_colors: ([f32; 3], [f32; 3]),
     pub(crate) art_target_color: [f32; 3],
     pub(crate) art_prev_color: [f32; 3],
+    pub(crate) lyric_align: cosmic_text::Align,
+    pub(crate) track_align: cosmic_text::Align,
+    pub(crate) weather_align: cosmic_text::Align,
+    pub(crate) cached_sky_color: [f32; 3],
+    pub(crate) last_time_of_day: f32,
 }
 
 impl Renderer {

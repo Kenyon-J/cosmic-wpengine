@@ -58,6 +58,7 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
         .into_boxed_slice()
 }
 
+#[inline]
 pub fn lerp_colour(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [
         a[0] + (b[0] - a[0]) * t,
@@ -66,17 +67,60 @@ pub fn lerp_colour(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     ]
 }
 
-pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
-    let midnight = [0.02, 0.02, 0.08];
-    let dawn = [0.6, 0.3, 0.2];
-    let noon = [0.4, 0.6, 0.9];
-    let dusk = [0.7, 0.3, 0.15];
+const MIDNIGHT: [f32; 3] = [0.02, 0.02, 0.08];
+const DAWN: [f32; 3] = [0.6, 0.3, 0.2];
+const NOON: [f32; 3] = [0.4, 0.6, 0.9];
+const DUSK: [f32; 3] = [0.7, 0.3, 0.15];
 
+const DAWN_DIFF: [f32; 3] = [
+    DAWN[0] - MIDNIGHT[0],
+    DAWN[1] - MIDNIGHT[1],
+    DAWN[2] - MIDNIGHT[2],
+];
+const NOON_DIFF: [f32; 3] = [DAWN[0] - NOON[0], DAWN[1] - NOON[1], DAWN[2] - NOON[2]];
+const DUSK_DIFF: [f32; 3] = [NOON[0] - DUSK[0], NOON[1] - DUSK[1], NOON[2] - DUSK[2]];
+const MIDNIGHT_DIFF: [f32; 3] = [
+    DUSK[0] - MIDNIGHT[0],
+    DUSK[1] - MIDNIGHT[1],
+    DUSK[2] - MIDNIGHT[2],
+];
+
+pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
+    // Optimization: Use pre-calculated differences and reciprocal multiplication
+    // to eliminate redundant subtractions and divisions in the hot interpolation path.
     match time {
-        t if t < 0.25 => lerp_colour(midnight, dawn, t / 0.25),
-        t if t < 0.5 => lerp_colour(dawn, noon, (t - 0.25) / 0.25),
-        t if t < 0.75 => lerp_colour(noon, dusk, (t - 0.5) / 0.25),
-        t => lerp_colour(dusk, midnight, (t - 0.75) / 0.25),
+        t if t < 0.25 => {
+            let factor = t * 4.0;
+            [
+                MIDNIGHT[0] + DAWN_DIFF[0] * factor,
+                MIDNIGHT[1] + DAWN_DIFF[1] * factor,
+                MIDNIGHT[2] + DAWN_DIFF[2] * factor,
+            ]
+        }
+        t if t < 0.5 => {
+            let factor = (t - 0.25) * 4.0;
+            [
+                DAWN[0] - NOON_DIFF[0] * factor,
+                DAWN[1] - NOON_DIFF[1] * factor,
+                DAWN[2] - NOON_DIFF[2] * factor,
+            ]
+        }
+        t if t < 0.75 => {
+            let factor = (t - 0.5) * 4.0;
+            [
+                NOON[0] - DUSK_DIFF[0] * factor,
+                NOON[1] - DUSK_DIFF[1] * factor,
+                NOON[2] - DUSK_DIFF[2] * factor,
+            ]
+        }
+        t => {
+            let factor = (t - 0.75) * 4.0;
+            [
+                DUSK[0] - MIDNIGHT_DIFF[0] * factor,
+                DUSK[1] - MIDNIGHT_DIFF[1] * factor,
+                DUSK[2] - MIDNIGHT_DIFF[2] * factor,
+            ]
+        }
     }
 }
 
