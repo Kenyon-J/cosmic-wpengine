@@ -79,7 +79,11 @@ const DAWN_DIFF: [f32; 3] = [
 ];
 const NOON_DIFF: [f32; 3] = [DAWN[0] - NOON[0], DAWN[1] - NOON[1], DAWN[2] - NOON[2]];
 const DUSK_DIFF: [f32; 3] = [NOON[0] - DUSK[0], NOON[1] - DUSK[1], NOON[2] - DUSK[2]];
-const MIDNIGHT_DIFF: [f32; 3] = [DUSK[0] - MIDNIGHT[0], DUSK[1] - MIDNIGHT[1], DUSK[2] - MIDNIGHT[2]];
+const MIDNIGHT_DIFF: [f32; 3] = [
+    DUSK[0] - MIDNIGHT[0],
+    DUSK[1] - MIDNIGHT[1],
+    DUSK[2] - MIDNIGHT[2],
+];
 
 pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
     // Optimization: Use pre-calculated differences and reciprocal multiplication
