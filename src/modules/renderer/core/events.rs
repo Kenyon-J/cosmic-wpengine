@@ -245,6 +245,12 @@ impl Renderer {
                     } else {
                         *current += diff * inv_smoothing;
                     }
+
+                    // Optimization: Prevent subnormal floating-point penalty by snapping to zero
+                    if *current < 1e-5 {
+                        *current = 0.0;
+                    }
+
                     total_energy += *current;
                 }
 
@@ -290,6 +296,11 @@ impl Renderer {
                     }
 
                     *current += (peak - *current) * inv_smoothing;
+
+                    // Optimization: Prevent subnormal floating-point penalty by snapping to zero
+                    if current.abs() < 1e-5 {
+                        *current = 0.0;
+                    }
                 }
                 self.audio_max_energy = max_energy;
             }

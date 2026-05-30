@@ -252,8 +252,17 @@ impl Renderer {
 
             // Exponential decay for the beat pulse so it snaps up and softly falls down
             self.beat_pulse *= (-12.0 * delta).exp();
+            // Optimization: Prevent subnormal floating-point penalty by snapping to zero
+            if self.beat_pulse < 1e-5 {
+                self.beat_pulse = 0.0;
+            }
+
             // Treble decays slightly faster for snappier, rapid hi-hats
             self.treble_pulse *= (-15.0 * delta).exp();
+            // Optimization: Prevent subnormal floating-point penalty by snapping to zero
+            if self.treble_pulse < 1e-5 {
+                self.treble_pulse = 0.0;
+            }
 
             // Spring physics for organic lyric bounce (Hooke's Law)
             let stiffness = self.theme.effects.lyric_spring_stiffness;
@@ -262,6 +271,14 @@ impl Renderer {
                 -stiffness * self.lyric_bounce_value - damping * self.lyric_bounce_velocity;
             self.lyric_bounce_velocity += spring_force * delta;
             self.lyric_bounce_value += self.lyric_bounce_velocity * delta;
+
+            // Optimization: Prevent subnormal floating-point penalty by snapping to zero
+            if self.lyric_bounce_value.abs() < 1e-5 {
+                self.lyric_bounce_value = 0.0;
+            }
+            if self.lyric_bounce_velocity.abs() < 1e-5 {
+                self.lyric_bounce_velocity = 0.0;
+            }
 
             let current_idx = self
                 .state
@@ -288,6 +305,10 @@ impl Renderer {
 
             // Smoothly interpolate the scroll offset back to 0
             self.lyric_scroll_offset *= (-12.0 * delta).exp();
+            // Optimization: Prevent subnormal floating-point penalty by snapping to zero
+            if self.lyric_scroll_offset.abs() < 1e-5 {
+                self.lyric_scroll_offset = 0.0;
+            }
 
             if wayland_manager.any_monitor_ready() {
                 super::draw::draw_frame(self, &mut wayland_manager, delta)?;
