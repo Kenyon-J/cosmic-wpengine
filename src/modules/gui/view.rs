@@ -305,10 +305,27 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         .push(create_btn)
         .spacing(10);
 
-    let editor = text_editor(&app.editor_content)
-        .font(cosmic::iced::Font::MONOSPACE)
-        .on_action(super::Message::EditorAction)
-        .height(Length::Fill);
+    let editor = {
+        let mut e = text_editor(&app.editor_content)
+            .font(cosmic::iced::Font::MONOSPACE)
+            .height(Length::Fill);
+
+        if app.selected_file.is_some() {
+            e = e.on_action(super::Message::EditorAction);
+        }
+
+        let element: cosmic::Element<'_, super::Message> = if app.selected_file.is_some() {
+            e.into()
+        } else {
+            cosmic::iced::widget::tooltip(
+                e,
+                "Select a file to start editing.",
+                cosmic::iced::widget::tooltip::Position::Top,
+            )
+            .into()
+        };
+        element
+    };
 
     let report_btn = cosmic::iced::widget::tooltip(
         cosmic::iced::widget::button(text("Report Issue").font(font).size(14))
