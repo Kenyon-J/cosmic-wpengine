@@ -70,9 +70,9 @@ pub fn lerp_colour(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
     const SKY_PRESETS: [[f32; 3]; 4] = [
         [0.02, 0.02, 0.08], // Midnight
-        [0.6, 0.3, 0.2],   // Dawn
-        [0.4, 0.6, 0.9],   // Noon
-        [0.7, 0.3, 0.15],  // Dusk
+        [0.6, 0.3, 0.2],    // Dawn
+        [0.4, 0.6, 0.9],    // Noon
+        [0.7, 0.3, 0.15],   // Dusk
     ];
 
     match time {
