@@ -9,6 +9,33 @@ use anyhow::Result;
 use cosmic_text::{self, Attrs, Family, Metrics, Shaping};
 use tracing::warn;
 
+#[repr(C, align(16))]
+struct VisUniforms {
+    res: [f32; 2],
+    bands: u32,
+    pulse: f32,
+    top: [f32; 4],
+    bottom: [f32; 4],
+    pos_size_rot: [f32; 4],
+    amplitude: f32,
+    shape: u32,
+    time: f32,
+    align: u32,
+    is_waveform: u32,
+    _padding: [u32; 3],
+}
+
+#[repr(C, align(16))]
+struct AmbUniforms {
+    res: [f32; 2],
+    time: f32,
+    weather: u32,
+    sky: [f32; 4],
+    bg_alpha: f32,
+    // Padding to match std140 layout alignment rules for vec4/arrays
+    _padding: [f32; 3],
+}
+
 pub(crate) fn draw_frame(
     renderer: &mut super::Renderer,
     wayland_manager: &mut WaylandManager,
@@ -88,7 +115,8 @@ pub(crate) fn draw_frame(
                 });
             compute_pass.set_pipeline(&renderer.weather_compute_pipeline);
             compute_pass.set_bind_group(0, &renderer.weather_compute_bind_group, &[]);
-            let workgroups = ((active_particles as f32) / 64.0).ceil() as u32;
+            // Strength reduction: Replace division by 64.0 with multiplication by 1/64 (0.015625)
+            let workgroups = ((active_particles as f32) * 0.015625).ceil() as u32;
             if workgroups > 0 {
                 compute_pass.dispatch_workgroups(workgroups, 1, 1);
             }
@@ -296,22 +324,6 @@ pub(crate) fn draw_frame(
 
         // 1. Process visualizer uniforms
         if has_audio && last_uniform_res != Some(current_res) {
-            #[repr(C, align(16))]
-            struct VisUniforms {
-                res: [f32; 2],
-                bands: u32,
-                pulse: f32,
-                top: [f32; 4],
-                bottom: [f32; 4],
-                pos_size_rot: [f32; 4],
-                amplitude: f32,
-                shape: u32,
-                time: f32,
-                align: u32,
-                is_waveform: u32,
-                _padding: [u32; 3],
-            }
-
             let vis_uniforms = VisUniforms {
                 res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                 bands: renderer.state.config.audio.bands as u32,
@@ -424,16 +436,6 @@ pub(crate) fn draw_frame(
                     .write_buffer(&renderer.custom_bg_uniform_buffer, 0, cbg_bytes);
             } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
                 // 3. Process ambient uniforms
-                #[repr(C, align(16))]
-                struct AmbUniforms {
-                    res: [f32; 2],
-                    time: f32,
-                    weather: u32,
-                    sky: [f32; 4],
-                    bg_alpha: f32,
-                    // Padding to match std140 layout alignment rules for vec4/arrays
-                    _padding: [f32; 3],
-                }
                 let amb_uniforms = AmbUniforms {
                     res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
                     time: elapsed,
@@ -496,12 +498,14 @@ pub(crate) fn draw_frame(
                         let bounce_8_scaled = lyric_bounce * 8.0 * scale_factor;
                         let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
 
+                        // Pre-calculate frame-invariant lyric offset to minimize arithmetic inside the loop
+                        let base_lyric_offset =
+                            renderer.current_lyric_idx as f32 + renderer.lyric_scroll_offset;
+
                         for line_idx in start_idx..=end_idx {
                             let lyric_line = &lyrics[line_idx - 1];
                             // Compute exactly how far this string is from the "current active string"
-                            let dist = (line_idx as f32)
-                                - (renderer.current_lyric_idx as f32)
-                                - renderer.lyric_scroll_offset;
+                            let dist = (line_idx as f32) - base_lyric_offset;
                             let abs_dist = dist.abs();
 
                             if abs_dist > 2.0 {

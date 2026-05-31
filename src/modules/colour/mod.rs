@@ -58,6 +58,7 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
         .into_boxed_slice()
 }
 
+#[inline]
 pub fn lerp_colour(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [
         a[0] + (b[0] - a[0]) * t,
@@ -67,16 +68,18 @@ pub fn lerp_colour(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 }
 
 pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
-    let midnight = [0.02, 0.02, 0.08];
-    let dawn = [0.6, 0.3, 0.2];
-    let noon = [0.4, 0.6, 0.9];
-    let dusk = [0.7, 0.3, 0.15];
+    const SKY_PRESETS: [[f32; 3]; 4] = [
+        [0.02, 0.02, 0.08], // Midnight
+        [0.6, 0.3, 0.2],   // Dawn
+        [0.4, 0.6, 0.9],   // Noon
+        [0.7, 0.3, 0.15],  // Dusk
+    ];
 
     match time {
-        t if t < 0.25 => lerp_colour(midnight, dawn, t / 0.25),
-        t if t < 0.5 => lerp_colour(dawn, noon, (t - 0.25) / 0.25),
-        t if t < 0.75 => lerp_colour(noon, dusk, (t - 0.5) / 0.25),
-        t => lerp_colour(dusk, midnight, (t - 0.75) / 0.25),
+        t if t < 0.25 => lerp_colour(SKY_PRESETS[0], SKY_PRESETS[1], t * 4.0),
+        t if t < 0.5 => lerp_colour(SKY_PRESETS[1], SKY_PRESETS[2], (t - 0.25) * 4.0),
+        t if t < 0.75 => lerp_colour(SKY_PRESETS[2], SKY_PRESETS[3], (t - 0.5) * 4.0),
+        t => lerp_colour(SKY_PRESETS[3], SKY_PRESETS[0], (t - 0.75) * 4.0),
     }
 }
 
