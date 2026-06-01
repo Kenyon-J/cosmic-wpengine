@@ -306,6 +306,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         .spacing(10);
 
     let editor = text_editor(&app.editor_content)
+        .placeholder("Select a file from the dropdown to edit its contents here...")
         .font(cosmic::iced::Font::MONOSPACE)
         .on_action(super::Message::EditorAction)
         .height(Length::Fill);
