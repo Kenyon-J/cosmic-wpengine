@@ -63,10 +63,14 @@
 **Learning:** Using `std::collections::hash_map::DefaultHasher` (SipHash) inside high-frequency paths (like the 60FPS render loop's caching system) introduces measurable CPU overhead due to its cryptographic collision resistance.
 **Action:** Always prefer `rustc_hash::FxHasher` for internal hashing and caching where HashDoS protection is unnecessary, as it provides significantly better performance.
 
-## $(date +%Y-%m-%d) - Optimize HashMaps with FxHash
+## 2025-02-18 - Optimize HashMaps with FxHash
 **Learning:** `std::collections::HashMap` uses SipHash by default, which is cryptographically secure but relatively slow. For internal caches in performance-critical paths (like rendering loops), collision resistance is unnecessary.
 **Action:** Replace `std::collections::HashMap` with `rustc_hash::FxHashMap` (or `HashMap<K, V, rustc_hash::FxBuildHasher>`) for internal state management to achieve measurable speedups in hot loops.
 
 ## 04-05-2026- Optimize Text Rendering Coordinate Transformation
 **Learning:** Coordinate transformation in high-frequency hot loops (like text rendering at 60+ FPS) can be significantly optimized by hoisting buffer-invariant NDC factors and origin-dependent offsets outside the per-glyph loop. Redundantly calculating alignment offsets and NDC transformations for every glyph consumes unnecessary CPU cycles.
 **Action:** For all nested rendering loops, identify arithmetic terms that are constant for a group of elements (like a text buffer's position and scale) and pre-calculate their Normalized Device Coordinate (NDC) equivalents outside the innermost loop to reduce per-element operations to a minimal set of multiplications and additions.
+
+## 2025-02-18 - Clamp subnormal numbers in hot rendering loops
+**Learning:** In hot rendering or audio processing loops, continuously decaying floating-point variables (like exponential smoothing or spring physics) can degrade into 'subnormal' or 'denormal' numbers, causing massive CPU slowdowns.
+**Action:** Always clamp continuously decaying values to `0.0` once they fall below a perceptible threshold (e.g., `1e-5`) to prevent subnormal CPU performance penalties.
