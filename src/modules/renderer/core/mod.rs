@@ -282,9 +282,7 @@ impl Renderer {
                 .current_track
                 .as_ref()
                 .and_then(|t| t.lyrics.as_ref())
-                .map(|l| {
-                    l.partition_point(|line| line.start_time_secs <= playback_secs)
-                })
+                .map(|l| l.partition_point(|line| line.start_time_secs <= playback_secs))
                 .unwrap_or(0);
 
             if current_idx != self.current_lyric_idx {
