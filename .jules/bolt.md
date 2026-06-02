@@ -70,3 +70,7 @@
 ## 04-05-2026- Optimize Text Rendering Coordinate Transformation
 **Learning:** Coordinate transformation in high-frequency hot loops (like text rendering at 60+ FPS) can be significantly optimized by hoisting buffer-invariant NDC factors and origin-dependent offsets outside the per-glyph loop. Redundantly calculating alignment offsets and NDC transformations for every glyph consumes unnecessary CPU cycles.
 **Action:** For all nested rendering loops, identify arithmetic terms that are constant for a group of elements (like a text buffer's position and scale) and pre-calculate their Normalized Device Coordinate (NDC) equivalents outside the innermost loop to reduce per-element operations to a minimal set of multiplications and additions.
+
+## 02-06-2026- Optimize Rendering Hot Path via Hoisting and Strength Reduction
+**Learning:** Even small, routine operations like duration-to-float conversions or exponential decay calculations can add up in a high-frequency (60FPS) rendering loop. Hoisting these outside of closures (like `partition_point`) and inner loops significantly reduces CPU pressure. Replacing divisions with reciprocal multiplications (strength reduction) is a cheap way to shave off cycles in hot paths.
+**Action:** Always audit the main `loop` and per-monitor `for` blocks for display-invariant or frame-invariant calculations that can be hoisted.

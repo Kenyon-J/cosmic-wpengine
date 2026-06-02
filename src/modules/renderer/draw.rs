@@ -88,7 +88,8 @@ pub(crate) fn draw_frame(
                 });
             compute_pass.set_pipeline(&renderer.weather_compute_pipeline);
             compute_pass.set_bind_group(0, &renderer.weather_compute_bind_group, &[]);
-            let workgroups = ((active_particles as f32) / 64.0).ceil() as u32;
+            // Optimization: Use reciprocal multiplication instead of division to reduce GPU dispatch overhead.
+            let workgroups = ((active_particles as f32) * 0.015625).ceil() as u32;
             if workgroups > 0 {
                 compute_pass.dispatch_workgroups(workgroups, 1, 1);
             }

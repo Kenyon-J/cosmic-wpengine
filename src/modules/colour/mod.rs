@@ -67,16 +67,18 @@ pub fn lerp_colour(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 }
 
 pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
-    let midnight = [0.02, 0.02, 0.08];
-    let dawn = [0.6, 0.3, 0.2];
-    let noon = [0.4, 0.6, 0.9];
-    let dusk = [0.7, 0.3, 0.15];
+    const MIDNIGHT: [f32; 3] = [0.02, 0.02, 0.08];
+    const DAWN: [f32; 3] = [0.6, 0.3, 0.2];
+    const NOON: [f32; 3] = [0.4, 0.6, 0.9];
+    const DUSK: [f32; 3] = [0.7, 0.3, 0.15];
 
+    // Optimization: Use const arrays for sky presets and replace divisions
+    // with reciprocal multiplications to eliminate redundant arithmetic in the hot rendering path.
     match time {
-        t if t < 0.25 => lerp_colour(midnight, dawn, t / 0.25),
-        t if t < 0.5 => lerp_colour(dawn, noon, (t - 0.25) / 0.25),
-        t if t < 0.75 => lerp_colour(noon, dusk, (t - 0.5) / 0.25),
-        t => lerp_colour(dusk, midnight, (t - 0.75) / 0.25),
+        t if t < 0.25 => lerp_colour(MIDNIGHT, DAWN, t * 4.0),
+        t if t < 0.5 => lerp_colour(DAWN, NOON, (t - 0.25) * 4.0),
+        t if t < 0.75 => lerp_colour(NOON, DUSK, (t - 0.5) * 4.0),
+        t => lerp_colour(DUSK, MIDNIGHT, (t - 0.75) * 4.0),
     }
 }
 
