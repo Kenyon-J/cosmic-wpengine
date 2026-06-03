@@ -5,3 +5,6 @@
 ## 2024-05-26 - Conditional Text Input Submission
 **Learning:** In `cosmic::iced`, simply leaving a text input active while disabling its corresponding submission button creates a poor user experience, as users can still submit empty forms via the Enter key if `.on_submit()` is always attached.
 **Action:** To correctly prevent form submission from empty or invalid inputs, extract the base `text_input` into a mutable variable, conditionally apply the `.on_submit()` method only if validation passes (e.g., `if !text.trim().is_empty()`), and then yield the input variable.
+## 2024-06-03 - Contextual Guidance for Text Editors
+**Learning:** In `cosmic::iced`, leaving a `text_editor` completely blank without placeholder text creates ambiguity, especially in multi-functional interfaces. Users may not know if the editor is broken, loading, or simply waiting for input. The `.placeholder()` method can accept dynamically generated strings based on application state.
+**Action:** When creating text editors that rely on external state (like a selected file), use dynamic placeholders (e.g., `if state.is_some() { "Type here..." } else { "Select a file..." }`) to provide immediate, contextual guidance without needing separate UI labels.
