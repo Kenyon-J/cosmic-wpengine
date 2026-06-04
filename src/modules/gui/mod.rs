@@ -151,6 +151,7 @@ fn get_http_client() -> Result<&'static reqwest::Client, &'static String> {
         .get_or_init(|| {
             reqwest::Client::builder()
                 .user_agent("cosmic-wallpaper/1.0")
+                .timeout(std::time::Duration::from_secs(10))
                 .build()
                 .map_err(|e| e.to_string())
         })
