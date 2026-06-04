@@ -140,11 +140,13 @@ impl Renderer {
 
             wayland_manager.dispatch_events()?;
 
-            self.current_outputs_cache.clear();
-            self.current_outputs_cache.extend(wayland_manager.outputs());
-            let current_outputs = &self.current_outputs_cache;
             if wayland_manager.app_data.configuration_serial != last_config_serial {
                 last_config_serial = wayland_manager.app_data.configuration_serial;
+
+                self.current_outputs_cache.clear();
+                self.current_outputs_cache.extend(wayland_manager.outputs());
+                let current_outputs = &self.current_outputs_cache;
+
                 info!(
                     "Monitor configuration changed ({} outputs), rebuilding GPU surfaces...",
                     current_outputs.len()
@@ -250,10 +252,14 @@ impl Renderer {
             self.state.tick_transition(delta);
             last_frame = now;
 
+            // Pre-calculate shared exponential decay factors once per frame to reduce redundant math.
+            let decay_12 = (-12.0 * delta).exp();
+            let decay_15 = (-15.0 * delta).exp();
+
             // Exponential decay for the beat pulse so it snaps up and softly falls down
-            self.beat_pulse *= (-12.0 * delta).exp();
+            self.beat_pulse *= decay_12;
             // Treble decays slightly faster for snappier, rapid hi-hats
-            self.treble_pulse *= (-15.0 * delta).exp();
+            self.treble_pulse *= decay_15;
 
             // Spring physics for organic lyric bounce (Hooke's Law)
             let stiffness = self.theme.effects.lyric_spring_stiffness;
@@ -263,16 +269,13 @@ impl Renderer {
             self.lyric_bounce_velocity += spring_force * delta;
             self.lyric_bounce_value += self.lyric_bounce_velocity * delta;
 
+            let playback_pos = self.state.playback_position.as_secs_f32();
             let current_idx = self
                 .state
                 .current_track
                 .as_ref()
                 .and_then(|t| t.lyrics.as_ref())
-                .map(|l| {
-                    l.partition_point(|line| {
-                        line.start_time_secs <= self.state.playback_position.as_secs_f32()
-                    })
-                })
+                .map(|l| l.partition_point(|line| line.start_time_secs <= playback_pos))
                 .unwrap_or(0);
 
             if current_idx != self.current_lyric_idx {
@@ -287,7 +290,7 @@ impl Renderer {
             }
 
             // Smoothly interpolate the scroll offset back to 0
-            self.lyric_scroll_offset *= (-12.0 * delta).exp();
+            self.lyric_scroll_offset *= decay_12;
 
             if wayland_manager.any_monitor_ready() {
                 super::draw::draw_frame(self, &mut wayland_manager, delta)?;
