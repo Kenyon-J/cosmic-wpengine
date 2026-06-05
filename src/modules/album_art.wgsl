@@ -42,26 +42,38 @@ fn sample_art(uv: vec2<f32>) -> vec4f {
     return textureSampleLevel(current_art, art_sampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
 }
 
+const BLUR_OFFSETS = array<vec2<f32>, 16>(
+    vec2<f32>(0.176777, 0.000000),
+    vec2<f32>(-0.225772, 0.206827),
+    vec2<f32>(0.034556, -0.393771),
+    vec2<f32>(0.284575, 0.371170),
+    vec2<f32>(-0.522224, -0.092367),
+    vec2<f32>(0.494690, -0.314693),
+    vec2<f32>(-0.165454, 0.615528),
+    vec2<f32>(-0.315575, -0.607588),
+    vec2<f32>(0.684649, 0.250013),
+    vec2<f32>(-0.712247, 0.294030),
+    vec2<f32>(0.343330, -0.733740),
+    vec2<f32>(0.253758, 0.808923),
+    vec2<f32>(-0.764763, -0.443157),
+    vec2<f32>(0.897126, -0.197270),
+    vec2<f32>(-0.547473, 0.778796),
+    vec2<f32>(-0.126533, -0.976084)
+);
+
 // Optimized Golden Ratio (Vogel) Spiral Blur.
 // Provides an incredibly smooth, frosted glass look matching Kawase quality
 // but executes in a single pass to save framerate.
+// This version uses pre-calculated offsets to eliminate redundant trig and sqrt calls in the hot fragment loop.
 fn blur(uv: vec2<f32>, radius: f32) -> vec4f {
     let texel_size = 1.0 / uniforms.res * radius * 6.0;
     var total = vec4<f32>(0.0);
 
-    let samples = 16.0;
-    let golden_angle = 2.39996; // ~137.5 degrees
-
     for (var i: i32 = 0; i < 16; i++) {
-        let f_i = f32(i);
-        let r = sqrt(f_i + 0.5) / sqrt(samples);
-        let theta = f_i * golden_angle;
-
-        let offset = vec2<f32>(cos(theta), sin(theta)) * r;
-        total += sample_art(uv + offset * texel_size);
+        total += sample_art(uv + BLUR_OFFSETS[i] * texel_size);
     }
 
-    return total / samples;
+    return total * 0.0625; // Multiplying by 1/16 is faster than division
 }
 
 // Maps UV coordinates to achieve an "object-fit: cover" effect.
