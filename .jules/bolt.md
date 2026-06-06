@@ -73,3 +73,7 @@
 ## 2025-02-04- Avoid Redundant Capacity Shrinking in High-Frequency Caches
 **Learning:** Calling `shrink_to_fit()` on frequently updated caches (like `text_buffer_cache` or `glyph_cache`) triggers expensive heap reallocations and memory copies. While it reclaims memory, the CPU cost in a high-frequency rendering loop or on every track change outweighs the benefits when the capacity will likely be needed again soon.
 **Action:** Use `.clear()` alone for high-frequency caches to preserve allocated capacity. Only call `shrink_to_fit()` during explicit idle periods or when the application is shutting down.
+
+## 2024-05-18 - Optimize LRU Cache Hashing
+**Learning:** `lru::LruCache` uses the standard library's cryptographically secure SipHash by default. For internal caches dealing with trusted string keys (like MPRIS metadata updates), this adds unnecessary CPU overhead.
+**Action:** Always initialize internal `LruCache` instances with `rustc_hash::FxBuildHasher` to bypass the heavy default hasher and speed up cache lookups and insertions. Use `lru::LruCache::with_hasher` instead of `lru::LruCache::new`.
