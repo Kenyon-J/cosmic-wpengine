@@ -8,3 +8,6 @@
 ## 2024-06-03 - Contextual Guidance for Text Editors
 **Learning:** In `cosmic::iced`, leaving a `text_editor` completely blank without placeholder text creates ambiguity, especially in multi-functional interfaces. Users may not know if the editor is broken, loading, or simply waiting for input. The `.placeholder()` method can accept dynamically generated strings based on application state.
 **Action:** When creating text editors that rely on external state (like a selected file), use dynamic placeholders (e.g., `if state.is_some() { "Type here..." } else { "Select a file..." }`) to provide immediate, contextual guidance without needing separate UI labels.
+## 2024-11-20 - Prevent typing in empty file editors
+**Learning:** In `cosmic::iced`, if a `text_editor` element does not have a selected file/context but retains `.on_action()`, users can still interact with it and type characters into the void, which can be confusing since there is nowhere to save it.
+**Action:** When a `text_editor` should be read-only or temporarily disabled because no file is selected, only conditionally apply `.on_action()` method when a file/context is active.
