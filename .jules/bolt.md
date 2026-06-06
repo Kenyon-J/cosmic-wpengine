@@ -73,3 +73,7 @@
 ## 2025-02-04- Avoid Redundant Capacity Shrinking in High-Frequency Caches
 **Learning:** Calling `shrink_to_fit()` on frequently updated caches (like `text_buffer_cache` or `glyph_cache`) triggers expensive heap reallocations and memory copies. While it reclaims memory, the CPU cost in a high-frequency rendering loop or on every track change outweighs the benefits when the capacity will likely be needed again soon.
 **Action:** Use `.clear()` alone for high-frequency caches to preserve allocated capacity. Only call `shrink_to_fit()` during explicit idle periods or when the application is shutting down.
+
+## 09-02-2025- Optimize Gaussian blur with pre-calculated Vogel spiral offsets
+**Learning:** Calling trigonometric and square root functions 32 times per fragment in the background blur shader creates unnecessary GPU ALU pressure. Since the sampling pattern is static, these calculations are redundant.
+**Action:** Pre-calculate Vogel spiral offsets into a `const` array in the WGSL shader to replace expensive `cos`, `sin`, and `sqrt` calls with simple array indexing, improving performance on lower-end GPUs.
