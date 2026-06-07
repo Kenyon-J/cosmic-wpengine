@@ -293,6 +293,7 @@ pub(crate) fn draw_frame(
         wayland_manager.mark_frame_rendered(i as usize); // Request the next frame callback
 
         let current_res = (gpu_out.config.width, gpu_out.config.height);
+        let screen_res_f = [gpu_out.config.width as f32, gpu_out.config.height as f32];
 
         // 1. Process visualizer uniforms
         if has_audio && last_uniform_res != Some(current_res) {
@@ -313,7 +314,7 @@ pub(crate) fn draw_frame(
             }
 
             let vis_uniforms = VisUniforms {
-                res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                res: screen_res_f,
                 bands: renderer.state.config.audio.bands as u32,
                 pulse: beat_pulse_mul, // Multiplier guarantees visible beat effects
                 top: top_col,
@@ -341,6 +342,13 @@ pub(crate) fn draw_frame(
         if (show_art_fg || show_art_bg || show_color_bg) && last_uniform_res != Some(current_res) {
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
+                let blur_step = [
+                    30.0 * renderer.state.config.appearance.blur_opacity / screen_res_f[0],
+                    30.0 * renderer.state.config.appearance.blur_opacity / screen_res_f[1],
+                ];
+                let screen_aspect = screen_res_f[0] / screen_res_f[1];
+
+                let bg_uv_transform = get_uv_transform(0, screen_res_f, album_art_texture_res);
 
                 let bg_uniforms = ArtUniforms {
                     color_and_transition: [
@@ -349,15 +357,17 @@ pub(crate) fn draw_frame(
                         color[2],
                         renderer.state.transition_progress,
                     ],
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                    uv_transform: bg_uv_transform,
                     art_position: [0.5, 0.5],
+                    blur_step,
                     audio_energy,
                     mode: album_art_bg_mode,
                     bg_alpha: album_art_bg_alpha,
                     art_size: 1.0,
                     shape: 0,
                     blur_opacity: renderer.state.config.appearance.blur_opacity,
-                    image_res: album_art_texture_res,
+                    screen_aspect,
+                    _padding: 0,
                 };
                 let bg_bytes = unsafe {
                     std::slice::from_raw_parts(
@@ -369,6 +379,14 @@ pub(crate) fn draw_frame(
                     .queue
                     .write_buffer(&renderer.album_art_bg_uniform_buffer, 0, bg_bytes);
 
+                let c = get_uv_transform(1, [1.0, 1.0], album_art_texture_res);
+                let fg_scale_x = (screen_aspect / album_art_fg_size) * c[0];
+                let fg_scale_y = (1.0 / album_art_fg_size) * c[1];
+                let fg_offset_x =
+                    (0.5 - album_art_fg_pos[0] * (screen_aspect / album_art_fg_size)) * c[0] + c[2];
+                let fg_offset_y = (0.5 - album_art_fg_pos[1] * (1.0 / album_art_fg_size)) * c[1] + c[3];
+                let fg_uv_transform = [fg_scale_x, fg_scale_y, fg_offset_x, fg_offset_y];
+
                 let fg_uniforms = ArtUniforms {
                     color_and_transition: [
                         color[0],
@@ -376,15 +394,17 @@ pub(crate) fn draw_frame(
                         color[2],
                         renderer.state.transition_progress,
                     ],
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                    uv_transform: fg_uv_transform,
                     art_position: album_art_fg_pos,
+                    blur_step: [0.0, 0.0], // FG art is never blurred
                     audio_energy,
                     mode: 1,
                     bg_alpha: 1.0, // The sharp foreground art never fades!
                     art_size: album_art_fg_size,
                     shape: album_art_fg_shape,
                     blur_opacity: 1.0,
-                    image_res: album_art_texture_res,
+                    screen_aspect,
+                    _padding: 0,
                 };
                 let fg_bytes = unsafe {
                     std::slice::from_raw_parts(
@@ -400,18 +420,26 @@ pub(crate) fn draw_frame(
 
         if last_uniform_res != Some(current_res) {
             if renderer.custom_bg_bind_group.is_some() {
+                let blur_step = [
+                    30.0 * renderer.state.config.appearance.blur_opacity / screen_res_f[0],
+                    30.0 * renderer.state.config.appearance.blur_opacity / screen_res_f[1],
+                ];
+                let bg_uv_transform = get_uv_transform(0, screen_res_f, custom_bg_texture_res);
+
                 // 4. Process custom background uniforms
                 let custom_bg_uniforms = ArtUniforms {
                     color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                    uv_transform: bg_uv_transform,
                     art_position: [0.5, 0.5],
+                    blur_step,
                     audio_energy,
                     mode: custom_bg_mode,
                     bg_alpha: custom_bg_alpha,
                     art_size: 1.0,
                     shape: 0,
                     blur_opacity: renderer.state.config.appearance.blur_opacity,
-                    image_res: custom_bg_texture_res,
+                    screen_aspect: screen_res_f[0] / screen_res_f[1],
+                    _padding: 0,
                 };
                 let cbg_bytes = unsafe {
                     std::slice::from_raw_parts(
@@ -435,7 +463,7 @@ pub(crate) fn draw_frame(
                     _padding: [f32; 3],
                 }
                 let amb_uniforms = AmbUniforms {
-                    res: [gpu_out.config.width as f32, gpu_out.config.height as f32],
+                    res: screen_res_f,
                     time: elapsed,
                     weather: weather_type,
                     sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
@@ -457,8 +485,8 @@ pub(crate) fn draw_frame(
         last_uniform_res = Some(current_res);
 
         // --- Prepare Text for Rendering ---
-        let width_f = gpu_out.config.width as f32;
-        let height_f = gpu_out.config.height as f32;
+        let width_f = screen_res_f[0];
+        let height_f = screen_res_f[1];
         let scale_factor = wayland_manager
             .app_data
             .windows
@@ -912,4 +940,37 @@ pub(crate) fn get_clear_colour_from_sky(
             a: 1.0,
         },
     }
+}
+
+fn get_uv_transform(mode: u32, screen_res: [f32; 2], image_res: [f32; 2]) -> [f32; 4] {
+    let screen_aspect = screen_res[0] / screen_res[1];
+    let image_aspect = (image_res[0] / image_res[1]).max(0.001);
+    let new_aspect = screen_aspect / image_aspect;
+
+    let mut scale_x = 1.0;
+    let mut scale_y = 1.0;
+    let mut offset_x = 0.0;
+    let mut offset_y = 0.0;
+
+    if mode == 0 || mode == 2 {
+        // object-fit: cover
+        if new_aspect > 1.0 {
+            scale_x = 1.0 / new_aspect;
+            offset_x = (1.0 - scale_x) / 2.0;
+        } else {
+            scale_y = new_aspect;
+            offset_y = (1.0 - scale_y) / 2.0;
+        }
+    } else if mode == 1 {
+        // object-fit: contain
+        if new_aspect > 1.0 {
+            scale_x = new_aspect;
+            offset_x = (1.0 - scale_x) / 2.0;
+        } else {
+            scale_y = 1.0 / new_aspect;
+            offset_y = (1.0 - scale_y) / 2.0;
+        }
+    }
+
+    [scale_x, scale_y, offset_x, offset_y]
 }
