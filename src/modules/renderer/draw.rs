@@ -384,7 +384,8 @@ pub(crate) fn draw_frame(
                 let fg_scale_y = (1.0 / album_art_fg_size) * c[1];
                 let fg_offset_x =
                     (0.5 - album_art_fg_pos[0] * (screen_aspect / album_art_fg_size)) * c[0] + c[2];
-                let fg_offset_y = (0.5 - album_art_fg_pos[1] * (1.0 / album_art_fg_size)) * c[1] + c[3];
+                let fg_offset_y =
+                    (0.5 - album_art_fg_pos[1] * (1.0 / album_art_fg_size)) * c[1] + c[3];
                 let fg_uv_transform = [fg_scale_x, fg_scale_y, fg_offset_x, fg_offset_y];
 
                 let fg_uniforms = ArtUniforms {

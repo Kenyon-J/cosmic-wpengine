@@ -11,6 +11,7 @@ struct ArtUniforms {
     shape: u32,
     blur_opacity: f32,
     screen_aspect: f32,
+    _padding: u32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: ArtUniforms;
