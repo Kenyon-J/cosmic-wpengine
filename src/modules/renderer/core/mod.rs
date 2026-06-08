@@ -261,6 +261,10 @@ impl Renderer {
             // Treble decays slightly faster for snappier, rapid hi-hats
             self.treble_pulse *= decay_15;
 
+            // Prevent subnormal float degradation which causes massive CPU slowdowns
+            if self.beat_pulse.abs() < 1e-5 { self.beat_pulse = 0.0; }
+            if self.treble_pulse.abs() < 1e-5 { self.treble_pulse = 0.0; }
+
             // Spring physics for organic lyric bounce (Hooke's Law)
             let stiffness = self.theme.effects.lyric_spring_stiffness;
             let damping = self.theme.effects.lyric_spring_damping;
@@ -268,6 +272,10 @@ impl Renderer {
                 -stiffness * self.lyric_bounce_value - damping * self.lyric_bounce_velocity;
             self.lyric_bounce_velocity += spring_force * delta;
             self.lyric_bounce_value += self.lyric_bounce_velocity * delta;
+
+            // Prevent subnormal float degradation for spring physics
+            if self.lyric_bounce_velocity.abs() < 1e-5 { self.lyric_bounce_velocity = 0.0; }
+            if self.lyric_bounce_value.abs() < 1e-5 { self.lyric_bounce_value = 0.0; }
 
             let playback_pos = self.state.playback_position.as_secs_f32();
             let current_idx = self
@@ -291,6 +299,7 @@ impl Renderer {
 
             // Smoothly interpolate the scroll offset back to 0
             self.lyric_scroll_offset *= decay_12;
+            if self.lyric_scroll_offset.abs() < 1e-5 { self.lyric_scroll_offset = 0.0; }
 
             if wayland_manager.any_monitor_ready() {
                 super::draw::draw_frame(self, &mut wayland_manager, delta)?;

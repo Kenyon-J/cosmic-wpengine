@@ -77,3 +77,7 @@
 ## 09-02-2025- Optimize Gaussian blur with pre-calculated Vogel spiral offsets
 **Learning:** Calling trigonometric and square root functions 32 times per fragment in the background blur shader creates unnecessary GPU ALU pressure. Since the sampling pattern is static, these calculations are redundant.
 **Action:** Pre-calculate Vogel spiral offsets into a `const` array in the WGSL shader to replace expensive `cos`, `sin`, and `sqrt` calls with simple array indexing, improving performance on lower-end GPUs.
+
+## 2025-06-08 - Clamp Decaying Floats to Prevent Subnormal CPU Penalty
+**Learning:** In hot rendering or audio processing loops, continuously decaying floating-point variables (like exponential smoothing or spring physics) can degrade into 'subnormal' or 'denormal' numbers. Operations on subnormals are handled by CPU microcode and can be orders of magnitude slower, causing massive CPU slowdowns.
+**Action:** Always clamp continuously decaying floating-point values to `0.0` once they fall below a perceptible threshold (e.g., `1e-5`) in the rendering loop.
