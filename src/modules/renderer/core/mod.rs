@@ -274,13 +274,18 @@ impl Renderer {
             // Optimization: Only perform the O(log N) partition_point search if the playback position
             // has actually moved past the current lyric line or jumped significantly (e.g. seeking).
             // This reduces the search to O(1) for the vast majority of frames.
-            let lyrics = self.state.current_track.as_ref().and_then(|t| t.lyrics.as_ref());
+            let lyrics = self
+                .state
+                .current_track
+                .as_ref()
+                .and_then(|t| t.lyrics.as_ref());
             let current_idx = if let Some(l) = lyrics {
                 let current_idx_base = self.current_lyric_idx;
 
                 let is_in_bounds = if current_idx_base == 0 {
                     // We are currently before the first lyric line
-                    l.get(0).map_or(true, |first| playback_pos < first.start_time_secs)
+                    l.get(0)
+                        .map_or(true, |first| playback_pos < first.start_time_secs)
                 } else {
                     // We are at or after the first lyric line
                     if let Some(curr_line) = l.get(current_idx_base - 1) {
@@ -288,7 +293,8 @@ impl Renderer {
                             false // Seek backwards
                         } else {
                             // playback_pos >= curr_line.start_time_secs, check if it's before the next line
-                            l.get(current_idx_base).map_or(true, |next| playback_pos < next.start_time_secs)
+                            l.get(current_idx_base)
+                                .map_or(true, |next| playback_pos < next.start_time_secs)
                         }
                     } else {
                         false // Array bounds changed or index invalid
