@@ -77,3 +77,7 @@
 ## 09-02-2025- Optimize Gaussian blur with pre-calculated Vogel spiral offsets
 **Learning:** Calling trigonometric and square root functions 32 times per fragment in the background blur shader creates unnecessary GPU ALU pressure. Since the sampling pattern is static, these calculations are redundant.
 **Action:** Pre-calculate Vogel spiral offsets into a `const` array in the WGSL shader to replace expensive `cos`, `sin`, and `sqrt` calls with simple array indexing, improving performance on lower-end GPUs.
+
+## 2026-06-09 - Avoid Redundant Allocations by Consuming Cached Options
+**Learning:** Calling `.clone()` on inner fields of an `Option` struct (like `track.palette.clone()`) before replacing the structure entirely introduces unnecessary heap allocations. If the outer `Option` is about to be overwritten or discarded, it is much faster to consume it using `.take()`.
+**Action:** Always prefer `.take()` over `.as_ref().and_then(|x| x.clone())` when consuming cached values from `Option<T>` structures to avoid redundant allocations.

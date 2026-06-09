@@ -93,8 +93,8 @@ impl Renderer {
                 self.state.previous_palette = self
                     .state
                     .current_track
-                    .as_ref()
-                    .and_then(|t| t.palette.clone());
+                    .take()
+                    .and_then(|t| t.palette);
                 self.state.current_track = Some(*track);
                 self.update_theme_colors();
                 self.update_text_colors();
@@ -128,8 +128,8 @@ impl Renderer {
                 self.state.previous_palette = self
                     .state
                     .current_track
-                    .as_ref()
-                    .and_then(|t| t.palette.clone());
+                    .take()
+                    .and_then(|t| t.palette);
                 self.album_art_bg_bind_group = None;
                 self.album_art_fg_bind_group = None;
                 self.current_album_texture = None;
