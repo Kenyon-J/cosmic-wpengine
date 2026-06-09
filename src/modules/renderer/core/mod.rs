@@ -285,7 +285,7 @@ impl Renderer {
 
                         let is_after_start = playback_pos >= current_line.start_time_secs;
                         let is_before_next =
-                            next_line.map_or(true, |next| playback_pos < next.start_time_secs);
+                            next_line.is_none_or(|next| playback_pos < next.start_time_secs);
 
                         if is_after_start && is_before_next {
                             return self.current_lyric_idx;
