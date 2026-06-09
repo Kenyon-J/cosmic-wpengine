@@ -90,11 +90,8 @@ impl Renderer {
                 self.cached_track_str =
                     format!("{} — {}\n{}", track.title, track.artist, track.album);
                 self.cached_track_hash = hash_str(&self.cached_track_str);
-                self.state.previous_palette = self
-                    .state
-                    .current_track
-                    .take()
-                    .and_then(|t| t.palette);
+                self.state.previous_palette =
+                    self.state.current_track.take().and_then(|t| t.palette);
                 self.state.current_track = Some(*track);
                 self.update_theme_colors();
                 self.update_text_colors();
@@ -125,11 +122,8 @@ impl Renderer {
                 self.cached_track_str.clear();
                 self.cached_track_hash = 0;
                 self.text_buffer_cache.clear();
-                self.state.previous_palette = self
-                    .state
-                    .current_track
-                    .take()
-                    .and_then(|t| t.palette);
+                self.state.previous_palette =
+                    self.state.current_track.take().and_then(|t| t.palette);
                 self.album_art_bg_bind_group = None;
                 self.album_art_fg_bind_group = None;
                 self.current_album_texture = None;
