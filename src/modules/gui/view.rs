@@ -266,7 +266,10 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
     };
 
     let is_theme_name_empty = app.new_theme_name.trim().is_empty();
-    let theme_file_name = format!("shaders/{}.toml", app.new_theme_name.trim().trim_end_matches(".toml"));
+    let theme_file_name = format!(
+        "shaders/{}.toml",
+        app.new_theme_name.trim().trim_end_matches(".toml")
+    );
     let theme_exists = !is_theme_name_empty && app.available_files.contains(&theme_file_name);
 
     let mut theme_input = text_input("New Theme Name...", &app.new_theme_name)
@@ -300,7 +303,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
             )
             .into()
         } else if theme_exists {
-             cosmic::iced::widget::tooltip(
+            cosmic::iced::widget::tooltip(
                 btn,
                 "A theme with this name already exists.",
                 cosmic::iced::widget::tooltip::Position::Top,
