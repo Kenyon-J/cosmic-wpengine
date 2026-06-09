@@ -11,3 +11,6 @@
 ## 2024-06-10 - Read-Only Text Editors
 **Learning:** In `cosmic::iced`, a `text_editor` widget is active and editable by default. When the editor is used to display content that cannot be saved (e.g., when no file is selected, or when showing static info), leaving it editable allows users to type into a void, causing confusion.
 **Action:** To make a `text_editor` read-only, conditionally apply the `.on_action()` method. If `.on_action()` is omitted, the editor becomes read-only and ignores keyboard input, preventing users from attempting to edit non-saveable text.
+## 2024-06-21 - Proactive Validation to Prevent Silent Failures
+**Learning:** Allowing users to submit a form or trigger an action (like creating a theme) that will inevitably fail due to invalid input (like an existing name) creates a frustrating UX, especially if the error is only reported *after* the attempt via a status message.
+**Action:** Provide inline validation for forms by calculating the validity of the input on every keystroke. Use this state to proactively disable both the submission button and the text input's Enter-key submission (`.on_submit()`), while providing dynamic tooltips explaining exactly *why* the action is disabled (e.g., "A theme with this name already exists.").
