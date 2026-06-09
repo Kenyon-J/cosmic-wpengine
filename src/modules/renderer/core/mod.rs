@@ -270,12 +270,29 @@ impl Renderer {
             self.lyric_bounce_value += self.lyric_bounce_velocity * delta;
 
             let playback_pos = self.state.playback_position.as_secs_f32();
+
+            // Optimization: Use an O(1) bounds check to see if we're still on the same lyric line
+            // before falling back to the O(log n) partition_point binary search.
             let current_idx = self
                 .state
                 .current_track
                 .as_ref()
                 .and_then(|t| t.lyrics.as_ref())
-                .map(|l| l.partition_point(|line| line.start_time_secs <= playback_pos))
+                .map(|lyrics| {
+                    if self.current_lyric_idx > 0 && self.current_lyric_idx <= lyrics.len() {
+                        let current_line = &lyrics[self.current_lyric_idx - 1];
+                        let next_line = lyrics.get(self.current_lyric_idx);
+
+                        let is_after_start = playback_pos >= current_line.start_time_secs;
+                        let is_before_next =
+                            next_line.map_or(true, |next| playback_pos < next.start_time_secs);
+
+                        if is_after_start && is_before_next {
+                            return self.current_lyric_idx;
+                        }
+                    }
+                    lyrics.partition_point(|line| line.start_time_secs <= playback_pos)
+                })
                 .unwrap_or(0);
 
             if current_idx != self.current_lyric_idx {
