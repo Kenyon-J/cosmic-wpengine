@@ -50,13 +50,13 @@ pub(crate) fn create_album_art_pipeline(
 
     let album_art_bg_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Album Art BG Uniform Buffer"),
-        size: 64,
+        size: 80,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
     let album_art_fg_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Album Art FG Uniform Buffer"),
-        size: 64,
+        size: 80,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -70,7 +70,7 @@ pub(crate) fn create_album_art_pipeline(
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(64),
+                    min_binding_size: wgpu::BufferSize::new(80),
                 },
                 count: None,
             },
@@ -235,7 +235,7 @@ pub(crate) fn create_ambient_pipeline(
 
     let custom_bg_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Custom BG Uniform Buffer"),
-        size: 64,
+        size: 80,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });

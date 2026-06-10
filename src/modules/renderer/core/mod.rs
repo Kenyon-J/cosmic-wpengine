@@ -261,6 +261,14 @@ impl Renderer {
             // Treble decays slightly faster for snappier, rapid hi-hats
             self.treble_pulse *= decay_15;
 
+            // Prevent subnormal float degradation which causes massive CPU slowdowns
+            if self.beat_pulse.abs() < 1e-5 {
+                self.beat_pulse = 0.0;
+            }
+            if self.treble_pulse.abs() < 1e-5 {
+                self.treble_pulse = 0.0;
+            }
+
             // Spring physics for organic lyric bounce (Hooke's Law)
             let stiffness = self.theme.effects.lyric_spring_stiffness;
             let damping = self.theme.effects.lyric_spring_damping;
@@ -269,14 +277,54 @@ impl Renderer {
             self.lyric_bounce_velocity += spring_force * delta;
             self.lyric_bounce_value += self.lyric_bounce_velocity * delta;
 
+            // Prevent subnormal float degradation for spring physics
+            if self.lyric_bounce_velocity.abs() < 1e-5 {
+                self.lyric_bounce_velocity = 0.0;
+            }
+            if self.lyric_bounce_value.abs() < 1e-5 {
+                self.lyric_bounce_value = 0.0;
+            }
+
             let playback_pos = self.state.playback_position.as_secs_f32();
-            let current_idx = self
+
+            // Optimization: Only perform the O(log N) partition_point search if the playback position
+            // has actually moved past the current lyric line or jumped significantly (e.g. seeking).
+            // This reduces the search to O(1) for the vast majority of frames.
+            let lyrics = self
                 .state
                 .current_track
                 .as_ref()
-                .and_then(|t| t.lyrics.as_ref())
-                .map(|l| l.partition_point(|line| line.start_time_secs <= playback_pos))
-                .unwrap_or(0);
+                .and_then(|t| t.lyrics.as_ref());
+            let current_idx = if let Some(l) = lyrics {
+                let current_idx_base = self.current_lyric_idx;
+
+                let is_in_bounds = if current_idx_base == 0 {
+                    // We are currently before the first lyric line
+                    l.first()
+                        .is_none_or(|first| playback_pos < first.start_time_secs)
+                } else {
+                    // We are at or after the first lyric line
+                    if let Some(curr_line) = l.get(current_idx_base - 1) {
+                        if playback_pos < curr_line.start_time_secs {
+                            false // Seek backwards
+                        } else {
+                            // playback_pos >= curr_line.start_time_secs, check if it's before the next line
+                            l.get(current_idx_base)
+                                .is_none_or(|next| playback_pos < next.start_time_secs)
+                        }
+                    } else {
+                        false // Array bounds changed or index invalid
+                    }
+                };
+
+                if is_in_bounds {
+                    current_idx_base
+                } else {
+                    l.partition_point(|line| line.start_time_secs <= playback_pos)
+                }
+            } else {
+                0
+            };
 
             if current_idx != self.current_lyric_idx {
                 if (current_idx as isize - self.current_lyric_idx as isize).abs() > 2 {
@@ -291,6 +339,9 @@ impl Renderer {
 
             // Smoothly interpolate the scroll offset back to 0
             self.lyric_scroll_offset *= decay_12;
+            if self.lyric_scroll_offset.abs() < 1e-5 {
+                self.lyric_scroll_offset = 0.0;
+            }
 
             if wayland_manager.any_monitor_ready() {
                 super::draw::draw_frame(self, &mut wayland_manager, delta)?;
