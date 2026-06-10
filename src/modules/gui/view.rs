@@ -35,7 +35,6 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
             )
             .push(bg_mode_selector)
             .spacing(20)
-            .align_y(cosmic::iced::alignment::Vertical::Center)
             .align_y(cosmic::iced::alignment::Vertical::Center),
     );
 
@@ -62,9 +61,8 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
                         .width(Length::Fixed(200.0)),
                 )
                 .push(video_selector)
-                    .spacing(20)
-                    .align_y(cosmic::iced::alignment::Vertical::Center)
-                    .align_y(cosmic::iced::alignment::Vertical::Center),
+                .spacing(20)
+                .align_y(cosmic::iced::alignment::Vertical::Center),
         );
     }
 
@@ -153,7 +151,8 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
             "Select the font used for displaying the clock, weather, and lyrics.",
             cosmic::iced::widget::tooltip::Position::Top,
         ))
-        .spacing(20).align_y(cosmic::iced::alignment::Vertical::Center);
+        .spacing(20)
+        .align_y(cosmic::iced::alignment::Vertical::Center);
 
     let framerate_row = row()
         .push(
@@ -170,7 +169,8 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
             "Higher framerates are smoother but use more system resources.",
             cosmic::iced::widget::tooltip::Position::Top,
         ))
-        .spacing(20).align_y(cosmic::iced::alignment::Vertical::Center);
+        .spacing(20)
+        .align_y(cosmic::iced::alignment::Vertical::Center);
 
     let blur_row = row()
         .push(
@@ -191,7 +191,8 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
             "Controls the strength of the background blur (only applies to Frosted Glass mode).",
             cosmic::iced::widget::tooltip::Position::Top,
         ))
-        .spacing(20).align_y(cosmic::iced::alignment::Vertical::Center);
+        .spacing(20)
+        .align_y(cosmic::iced::alignment::Vertical::Center);
 
     let file_selector = cosmic::iced::widget::tooltip(
         pick_list(
@@ -307,7 +308,8 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         .push(text(" | ").font(font))
         .push(new_theme_input)
         .push(create_btn)
-        .spacing(10).align_y(cosmic::iced::alignment::Vertical::Center);
+        .spacing(10)
+        .align_y(cosmic::iced::alignment::Vertical::Center);
 
     let mut editor = text_editor(&app.editor_content)
         .font(cosmic::iced::Font::MONOSPACE)
@@ -380,7 +382,8 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         .push(version_display)
         .push(notes_btn)
         .push(report_btn)
-        .spacing(15).align_y(cosmic::iced::alignment::Vertical::Center);
+        .spacing(15)
+        .align_y(cosmic::iced::alignment::Vertical::Center);
 
     let mut main_col = column()
         .push(text("COSMIC Wallpaper Settings").font(font).size(32))
