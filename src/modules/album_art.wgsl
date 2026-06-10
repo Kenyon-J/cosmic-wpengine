@@ -1,15 +1,17 @@
 // v4
 struct ArtUniforms {
     color_and_transition: vec4<f32>,
-    res: vec2<f32>,
+    uv_transform: vec4<f32>, // scale_x, scale_y, offset_x, offset_y
     art_position: vec2<f32>,
+    blur_step: vec2<f32>,
     audio_energy: f32,
     mode: u32,
     bg_alpha: f32,
     art_size: f32,
     shape: u32,
     blur_opacity: f32,
-    image_res: vec2<f32>,
+    screen_aspect: f32,
+    _padding: u32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: ArtUniforms;
@@ -64,47 +66,15 @@ const BLUR_OFFSETS = array<vec2<f32>, 16>(
 // Optimized Golden Ratio (Vogel) Spiral Blur.
 // Provides an incredibly smooth, frosted glass look matching Kawase quality
 // but executes in a single pass to save framerate.
-fn blur(uv: vec2<f32>, radius: f32) -> vec4f {
-    let texel_size = 1.0 / uniforms.res * radius * 6.0;
+fn blur(uv: vec2<f32>) -> vec4f {
     var total = vec4<f32>(0.0);
 
     for (var i: i32 = 0; i < 16; i++) {
         let offset = BLUR_OFFSETS[i];
-        total += sample_art(uv + offset * texel_size);
+        total += sample_art(uv + offset * uniforms.blur_step);
     }
 
     return total / 16.0;
-}
-
-// Maps UV coordinates to achieve an "object-fit: cover" effect.
-// The image fills the entire area, potentially cropping parts of the image.
-fn get_object_cover_uv(uv: vec2<f32>, screen_aspect: f32, image_aspect: f32) -> vec2<f32> {
-    var tex_uv = uv;
-    let new_aspect = screen_aspect / image_aspect;
-
-    if (new_aspect > 1.0) { // Screen is wider than image, fit to height, crop width
-        let scale = 1.0 / new_aspect;
-        tex_uv.x = tex_uv.x * scale + (1.0 - scale) / 2.0;
-    } else { // Screen is taller than image, fit to width, crop height
-        let scale = new_aspect;
-        tex_uv.y = tex_uv.y * scale + (1.0 - scale) / 2.0;
-    }
-    return tex_uv;
-}
-
-// Maps UV coordinates to achieve an "object-fit: contain" effect.
-// The returned UVs may be outside the [0, 1] range, which indicates
-// the pixel is in a letterbox/pillarbox area.
-fn get_object_contain_uv(uv: vec2<f32>, screen_aspect: f32, image_aspect: f32) -> vec2<f32> {
-    var tex_uv = uv - 0.5;
-    let new_aspect = screen_aspect / image_aspect;
-
-    if (new_aspect > 1.0) { // Screen is wider than image, pillarbox
-        tex_uv.x *= new_aspect;
-    } else { // Screen is taller than image, letterbox
-        tex_uv.y /= new_aspect;
-    }
-    return tex_uv + 0.5;
 }
 
 fn get_shape_mask(point: vec2<f32>, size: f32, shape: u32) -> f32 {
@@ -126,22 +96,18 @@ fn get_shape_mask(point: vec2<f32>, size: f32, shape: u32) -> f32 {
 // Runs for every pixel. Returns the colour of that pixel.
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    let screen_aspect = uniforms.res.x / uniforms.res.y;
-    let image_aspect = max(uniforms.image_res.x / max(uniforms.image_res.y, 1.0), 0.001);
     let uv = in.uv;
 
     // --- Mode 0: Frosted Glass Background ---
     if uniforms.mode == 0u {
-        let cover_uv = get_object_cover_uv(uv, screen_aspect, image_aspect); // Use cover for background
+        let cover_uv = uv * uniforms.uv_transform.xy + uniforms.uv_transform.zw;
         let raw_bg = sample_art(cover_uv);
         
         if uniforms.blur_opacity < 0.01 {
             return vec4<f32>(raw_bg.rgb, uniforms.bg_alpha);
         }
         
-        // Dynamically scale the blur radius based on the opacity slider
-        let blur_radius = uniforms.blur_opacity * 5.0; 
-        let blurred_bg = blur(cover_uv, blur_radius); // Use cover for background
+        let blurred_bg = blur(cover_uv); // Use pre-calculated blur step
         
         // Fade between the sharp and blurred image
         var final_color = mix(raw_bg.rgb, blurred_bg.rgb, uniforms.blur_opacity);
@@ -158,7 +124,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // --- Mode 1: Foreground Album Art ---
     if uniforms.mode == 1u {
         let p = uv - uniforms.art_position;
-        let p_aspect = p * vec2<f32>(screen_aspect, 1.0);
+        let p_aspect = p * vec2<f32>(uniforms.screen_aspect, 1.0);
 
         // --- Drop Shadow ---
         // Create a soft, blurred shadow by sampling the shape mask at an offset.
@@ -173,8 +139,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
             discard;
         }
 
-        let local_uv = (p_aspect / uniforms.art_size) + 0.5;
-        let art_uv = get_object_contain_uv(local_uv, 1.0, image_aspect);
+        // Use CPU-hoisted MAD UV transform for foreground containment
+        let art_uv = uv * uniforms.uv_transform.xy + uniforms.uv_transform.zw;
 
         var final_color = vec4<f32>(0.0, 0.0, 0.0, shadow_mask * 0.6); // Base shadow
         
@@ -195,7 +161,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     // --- Mode 2: Solid (Un-blurred) Background ---
     if uniforms.mode == 2u {
-        let cover_uv = get_object_cover_uv(uv, screen_aspect, image_aspect); // Use cover for background
+        let cover_uv = uv * uniforms.uv_transform.xy + uniforms.uv_transform.zw;
         let art_color = sample_art(cover_uv);
         return vec4<f32>(art_color.rgb, uniforms.bg_alpha);
     }
