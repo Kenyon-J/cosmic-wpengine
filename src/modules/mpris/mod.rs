@@ -185,11 +185,20 @@ impl MprisWatcher {
 
         let cache_cap = std::num::NonZeroUsize::new(50)
             .ok_or_else(|| anyhow::anyhow!("Failed to initialize non-zero cache capacity"))?;
-        let mut palette_cache: lru::LruCache<String, Box<[[f32; 3]]>> =
-            lru::LruCache::new(cache_cap);
-        let mut lyrics_cache: lru::LruCache<String, Option<Box<[LyricLine]>>> =
-            lru::LruCache::new(cache_cap);
-        let mut video_cache: lru::LruCache<String, Option<String>> = lru::LruCache::new(cache_cap);
+
+        // Optimization: Use `rustc_hash::FxBuildHasher` instead of the default SipHash for the LRU caches.
+        // FxHash provides a measurable speedup for string keys in internal caching where cryptographic collision
+        // resistance is unnecessary, reducing overhead during rapid track changes or metadata updates.
+        let mut palette_cache: lru::LruCache<String, Box<[[f32; 3]]>, rustc_hash::FxBuildHasher> =
+            lru::LruCache::with_hasher(cache_cap, rustc_hash::FxBuildHasher);
+        let mut lyrics_cache: lru::LruCache<
+            String,
+            Option<Box<[LyricLine]>>,
+            rustc_hash::FxBuildHasher,
+        > = lru::LruCache::with_hasher(cache_cap, rustc_hash::FxBuildHasher);
+        let mut video_cache: lru::LruCache<String, Option<String>, rustc_hash::FxBuildHasher> =
+            lru::LruCache::with_hasher(cache_cap, rustc_hash::FxBuildHasher);
+
         let mut video_cancel_tx: Option<tokio::sync::watch::Sender<bool>> = None;
 
         let mut last_show_lyrics = *show_lyrics_rx.borrow();
@@ -324,9 +333,13 @@ impl MprisWatcher {
 
     async fn build_track_info(
         meta: &MetadataUpdate,
-        palette_cache: &mut lru::LruCache<String, Box<[[f32; 3]]>>,
-        lyrics_cache: &mut lru::LruCache<String, Option<Box<[LyricLine]>>>,
-        video_cache: &mut lru::LruCache<String, Option<String>>,
+        palette_cache: &mut lru::LruCache<String, Box<[[f32; 3]]>, rustc_hash::FxBuildHasher>,
+        lyrics_cache: &mut lru::LruCache<
+            String,
+            Option<Box<[LyricLine]>>,
+            rustc_hash::FxBuildHasher,
+        >,
+        video_cache: &mut lru::LruCache<String, Option<String>, rustc_hash::FxBuildHasher>,
         fetch_lyrics: bool,
         client: &reqwest::Client,
     ) -> TrackInfo {
