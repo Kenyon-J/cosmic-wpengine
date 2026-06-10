@@ -11,3 +11,6 @@
 ## 2024-06-10 - Read-Only Text Editors
 **Learning:** In `cosmic::iced`, a `text_editor` widget is active and editable by default. When the editor is used to display content that cannot be saved (e.g., when no file is selected, or when showing static info), leaving it editable allows users to type into a void, causing confusion.
 **Action:** To make a `text_editor` read-only, conditionally apply the `.on_action()` method. If `.on_action()` is omitted, the editor becomes read-only and ignores keyboard input, preventing users from attempting to edit non-saveable text.
+## 2024-07-28 - Vertically Centered Form Rows
+**Learning:** In `cosmic::iced`, when building form rows that contain both text labels and input widgets (like toggles, pick lists, or inputs) of differing heights, the default alignment can cause the text to look off-center relative to the input element.
+**Action:** Use the `.align_y(cosmic::iced::Alignment::Center)` method on the `Row` container to ensure all elements are vertically centered with each other, improving visual consistency.
