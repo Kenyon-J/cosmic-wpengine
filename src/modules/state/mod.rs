@@ -11,6 +11,7 @@ pub struct AppState {
     pub is_playing: bool,
     pub previous_palette: Option<Box<[[f32; 3]]>>,
     pub playback_position: std::time::Duration,
+    pub playback_pos_secs: f32,
 
     pub audio_bands: Box<[f32]>,
     pub audio_waveform: Box<[f32]>,
@@ -39,6 +40,7 @@ impl AppState {
             is_playing: false,
             previous_palette: None,
             playback_position: std::time::Duration::ZERO,
+            playback_pos_secs: 0.0,
             audio_bands: vec![0.0; band_count].into_boxed_slice(),
             audio_waveform: vec![0.0; band_count].into_boxed_slice(),
             audio_energy: 0.0,
@@ -66,6 +68,7 @@ impl AppState {
 
         if self.is_playing {
             self.playback_position += std::time::Duration::from_secs_f32(delta_seconds);
+            self.playback_pos_secs = self.playback_position.as_secs_f32();
         }
     }
 

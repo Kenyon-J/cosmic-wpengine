@@ -152,6 +152,7 @@ impl Renderer {
 
             Event::PlaybackPosition(pos) => {
                 self.state.playback_position = pos;
+                self.state.playback_pos_secs = pos.as_secs_f32();
             }
 
             Event::AudioFrame { bands, waveform } => {

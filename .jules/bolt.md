@@ -77,3 +77,7 @@
 ## 09-02-2025- Optimize Gaussian blur with pre-calculated Vogel spiral offsets
 **Learning:** Calling trigonometric and square root functions 32 times per fragment in the background blur shader creates unnecessary GPU ALU pressure. Since the sampling pattern is static, these calculations are redundant.
 **Action:** Pre-calculate Vogel spiral offsets into a `const` array in the WGSL shader to replace expensive `cos`, `sin`, and `sqrt` calls with simple array indexing, improving performance on lower-end GPUs.
+
+## 10-06-2026- Optimize Lyric Tracking and Multi-Monitor Text Caching
+**Learning:** Performing binary search (`partition_point`) for lyric line indexing every frame is wasteful when playback usually stays on the same line for thousands of frames. Additionally, caching text buffers by monitor index prevents sharing between identical monitors (same resolution/DPI).
+**Action:** Implement O(1) checks for temporal data tracking (like lyrics) to skip binary search. Use display properties (resolution and scale bits) instead of indices for cache keys to enable cross-monitor resource sharing.

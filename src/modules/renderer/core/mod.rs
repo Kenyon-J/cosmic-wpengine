@@ -269,13 +269,25 @@ impl Renderer {
             self.lyric_bounce_velocity += spring_force * delta;
             self.lyric_bounce_value += self.lyric_bounce_velocity * delta;
 
-            let playback_pos = self.state.playback_position.as_secs_f32();
+            let playback_pos = self.state.playback_pos_secs;
             let current_idx = self
                 .state
                 .current_track
                 .as_ref()
                 .and_then(|t| t.lyrics.as_ref())
-                .map(|l| l.partition_point(|line| line.start_time_secs <= playback_pos))
+                .map(|lyrics| {
+                    let cur = self.current_lyric_idx;
+                    // Optimization: O(1) check if we are still on the current lyric line.
+                    // This avoids a binary search for >99% of frames.
+                    if cur > 0 && cur <= lyrics.len() {
+                        let start = lyrics[cur - 1].start_time_secs;
+                        let end = lyrics.get(cur).map_or(f32::MAX, |l| l.start_time_secs);
+                        if playback_pos >= start && playback_pos < end {
+                            return cur;
+                        }
+                    }
+                    lyrics.partition_point(|line| line.start_time_secs <= playback_pos)
+                })
                 .unwrap_or(0);
 
             if current_idx != self.current_lyric_idx {

@@ -534,7 +534,9 @@ pub(crate) fn draw_frame(
                                 let metrics =
                                     Metrics::new(active_font_size, active_font_size * 1.2);
                                 let text_key = TextCacheKey::Lyric {
-                                    monitor: i,
+                                    width: gpu_out.config.width,
+                                    height: gpu_out.config.height,
+                                    scale_bits: scale_factor.to_bits(),
                                     line: line_idx as u32,
                                     content_hash: lyric_line.text_hash,
                                 };
@@ -591,7 +593,9 @@ pub(crate) fn draw_frame(
                 let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
                 let text_key = TextCacheKey::Track {
-                    monitor: i,
+                    width: gpu_out.config.width,
+                    height: gpu_out.config.height,
+                    scale_bits: scale_factor.to_bits(),
                     content_hash: track_hash,
                 };
                 let mut buffer =
@@ -647,7 +651,9 @@ pub(crate) fn draw_frame(
                 let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
                 let text_key = TextCacheKey::Weather {
-                    monitor: i,
+                    width: gpu_out.config.width,
+                    height: gpu_out.config.height,
+                    scale_bits: scale_factor.to_bits(),
                     content_hash: weather_hash,
                 };
                 let mut buffer =
