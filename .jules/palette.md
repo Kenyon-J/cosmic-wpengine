@@ -13,3 +13,6 @@
 ## 2024-05-19 - Conditionally Hiding Irrelevant UI Elements
 **Learning:** In `cosmic::iced`, it is a better UX practice to conditionally hide a setting (like a slider) entirely when it doesn't apply to the currently selected mode, rather than showing it constantly with an explanatory tooltip.
 **Action:** Use a mutable container (like `let mut main_col = column()...`) to conditionally push configuration rows to the UI based on top-level state selections.
+## 2024-05-20 - Proactive Inline Validation for Forms
+**Learning:** Preventing user errors through proactive inline validation creates a smoother experience than relying on post-submission error messages. Disabling submission buttons and text inputs conditionally based on this validation state, while providing dynamic tooltips that explicitly explain why the action is disabled (e.g., 'A theme with this name already exists'), ensures users aren't left guessing why their action failed or was blocked.
+**Action:** Provide inline validation for forms by calculating validity on every keystroke. Prevent silent failures by using this state to conditionally disable submission elements and add clear explanatory tooltips.
