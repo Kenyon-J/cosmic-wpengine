@@ -123,6 +123,7 @@ impl Renderer {
         self.album_art_fg_bind_group = Some(fg_bind_group);
         self.current_album_texture = Some(texture);
         self.current_album_size = Some(dimensions);
+        self.album_art_aspect = (dimensions.0 as f32 / dimensions.1 as f32).max(0.001);
     }
 
     pub(crate) fn update_canvas_video_frame(&mut self, rgba: &image::RgbaImage) {
@@ -421,6 +422,7 @@ impl Renderer {
                 label: Some("Custom Background Bind Group"),
             }));
         self.current_custom_bg_texture = Some(texture);
+        self.custom_bg_aspect = (dimensions.0 as f32 / dimensions.1 as f32).max(0.001);
     }
 
     pub(crate) fn update_text_colors(&mut self) {

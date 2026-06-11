@@ -220,10 +220,6 @@ impl TextRenderer {
         let width_to_ndc = 2.0 / width;
         let height_to_ndc = 2.0 / height;
 
-        for p_buf in positioned_buffers.iter_mut() {
-            p_buf.buffer.shape_until_scroll(font_system, false);
-        }
-
         for p_buf in positioned_buffers {
             let origin_x = match p_buf.align {
                 cosmic_text::Align::Left => 0.0,

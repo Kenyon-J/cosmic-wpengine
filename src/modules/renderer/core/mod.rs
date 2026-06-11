@@ -104,6 +104,8 @@ pub struct Renderer {
     pub(crate) vis_prev_colors: ([f32; 3], [f32; 3]),
     pub(crate) art_target_color: [f32; 3],
     pub(crate) art_prev_color: [f32; 3],
+    pub(crate) album_art_aspect: f32,
+    pub(crate) custom_bg_aspect: f32,
 }
 
 impl Renderer {

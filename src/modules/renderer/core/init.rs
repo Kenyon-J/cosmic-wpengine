@@ -250,6 +250,8 @@ impl Renderer {
             vis_prev_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
             art_target_color: [0.1, 0.1, 0.1],
             art_prev_color: [0.1, 0.1, 0.1],
+            album_art_aspect: 1.0,
+            custom_bg_aspect: 1.0,
         };
 
         let path = renderer

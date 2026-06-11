@@ -192,16 +192,7 @@ pub(crate) fn draw_frame(
         0
     };
     let album_art_bg_alpha = 1.0 - renderer.state.transparent_fade;
-    let album_art_texture_res = [
-        renderer
-            .current_album_size
-            .map(|s| s.0 as f32)
-            .unwrap_or(1.0),
-        renderer
-            .current_album_size
-            .map(|s| s.1 as f32)
-            .unwrap_or(1.0),
-    ];
+    let album_art_aspect = renderer.album_art_aspect;
 
     let mut album_art_fg_pos = renderer.theme.album_art.position;
     let mut album_art_fg_size = renderer.theme.album_art.size;
@@ -224,19 +215,12 @@ pub(crate) fn draw_frame(
         0
     };
     let custom_bg_alpha = 1.0 - renderer.state.transparent_fade;
-    let custom_bg_texture_res = [
-        renderer
-            .current_custom_bg_size
-            .map(|s| s.0 as f32)
-            .unwrap_or(1.0),
-        renderer
-            .current_custom_bg_size
-            .map(|s| s.1 as f32)
-            .unwrap_or(1.0),
-    ];
+    let custom_bg_aspect = renderer.custom_bg_aspect;
 
     let mut last_text_params = None;
     let mut last_uniform_res = None;
+
+    let blur_opacity = renderer.state.config.appearance.blur_opacity;
 
     // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
     let secondary_text = renderer.secondary_text_color;
@@ -249,6 +233,10 @@ pub(crate) fn draw_frame(
             TextAlign::Right => cosmic_text::Align::Right,
         }
     };
+
+    let lyrics_align = map_align(&renderer.theme.lyrics.align);
+    let track_info_align = map_align(&renderer.theme.track_info.align);
+    let weather_align = map_align(&renderer.theme.weather.align);
 
     let family = renderer
         .state
@@ -294,6 +282,7 @@ pub(crate) fn draw_frame(
 
         let current_res = (gpu_out.config.width, gpu_out.config.height);
         let screen_res_f = [gpu_out.config.width as f32, gpu_out.config.height as f32];
+        let screen_aspect = screen_res_f[0] / screen_res_f[1];
 
         // 1. Process visualizer uniforms
         if has_audio && last_uniform_res != Some(current_res) {
@@ -343,12 +332,11 @@ pub(crate) fn draw_frame(
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
                 let blur_step = [
-                    30.0 * renderer.state.config.appearance.blur_opacity / screen_res_f[0],
-                    30.0 * renderer.state.config.appearance.blur_opacity / screen_res_f[1],
+                    30.0 * blur_opacity / screen_res_f[0],
+                    30.0 * blur_opacity / screen_res_f[1],
                 ];
-                let screen_aspect = screen_res_f[0] / screen_res_f[1];
 
-                let bg_uv_transform = get_uv_transform(0, screen_res_f, album_art_texture_res);
+                let bg_uv_transform = get_uv_transform(0, screen_aspect, album_art_aspect);
 
                 let bg_uniforms = ArtUniforms {
                     color_and_transition: [
@@ -365,7 +353,7 @@ pub(crate) fn draw_frame(
                     bg_alpha: album_art_bg_alpha,
                     art_size: 1.0,
                     shape: 0,
-                    blur_opacity: renderer.state.config.appearance.blur_opacity,
+                    blur_opacity,
                     screen_aspect,
                     _padding: 0,
                 };
@@ -379,7 +367,7 @@ pub(crate) fn draw_frame(
                     .queue
                     .write_buffer(&renderer.album_art_bg_uniform_buffer, 0, bg_bytes);
 
-                let c = get_uv_transform(1, [1.0, 1.0], album_art_texture_res);
+                let c = get_uv_transform(1, 1.0, album_art_aspect);
                 let fg_scale_x = (screen_aspect / album_art_fg_size) * c[0];
                 let fg_scale_y = (1.0 / album_art_fg_size) * c[1];
                 let fg_offset_x =
@@ -422,10 +410,10 @@ pub(crate) fn draw_frame(
         if last_uniform_res != Some(current_res) {
             if renderer.custom_bg_bind_group.is_some() {
                 let blur_step = [
-                    30.0 * renderer.state.config.appearance.blur_opacity / screen_res_f[0],
-                    30.0 * renderer.state.config.appearance.blur_opacity / screen_res_f[1],
+                    30.0 * blur_opacity / screen_res_f[0],
+                    30.0 * blur_opacity / screen_res_f[1],
                 ];
-                let bg_uv_transform = get_uv_transform(0, screen_res_f, custom_bg_texture_res);
+                let bg_uv_transform = get_uv_transform(0, screen_aspect, custom_bg_aspect);
 
                 // 4. Process custom background uniforms
                 let custom_bg_uniforms = ArtUniforms {
@@ -438,8 +426,8 @@ pub(crate) fn draw_frame(
                     bg_alpha: custom_bg_alpha,
                     art_size: 1.0,
                     shape: 0,
-                    blur_opacity: renderer.state.config.appearance.blur_opacity,
-                    screen_aspect: screen_res_f[0] / screen_res_f[1],
+                    blur_opacity,
+                    screen_aspect,
                     _padding: 0,
                 };
                 let cbg_bytes = unsafe {
@@ -590,7 +578,7 @@ pub(crate) fn draw_frame(
                                 buffer.set_metrics(&mut renderer.font_system, metrics);
                                 buffer.set_size(&mut renderer.font_system, width_f, height_f);
 
-                                let align = map_align(&renderer.theme.lyrics.align);
+                                let align = lyrics_align;
                                 buffer.lines.iter_mut().for_each(
                                     |line: &mut cosmic_text::BufferLine| {
                                         line.set_align(Some(align));
@@ -648,7 +636,7 @@ pub(crate) fn draw_frame(
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                let align = map_align(&renderer.theme.track_info.align);
+                let align = track_info_align;
                 buffer
                     .lines
                     .iter_mut()
@@ -704,7 +692,7 @@ pub(crate) fn draw_frame(
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                let align = map_align(&renderer.theme.weather.align);
+                let align = weather_align;
                 buffer
                     .lines
                     .iter_mut()
@@ -943,9 +931,7 @@ pub(crate) fn get_clear_colour_from_sky(
     }
 }
 
-fn get_uv_transform(mode: u32, screen_res: [f32; 2], image_res: [f32; 2]) -> [f32; 4] {
-    let screen_aspect = screen_res[0] / screen_res[1];
-    let image_aspect = (image_res[0] / image_res[1]).max(0.001);
+fn get_uv_transform(mode: u32, screen_aspect: f32, image_aspect: f32) -> [f32; 4] {
     let new_aspect = screen_aspect / image_aspect;
 
     let mut scale_x = 1.0;
