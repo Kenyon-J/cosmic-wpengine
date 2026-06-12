@@ -7,16 +7,22 @@ use cosmic_text::{self, Buffer, FontSystem, SwashCache};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TextCacheKey {
     Lyric {
-        monitor: u32,
+        width: u32,
+        height: u32,
+        scale_bits: u32,
         line: u32,
         content_hash: u64,
     },
     Track {
-        monitor: u32,
+        width: u32,
+        height: u32,
+        scale_bits: u32,
         content_hash: u64,
     },
     Weather {
-        monitor: u32,
+        width: u32,
+        height: u32,
+        scale_bits: u32,
         content_hash: u64,
     },
 }

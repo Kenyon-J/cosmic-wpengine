@@ -81,3 +81,7 @@
 ## 2025-06-08 - Clamp Decaying Floats to Prevent Subnormal CPU Penalty
 **Learning:** In hot rendering or audio processing loops, continuously decaying floating-point variables (like exponential smoothing or spring physics) can degrade into 'subnormal' or 'denormal' numbers. Operations on subnormals are handled by CPU microcode and can be orders of magnitude slower, causing massive CPU slowdowns.
 **Action:** Always clamp continuously decaying floating-point values to `0.0` once they fall below a perceptible threshold (e.g., `1e-5`) in the rendering loop.
+
+## 08-02-2025- Optimize Multi-Monitor Text Shaping with Resolution-Aware Caching
+**Learning:** Using a physical monitor index as a cache key prevents sharing expensive shaped text buffers across identical displays (e.g., dual 4K setups). Shifting to a key based on display dimensions and scaling factor allows for 100% cache reuse across matching monitors.
+**Action:** For all display-dependent caches, prefer using invariant resolution and scaling properties as keys instead of arbitrary monitor indices to maximize reuse in multi-monitor environments.

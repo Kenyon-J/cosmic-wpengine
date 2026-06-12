@@ -258,6 +258,21 @@ pub(crate) fn draw_frame(
     let lyric_bounce = renderer.lyric_bounce_value;
     let beat_pulse_mul = pulse * 2.0;
 
+    // Optimization: Hoist display-invariant visualizer instance count
+    let vis_instance_count = if renderer.is_waveform_style {
+        1
+    } else if renderer.theme.visualiser.shape == VisShape::Linear {
+        renderer.state.config.audio.bands as u32
+    } else {
+        renderer.state.config.audio.bands as u32 * 2
+    };
+
+    // Optimization: Hoist foreground album art UV transform components
+    let fg_art_base_uv = get_uv_transform(1, 1.0, album_art_aspect);
+
+    // Optimization: Pre-calculate scaled blur factor
+    let blur_factor = 30.0 * blur_opacity;
+
     for (i_idx, gpu_out) in renderer.outputs.iter_mut().enumerate() {
         let i = i_idx as u32;
         if wayland_manager.is_frame_pending(i as usize) {
@@ -332,8 +347,8 @@ pub(crate) fn draw_frame(
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
                 let blur_step = [
-                    30.0 * blur_opacity / screen_res_f[0],
-                    30.0 * blur_opacity / screen_res_f[1],
+                    blur_factor / screen_res_f[0],
+                    blur_factor / screen_res_f[1],
                 ];
 
                 let bg_uv_transform = get_uv_transform(0, screen_aspect, album_art_aspect);
@@ -367,13 +382,14 @@ pub(crate) fn draw_frame(
                     .queue
                     .write_buffer(&renderer.album_art_bg_uniform_buffer, 0, bg_bytes);
 
-                let c = get_uv_transform(1, 1.0, album_art_aspect);
-                let fg_scale_x = (screen_aspect / album_art_fg_size) * c[0];
-                let fg_scale_y = (1.0 / album_art_fg_size) * c[1];
-                let fg_offset_x =
-                    (0.5 - album_art_fg_pos[0] * (screen_aspect / album_art_fg_size)) * c[0] + c[2];
-                let fg_offset_y =
-                    (0.5 - album_art_fg_pos[1] * (1.0 / album_art_fg_size)) * c[1] + c[3];
+                let fg_scale_x = (screen_aspect / album_art_fg_size) * fg_art_base_uv[0];
+                let fg_scale_y = (1.0 / album_art_fg_size) * fg_art_base_uv[1];
+                let fg_offset_x = (0.5 - album_art_fg_pos[0] * (screen_aspect / album_art_fg_size))
+                    * fg_art_base_uv[0]
+                    + fg_art_base_uv[2];
+                let fg_offset_y = (0.5 - album_art_fg_pos[1] * (1.0 / album_art_fg_size))
+                    * fg_art_base_uv[1]
+                    + fg_art_base_uv[3];
                 let fg_uv_transform = [fg_scale_x, fg_scale_y, fg_offset_x, fg_offset_y];
 
                 let fg_uniforms = ArtUniforms {
@@ -410,8 +426,8 @@ pub(crate) fn draw_frame(
         if last_uniform_res != Some(current_res) {
             if renderer.custom_bg_bind_group.is_some() {
                 let blur_step = [
-                    30.0 * blur_opacity / screen_res_f[0],
-                    30.0 * blur_opacity / screen_res_f[1],
+                    blur_factor / screen_res_f[0],
+                    blur_factor / screen_res_f[1],
                 ];
                 let bg_uv_transform = get_uv_transform(0, screen_aspect, custom_bg_aspect);
 
@@ -483,12 +499,9 @@ pub(crate) fn draw_frame(
             .map(|w| w.scale_factor as f32)
             .unwrap_or(1.0);
         let logical_height = height_f / scale_factor;
+        let scale_bits = scale_factor.to_bits();
 
-        let current_text_params = (
-            gpu_out.config.width,
-            gpu_out.config.height,
-            scale_factor as u32,
-        );
+        let current_text_params = (gpu_out.config.width, gpu_out.config.height, scale_bits);
 
         if last_text_params != Some(current_text_params) {
             for p_buf in renderer.text_buffers.drain(..) {
@@ -548,10 +561,11 @@ pub(crate) fn draw_frame(
                             let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
 
                             if final_color[3] > 0.01 {
-                                let metrics =
-                                    Metrics::new(active_font_size, active_font_size * 1.2);
+                                let metrics = Metrics::new(active_font_size, active_font_size * 1.2);
                                 let text_key = TextCacheKey::Lyric {
-                                    monitor: i,
+                                    width: gpu_out.config.width,
+                                    height: gpu_out.config.height,
+                                    scale_bits,
                                     line: line_idx as u32,
                                     content_hash: lyric_line.text_hash,
                                 };
@@ -608,7 +622,9 @@ pub(crate) fn draw_frame(
                 let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
                 let text_key = TextCacheKey::Track {
-                    monitor: i,
+                    width: gpu_out.config.width,
+                    height: gpu_out.config.height,
+                    scale_bits,
                     content_hash: track_hash,
                 };
                 let mut buffer =
@@ -664,7 +680,9 @@ pub(crate) fn draw_frame(
                 let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
                 let text_key = TextCacheKey::Weather {
-                    monitor: i,
+                    width: gpu_out.config.width,
+                    height: gpu_out.config.height,
+                    scale_bits,
                     content_hash: weather_hash,
                 };
                 let mut buffer =
@@ -833,14 +851,7 @@ pub(crate) fn draw_frame(
             if has_audio {
                 render_pass.set_pipeline(&renderer.visualiser_pass.pipeline);
                 render_pass.set_bind_group(0, &renderer.visualiser_pass.bind_group, &[]);
-                let instance_count = if renderer.is_waveform_style {
-                    1
-                } else if renderer.theme.visualiser.shape == VisShape::Linear {
-                    renderer.state.config.audio.bands as u32
-                } else {
-                    renderer.state.config.audio.bands as u32 * 2
-                };
-                render_pass.draw(0..6, 0..instance_count);
+                render_pass.draw(0..6, 0..vis_instance_count);
             }
 
             if show_art_fg {
