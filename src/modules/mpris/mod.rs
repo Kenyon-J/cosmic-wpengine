@@ -543,16 +543,26 @@ impl MprisWatcher {
                 .resolve(host_str, safe_addr)
                 .build()?;
 
-            let bytes = safe_client
+            let mut response = safe_client
                 .get(url_str)
                 .send()
                 .await
                 .map_err(|e| {
                     warn!("HTTP request failed for art: {}", e);
                     e
-                })?
-                .bytes()
-                .await?;
+                })?;
+
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await? {
+                bytes.extend_from_slice(&chunk);
+                // Prevent OOM DoS from infinite streams or massive files
+                // Cap HTTP album art downloads to 20 MB.
+                if bytes.len() > 20 * 1024 * 1024 {
+                    anyhow::bail!(
+                        "Security violation: Album art exceeds 20MB size limit (DoS prevention)"
+                    );
+                }
+            }
 
             // Optimization: Image decoding is a synchronous, CPU-intensive task.
             // Offloading this to spawn_blocking prevents it from stalling the main async executor.
