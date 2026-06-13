@@ -221,6 +221,19 @@ pub(crate) fn draw_frame(
     let mut last_uniform_res = None;
 
     let blur_opacity = renderer.state.config.appearance.blur_opacity;
+    let blur_factor = 30.0 * blur_opacity;
+
+    // Optimization: Hoist visualizer instance count out of the monitor loop
+    let instance_count = if renderer.is_waveform_style {
+        1
+    } else if renderer.theme.visualiser.shape == VisShape::Linear {
+        renderer.state.config.audio.bands as u32
+    } else {
+        renderer.state.config.audio.bands as u32 * 2
+    };
+
+    // Optimization: Hoist foreground album art UV base transform out of the monitor loop
+    let fg_art_base_uv = get_uv_transform(1, 1.0, album_art_aspect);
 
     // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
     let secondary_text = renderer.secondary_text_color;
@@ -332,8 +345,8 @@ pub(crate) fn draw_frame(
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
                 let blur_step = [
-                    30.0 * blur_opacity / screen_res_f[0],
-                    30.0 * blur_opacity / screen_res_f[1],
+                    blur_factor / screen_res_f[0],
+                    blur_factor / screen_res_f[1],
                 ];
 
                 let bg_uv_transform = get_uv_transform(0, screen_aspect, album_art_aspect);
@@ -367,7 +380,7 @@ pub(crate) fn draw_frame(
                     .queue
                     .write_buffer(&renderer.album_art_bg_uniform_buffer, 0, bg_bytes);
 
-                let c = get_uv_transform(1, 1.0, album_art_aspect);
+                let c = fg_art_base_uv;
                 let fg_scale_x = (screen_aspect / album_art_fg_size) * c[0];
                 let fg_scale_y = (1.0 / album_art_fg_size) * c[1];
                 let fg_offset_x =
@@ -410,8 +423,8 @@ pub(crate) fn draw_frame(
         if last_uniform_res != Some(current_res) {
             if renderer.custom_bg_bind_group.is_some() {
                 let blur_step = [
-                    30.0 * blur_opacity / screen_res_f[0],
-                    30.0 * blur_opacity / screen_res_f[1],
+                    blur_factor / screen_res_f[0],
+                    blur_factor / screen_res_f[1],
                 ];
                 let bg_uv_transform = get_uv_transform(0, screen_aspect, custom_bg_aspect);
 
@@ -513,6 +526,9 @@ pub(crate) fn draw_frame(
                         let bounce_8_scaled = lyric_bounce * 8.0 * scale_factor;
                         let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
 
+                        // Optimization: Hoist metrics creation out of the line loop
+                        let metrics = Metrics::new(active_font_size, active_font_size * 1.2);
+
                         for line_idx in start_idx..=end_idx {
                             let lyric_line = &lyrics[line_idx - 1];
                             // Compute exactly how far this string is from the "current active string"
@@ -548,8 +564,6 @@ pub(crate) fn draw_frame(
                             let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
 
                             if final_color[3] > 0.01 {
-                                let metrics =
-                                    Metrics::new(active_font_size, active_font_size * 1.2);
                                 let text_key = TextCacheKey::Lyric {
                                     monitor: i,
                                     line: line_idx as u32,
@@ -833,13 +847,6 @@ pub(crate) fn draw_frame(
             if has_audio {
                 render_pass.set_pipeline(&renderer.visualiser_pass.pipeline);
                 render_pass.set_bind_group(0, &renderer.visualiser_pass.bind_group, &[]);
-                let instance_count = if renderer.is_waveform_style {
-                    1
-                } else if renderer.theme.visualiser.shape == VisShape::Linear {
-                    renderer.state.config.audio.bands as u32
-                } else {
-                    renderer.state.config.audio.bands as u32 * 2
-                };
                 render_pass.draw(0..6, 0..instance_count);
             }
 
