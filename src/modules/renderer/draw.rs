@@ -344,10 +344,7 @@ pub(crate) fn draw_frame(
         if (show_art_fg || show_art_bg || show_color_bg) && last_uniform_res != Some(current_res) {
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
-                let blur_step = [
-                    blur_factor / screen_res_f[0],
-                    blur_factor / screen_res_f[1],
-                ];
+                let blur_step = [blur_factor / screen_res_f[0], blur_factor / screen_res_f[1]];
 
                 let bg_uv_transform = get_uv_transform(0, screen_aspect, album_art_aspect);
 
@@ -422,10 +419,7 @@ pub(crate) fn draw_frame(
 
         if last_uniform_res != Some(current_res) {
             if renderer.custom_bg_bind_group.is_some() {
-                let blur_step = [
-                    blur_factor / screen_res_f[0],
-                    blur_factor / screen_res_f[1],
-                ];
+                let blur_step = [blur_factor / screen_res_f[0], blur_factor / screen_res_f[1]];
                 let bg_uv_transform = get_uv_transform(0, screen_aspect, custom_bg_aspect);
 
                 // 4. Process custom background uniforms
