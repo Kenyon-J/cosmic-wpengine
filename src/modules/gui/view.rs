@@ -274,7 +274,8 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
 
     let name_trimmed = app.new_theme_name.trim().trim_end_matches(".toml");
     let expected_file_name = format!("shaders/{}.toml", name_trimmed);
-    let theme_exists = !name_trimmed.is_empty() && app.available_files.contains(&expected_file_name);
+    let theme_exists =
+        !name_trimmed.is_empty() && app.available_files.contains(&expected_file_name);
 
     let mut theme_input = text_input("New Theme Name...", &app.new_theme_name)
         .on_input(super::Message::NewThemeNameChanged);
