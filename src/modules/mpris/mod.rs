@@ -543,14 +543,10 @@ impl MprisWatcher {
                 .resolve(host_str, safe_addr)
                 .build()?;
 
-            let mut response = safe_client
-                .get(url_str)
-                .send()
-                .await
-                .map_err(|e| {
-                    warn!("HTTP request failed for art: {}", e);
-                    e
-                })?;
+            let mut response = safe_client.get(url_str).send().await.map_err(|e| {
+                warn!("HTTP request failed for art: {}", e);
+                e
+            })?;
 
             let mut bytes = Vec::new();
             while let Some(chunk) = response.chunk().await? {
