@@ -15,7 +15,7 @@ pub async fn fetch_synced_lyrics(
     album: &str,
     client: &reqwest::Client,
 ) -> Option<Box<[LyricLine]>> {
-    let resp = client
+    let mut resp = client
         .get("https://lrclib.net/api/get")
         .query(&[
             ("track_name", title),
@@ -31,7 +31,16 @@ pub async fn fetch_synced_lyrics(
         return None;
     }
 
-    let data: LrclibResponse = resp.json().await.ok()?;
+    let mut bytes = Vec::new();
+    let mut total_size = 0;
+    while let Some(chunk) = resp.chunk().await.ok()? {
+        total_size += chunk.len();
+        if total_size > 1024 * 1024 { // 1 MB limit
+            return None;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let data: LrclibResponse = serde_json::from_slice(&bytes).ok()?;
     let lyrics_text = data.synced_lyrics?;
 
     Some(parse_lrc(&lyrics_text))

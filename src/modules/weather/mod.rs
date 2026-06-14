@@ -94,7 +94,7 @@ impl WeatherWatcher {
         config: &WeatherConfig,
         client: &reqwest::Client,
     ) -> Result<WeatherData> {
-        let response: OpenMeteoResponse = client
+        let mut response = client
             .get("https://api.open-meteo.com/v1/forecast")
             .query(&[
                 ("latitude", config.latitude.to_string().as_str()),
@@ -102,9 +102,18 @@ impl WeatherWatcher {
                 ("current", "temperature_2m,weather_code"),
             ])
             .send()
-            .await?
-            .json()
             .await?;
+
+        let mut bytes = Vec::new();
+        let mut total_size = 0;
+        while let Some(chunk) = response.chunk().await? {
+            total_size += chunk.len();
+            if total_size > 1024 * 1024 { // 1 MB limit
+                anyhow::bail!("Weather response too large");
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let response: OpenMeteoResponse = serde_json::from_slice(&bytes)?;
 
         let code = response.current.weather_code;
         let temp = response.current.temperature_2m;

@@ -167,12 +167,29 @@ async fn fetch_patch_notes() -> String {
     };
 
     match client.get(url).send().await {
-        Ok(resp) if resp.status().is_success() => match resp.json::<GitHubRelease>().await {
-            Ok(release) => format!(
-                "COSMIC Wallpaper Engine {}\n\n{}",
-                release.tag_name, release.body
-            ),
-            Err(e) => format!("Failed to parse patch notes from GitHub: {}", e),
+        Ok(mut resp) if resp.status().is_success() => {
+            let mut bytes = Vec::new();
+            let mut total_size = 0;
+            loop {
+                match resp.chunk().await {
+                    Ok(Some(chunk)) => {
+                        total_size += chunk.len();
+                        if total_size > 1024 * 1024 * 5 { // 5 MB limit
+                            return format!("Failed to fetch patch notes: Response too large");
+                        }
+                        bytes.extend_from_slice(&chunk);
+                    }
+                    Ok(None) => break,
+                    Err(e) => return format!("Failed to fetch patch notes: Stream error {}", e),
+                }
+            }
+            match serde_json::from_slice::<GitHubRelease>(&bytes) {
+                Ok(release) => format!(
+                    "COSMIC Wallpaper Engine {}\n\n{}",
+                    release.tag_name, release.body
+                ),
+                Err(e) => format!("Failed to parse patch notes from GitHub: {}", e),
+            }
         },
         Ok(resp) => format!("Failed to fetch patch notes: HTTP {}", resp.status()),
         Err(e) => format!("Failed to fetch patch notes: {}", e),
@@ -184,7 +201,17 @@ async fn check_for_updates() -> Option<String> {
 
     let client = get_http_client().ok()?;
 
-    let release: GitHubRelease = client.get(url).send().await.ok()?.json().await.ok()?;
+    let mut resp = client.get(url).send().await.ok()?;
+    let mut bytes = Vec::new();
+    let mut total_size = 0;
+    while let Some(chunk) = resp.chunk().await.ok()? {
+        total_size += chunk.len();
+        if total_size > 1024 * 1024 * 5 { // 5 MB limit
+            return None;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let release: GitHubRelease = serde_json::from_slice(&bytes).ok()?;
     let latest_version = release.tag_name.trim_start_matches('v');
     let current_version = env!("CARGO_PKG_VERSION");
 
