@@ -387,9 +387,9 @@ impl MprisWatcher {
                         );
                         let mut img = image::RgbaImage::new(640, 640);
                         for y in 0..640 {
+                            let b = ((y as f32 / 640.0) * 80.0) as u8 + 40;
                             for x in 0..640 {
                                 let r = ((x as f32 / 640.0) * 80.0) as u8 + 20;
-                                let b = ((y as f32 / 640.0) * 80.0) as u8 + 40;
                                 img.put_pixel(x, y, image::Rgba([r, 20, b, 255]));
                             }
                         }
