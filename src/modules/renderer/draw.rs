@@ -230,8 +230,8 @@ pub(crate) fn draw_frame(
     // Further hoist Y-axis foreground transforms which are independent of screen aspect ratio.
     let inv_album_art_fg_size = 1.0 / album_art_fg_size;
     let fg_scale_y = inv_album_art_fg_size * fg_art_base_uv[1];
-    let fg_offset_y = (0.5 - album_art_fg_pos[1] * inv_album_art_fg_size) * fg_art_base_uv[1]
-        + fg_art_base_uv[3];
+    let fg_offset_y =
+        (0.5 - album_art_fg_pos[1] * inv_album_art_fg_size) * fg_art_base_uv[1] + fg_art_base_uv[3];
 
     // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
     let secondary_text = renderer.secondary_text_color;
@@ -376,10 +376,10 @@ pub(crate) fn draw_frame(
                     .write_buffer(&renderer.album_art_bg_uniform_buffer, 0, bg_bytes);
 
                 let fg_scale_x = (screen_aspect * inv_album_art_fg_size) * fg_art_base_uv[0];
-                let fg_offset_x =
-                    (0.5 - album_art_fg_pos[0] * (screen_aspect * inv_album_art_fg_size))
-                        * fg_art_base_uv[0]
-                        + fg_art_base_uv[2];
+                let fg_offset_x = (0.5
+                    - album_art_fg_pos[0] * (screen_aspect * inv_album_art_fg_size))
+                    * fg_art_base_uv[0]
+                    + fg_art_base_uv[2];
                 let fg_uv_transform = [fg_scale_x, fg_scale_y, fg_offset_x, fg_offset_y];
 
                 let fg_uniforms = ArtUniforms {
