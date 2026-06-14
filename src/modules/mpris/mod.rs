@@ -658,7 +658,8 @@ impl MprisWatcher {
         let mut total_size = 0;
         while let Some(chunk) = resp.chunk().await? {
             total_size += chunk.len();
-            if total_size > 1024 * 1024 { // 1 MB limit for iTunes JSON
+            if total_size > 1024 * 1024 {
+                // 1 MB limit for iTunes JSON
                 return Err(anyhow::anyhow!("JSON payload too large"));
             }
             bytes.extend_from_slice(&chunk);
@@ -742,7 +743,8 @@ impl MprisWatcher {
             let mut total_size = 0;
             while let Ok(Some(chunk)) = resp.chunk().await {
                 total_size += chunk.len();
-                if total_size > 1024 * 1024 * 5 { // 5 MB limit
+                if total_size > 1024 * 1024 * 5 {
+                    // 5 MB limit
                     return None;
                 }
                 bytes.extend_from_slice(&chunk);

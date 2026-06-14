@@ -35,7 +35,8 @@ pub async fn fetch_synced_lyrics(
     let mut total_size = 0;
     while let Some(chunk) = resp.chunk().await.ok()? {
         total_size += chunk.len();
-        if total_size > 1024 * 1024 { // 1 MB limit
+        if total_size > 1024 * 1024 {
+            // 1 MB limit
             return None;
         }
         bytes.extend_from_slice(&chunk);

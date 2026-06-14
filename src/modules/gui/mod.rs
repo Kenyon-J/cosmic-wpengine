@@ -174,8 +174,9 @@ async fn fetch_patch_notes() -> String {
                 match resp.chunk().await {
                     Ok(Some(chunk)) => {
                         total_size += chunk.len();
-                        if total_size > 1024 * 1024 * 5 { // 5 MB limit
-                            return format!("Failed to fetch patch notes: Response too large");
+                        if total_size > 1024 * 1024 * 5 {
+                            // 5 MB limit
+                            return "Failed to fetch patch notes: Response too large".to_string();
                         }
                         bytes.extend_from_slice(&chunk);
                     }
@@ -190,7 +191,7 @@ async fn fetch_patch_notes() -> String {
                 ),
                 Err(e) => format!("Failed to parse patch notes from GitHub: {}", e),
             }
-        },
+        }
         Ok(resp) => format!("Failed to fetch patch notes: HTTP {}", resp.status()),
         Err(e) => format!("Failed to fetch patch notes: {}", e),
     }
@@ -206,7 +207,8 @@ async fn check_for_updates() -> Option<String> {
     let mut total_size = 0;
     while let Some(chunk) = resp.chunk().await.ok()? {
         total_size += chunk.len();
-        if total_size > 1024 * 1024 * 5 { // 5 MB limit
+        if total_size > 1024 * 1024 * 5 {
+            // 5 MB limit
             return None;
         }
         bytes.extend_from_slice(&chunk);

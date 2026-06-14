@@ -108,7 +108,8 @@ impl WeatherWatcher {
         let mut total_size = 0;
         while let Some(chunk) = response.chunk().await? {
             total_size += chunk.len();
-            if total_size > 1024 * 1024 { // 1 MB limit
+            if total_size > 1024 * 1024 {
+                // 1 MB limit
                 anyhow::bail!("Weather response too large");
             }
             bytes.extend_from_slice(&chunk);
