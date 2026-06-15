@@ -543,16 +543,27 @@ impl MprisWatcher {
                 .resolve(host_str, safe_addr)
                 .build()?;
 
-            let bytes = safe_client
+            let mut resp = safe_client
                 .get(url_str)
                 .send()
                 .await
                 .map_err(|e| {
                     warn!("HTTP request failed for art: {}", e);
                     e
-                })?
-                .bytes()
-                .await?;
+                })?;
+
+            let mut bytes = Vec::new();
+            while let Some(chunk) = resp
+                .chunk()
+                .await
+                .map_err(|e| anyhow::anyhow!("Chunk error: {}", e))?
+            {
+                bytes.extend_from_slice(&chunk);
+                // Prevent OOM by limiting memory allocation to 20MB for album art payload
+                if bytes.len() > 1024 * 1024 * 20 {
+                    anyhow::bail!("HTTP response too large (OOM protection)");
+                }
+            }
 
             // Optimization: Image decoding is a synchronous, CPU-intensive task.
             // Offloading this to spawn_blocking prevents it from stalling the main async executor.
