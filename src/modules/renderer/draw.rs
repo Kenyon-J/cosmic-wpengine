@@ -208,6 +208,15 @@ pub(crate) fn draw_frame(
         album_art_fg_shape = 1;
     }
 
+    // Optimization: Pre-calculate display-invariant components for the foreground album art.
+    let inv_album_art_fg_size = 1.0 / album_art_fg_size;
+    let fg_art_base_uv = get_uv_transform(1, 1.0, album_art_aspect);
+    let fg_k1 = inv_album_art_fg_size * fg_art_base_uv[0];
+    let fg_k2 = 0.5 * fg_art_base_uv[0] + fg_art_base_uv[2];
+    let fg_scale_y = inv_album_art_fg_size * fg_art_base_uv[1];
+    let fg_offset_y =
+        (0.5 - album_art_fg_pos[1] * inv_album_art_fg_size) * fg_art_base_uv[1] + fg_art_base_uv[3];
+
     // Optimization: Pre-calculate custom background layout.
     let custom_bg_mode = if renderer.state.config.appearance.disable_blur {
         2
@@ -221,6 +230,18 @@ pub(crate) fn draw_frame(
     let mut last_uniform_res = None;
 
     let blur_opacity = renderer.state.config.appearance.blur_opacity;
+
+    // Optimization: Pre-calculate the scaled blur factor once per frame.
+    let blur_factor = 30.0 * blur_opacity;
+
+    // Optimization: Pre-calculate the visualizer instance count once per frame.
+    let vis_instance_count = if renderer.is_waveform_style {
+        1
+    } else if renderer.theme.visualiser.shape == VisShape::Linear {
+        renderer.state.config.audio.bands as u32
+    } else {
+        renderer.state.config.audio.bands as u32 * 2
+    };
 
     // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
     let secondary_text = renderer.secondary_text_color;
@@ -331,10 +352,7 @@ pub(crate) fn draw_frame(
         if (show_art_fg || show_art_bg || show_color_bg) && last_uniform_res != Some(current_res) {
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
-                let blur_step = [
-                    30.0 * blur_opacity / screen_res_f[0],
-                    30.0 * blur_opacity / screen_res_f[1],
-                ];
+                let blur_step = [blur_factor / screen_res_f[0], blur_factor / screen_res_f[1]];
 
                 let bg_uv_transform = get_uv_transform(0, screen_aspect, album_art_aspect);
 
@@ -367,13 +385,9 @@ pub(crate) fn draw_frame(
                     .queue
                     .write_buffer(&renderer.album_art_bg_uniform_buffer, 0, bg_bytes);
 
-                let c = get_uv_transform(1, 1.0, album_art_aspect);
-                let fg_scale_x = (screen_aspect / album_art_fg_size) * c[0];
-                let fg_scale_y = (1.0 / album_art_fg_size) * c[1];
-                let fg_offset_x =
-                    (0.5 - album_art_fg_pos[0] * (screen_aspect / album_art_fg_size)) * c[0] + c[2];
-                let fg_offset_y =
-                    (0.5 - album_art_fg_pos[1] * (1.0 / album_art_fg_size)) * c[1] + c[3];
+                // Optimized foreground art transform: only 2 multiplications and 1 subtraction for X per monitor
+                let fg_scale_x = screen_aspect * fg_k1;
+                let fg_offset_x = fg_k2 - album_art_fg_pos[0] * fg_scale_x;
                 let fg_uv_transform = [fg_scale_x, fg_scale_y, fg_offset_x, fg_offset_y];
 
                 let fg_uniforms = ArtUniforms {
@@ -409,10 +423,7 @@ pub(crate) fn draw_frame(
 
         if last_uniform_res != Some(current_res) {
             if renderer.custom_bg_bind_group.is_some() {
-                let blur_step = [
-                    30.0 * blur_opacity / screen_res_f[0],
-                    30.0 * blur_opacity / screen_res_f[1],
-                ];
+                let blur_step = [blur_factor / screen_res_f[0], blur_factor / screen_res_f[1]];
                 let bg_uv_transform = get_uv_transform(0, screen_aspect, custom_bg_aspect);
 
                 // 4. Process custom background uniforms
@@ -513,6 +524,9 @@ pub(crate) fn draw_frame(
                         let bounce_8_scaled = lyric_bounce * 8.0 * scale_factor;
                         let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
 
+                        // Optimization: Hoist Metrics creation out of the line loop to avoid redundant object instantiation.
+                        let metrics = Metrics::new(active_font_size, active_font_size * 1.2);
+
                         for line_idx in start_idx..=end_idx {
                             let lyric_line = &lyrics[line_idx - 1];
                             // Compute exactly how far this string is from the "current active string"
@@ -548,8 +562,6 @@ pub(crate) fn draw_frame(
                             let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
 
                             if final_color[3] > 0.01 {
-                                let metrics =
-                                    Metrics::new(active_font_size, active_font_size * 1.2);
                                 let text_key = TextCacheKey::Lyric {
                                     monitor: i,
                                     line: line_idx as u32,
@@ -833,14 +845,7 @@ pub(crate) fn draw_frame(
             if has_audio {
                 render_pass.set_pipeline(&renderer.visualiser_pass.pipeline);
                 render_pass.set_bind_group(0, &renderer.visualiser_pass.bind_group, &[]);
-                let instance_count = if renderer.is_waveform_style {
-                    1
-                } else if renderer.theme.visualiser.shape == VisShape::Linear {
-                    renderer.state.config.audio.bands as u32
-                } else {
-                    renderer.state.config.audio.bands as u32 * 2
-                };
-                render_pass.draw(0..6, 0..instance_count);
+                render_pass.draw(0..6, 0..vis_instance_count);
             }
 
             if show_art_fg {

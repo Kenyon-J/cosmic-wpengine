@@ -81,3 +81,7 @@
 ## 2025-06-08 - Clamp Decaying Floats to Prevent Subnormal CPU Penalty
 **Learning:** In hot rendering or audio processing loops, continuously decaying floating-point variables (like exponential smoothing or spring physics) can degrade into 'subnormal' or 'denormal' numbers. Operations on subnormals are handled by CPU microcode and can be orders of magnitude slower, causing massive CPU slowdowns.
 **Action:** Always clamp continuously decaying floating-point values to `0.0` once they fall below a perceptible threshold (e.g., `1e-5`) in the rendering loop.
+
+## 15-05-2026- Optimize Multi-Monitor Rendering by Hoisting Display-Invariant Calculations
+**Learning:** Redundantly calculating visualizer instance counts, album art transforms, and scaled blur factors inside a multi-monitor loop wastes CPU cycles for every connected display. Furthermore, instantiating `Metrics` objects for every lyric line in the hot path introduces unnecessary allocation overhead.
+**Action:** Hoist display-invariant constants and object instantiations (like `Metrics`) out of nested rendering loops to minimize per-monitor and per-element overhead in the hot path.
