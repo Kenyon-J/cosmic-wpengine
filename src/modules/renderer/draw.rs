@@ -215,8 +215,8 @@ pub(crate) fn draw_frame(
     // fg_scale_y = (1.0 / album_art_fg_size) * c[1]
     let fg_scale_y = inv_album_art_fg_size * fg_art_base_uv[1];
     // fg_offset_y = (0.5 - album_art_fg_pos[1] * (1.0 / album_art_fg_size)) * c[1] + c[3]
-    let fg_offset_y = (0.5 - album_art_fg_pos[1] * inv_album_art_fg_size) * fg_art_base_uv[1]
-        + fg_art_base_uv[3];
+    let fg_offset_y =
+        (0.5 - album_art_fg_pos[1] * inv_album_art_fg_size) * fg_art_base_uv[1] + fg_art_base_uv[3];
 
     // fg_scale_x = (screen_aspect / album_art_fg_size) * c[0]
     // fg_scale_x = screen_aspect * (inv_album_art_fg_size * fg_art_base_uv[0])
