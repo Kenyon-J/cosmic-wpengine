@@ -272,30 +272,61 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         }
     };
 
+    let theme_name_trimmed = app.new_theme_name.trim();
+    let theme_file_name = format!("shaders/{}.toml", theme_name_trimmed);
+    let theme_exists = app.available_files.contains(&theme_file_name);
+    let is_safe = super::is_safe_path(&theme_file_name);
+
+    let (input_tooltip, btn_tooltip, is_valid) = if theme_name_trimmed.is_empty() {
+        (
+            "Enter a name to create a new copy of the current theme.",
+            "Enter a name for the new theme first.",
+            false,
+        )
+    } else if theme_exists {
+        (
+            "A theme with this name already exists.",
+            "A theme with this name already exists.",
+            false,
+        )
+    } else if !is_safe {
+        (
+            "This theme name contains unsafe characters (e.g. '..' or '/').",
+            "This theme name is unsafe.",
+            false,
+        )
+    } else {
+        (
+            "Press Enter to create the theme.",
+            "Create a new theme with this name.",
+            true,
+        )
+    };
+
     let mut theme_input = text_input("New Theme Name...", &app.new_theme_name)
         .on_input(super::Message::NewThemeNameChanged);
-    if !app.new_theme_name.trim().is_empty() {
+    if is_valid {
         theme_input = theme_input.on_submit(|_| super::Message::CreateTheme);
     }
     let new_theme_input = cosmic::iced::widget::tooltip(
         theme_input,
-        "Enter a name to create a new copy of the current theme.",
+        input_tooltip,
         cosmic::iced::widget::tooltip::Position::Top,
     );
 
     let create_btn: cosmic::Element<'_, super::Message> = {
         let btn = cosmic::iced::widget::button(text("Create Theme").font(font));
-        if !app.new_theme_name.trim().is_empty() {
+        if is_valid {
             cosmic::iced::widget::tooltip(
                 btn.on_press(super::Message::CreateTheme),
-                "Create a new theme with this name.",
+                btn_tooltip,
                 cosmic::iced::widget::tooltip::Position::Top,
             )
             .into()
         } else {
             cosmic::iced::widget::tooltip(
                 btn,
-                "Enter a name for the new theme first.",
+                btn_tooltip,
                 cosmic::iced::widget::tooltip::Position::Top,
             )
             .into()

@@ -15,3 +15,7 @@
 ## 2024-06-12 - Vertical Alignment in cosmic::iced Rows
 **Learning:** In `cosmic::iced`, elements within a `row()` that have differing heights (e.g., text labels next to pick_lists or buttons) are aligned to the top by default, causing a jagged visual appearance. Furthermore, `.align_items()` is not a valid method for `Row` in this version of the framework.
 **Action:** To vertically center elements of varying heights within a `row()`, always use the `.align_y(cosmic::iced::Alignment::Center)` method to ensure a clean, balanced layout.
+
+## 2024-06-16 - Inline Form Validation and Contextual Feedback
+**Learning:** In `cosmic::iced`, simply leaving a form submission button enabled when the input is invalid (e.g., trying to create a file that already exists or using unsafe characters) forces users to guess why their action failed, often relying on transient error toasts.
+**Action:** Provide inline validation for forms by proactively calculating validity on every keystroke. Prevent silent failures by using this state to conditionally disable submission buttons and text inputs, while providing dynamic tooltips that explicitly explain why the action is disabled (e.g., 'A theme with this name already exists').
