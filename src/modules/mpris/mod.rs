@@ -543,16 +543,22 @@ impl MprisWatcher {
                 .resolve(host_str, safe_addr)
                 .build()?;
 
-            let bytes = safe_client
+            let mut response = safe_client
                 .get(url_str)
                 .send()
                 .await
                 .map_err(|e| {
                     warn!("HTTP request failed for art: {}", e);
                     e
-                })?
-                .bytes()
-                .await?;
+                })?;
+
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await? {
+                bytes.extend_from_slice(&chunk);
+                if bytes.len() > 1024 * 1024 * 20 { // 20 MB limit
+                    anyhow::bail!("Image response too large, exceeding 20MB limit");
+                }
+            }
 
             // Optimization: Image decoding is a synchronous, CPU-intensive task.
             // Offloading this to spawn_blocking prevents it from stalling the main async executor.
