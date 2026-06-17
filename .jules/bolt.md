@@ -81,3 +81,6 @@
 ## 2025-06-08 - Clamp Decaying Floats to Prevent Subnormal CPU Penalty
 **Learning:** In hot rendering or audio processing loops, continuously decaying floating-point variables (like exponential smoothing or spring physics) can degrade into 'subnormal' or 'denormal' numbers. Operations on subnormals are handled by CPU microcode and can be orders of magnitude slower, causing massive CPU slowdowns.
 **Action:** Always clamp continuously decaying floating-point values to `0.0` once they fall below a perceptible threshold (e.g., `1e-5`) in the rendering loop.
+## 2026-06-08 - Clamp Decaying Floats to Prevent Subnormal CPU Penalty
+**Learning:** In hot rendering or audio processing loops, continuously decaying floating-point variables (like exponential smoothing or spring physics) can degrade into 'subnormal' or 'denormal' numbers. Operations on subnormals are handled by CPU microcode and can be orders of magnitude slower, causing massive CPU slowdowns.
+**Action:** Always clamp continuously decaying floating-point values to `0.0` once they fall below a perceptible threshold (e.g., `1e-5`) in the rendering loop.
