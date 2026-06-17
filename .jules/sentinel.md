@@ -67,3 +67,7 @@
 **Vulnerability:** The `reqwest::Client` in the `cosmic-wallpaper-gui` binary was configured without an explicit timeout. If a requested API endpoint (like GitHub for patch notes or updates) hangs or is incredibly slow, the async executor could be tied up waiting indefinitely, leading to application freezing and Denial of Service (DoS) for the user interface.
 **Learning:** By default, `reqwest` builders do not have a timeout. Always configure a reasonable timeout (e.g. 10 seconds) on all network clients to ensure failing or slow network requests do not stall the application indefinitely.
 **Prevention:** Always use `.timeout(std::time::Duration::from_secs(X))` when building `reqwest::Client` instances.
+## 2025-02-21 - DoS OOM via Album Art Download
+**Vulnerability:** External album art images downloaded from untrusted sources via MPRIS or Spotify Canvas lack size constraints, allowing malicious or oversized files to consume excessive memory (OOM) via `reqwest`'s boundless `.bytes().await`.
+**Learning:** `reqwest`'s default `.bytes().await` and `.json().await` buffer the entire payload into RAM before returning, making them unsafe for fetching user-supplied or external URLs.
+**Prevention:** Replace boundless `.bytes().await` calls with iterative byte accumulation (`.chunk().await`) that includes a strict length check and aborts if it exceeds a predetermined maximum size (e.g. 10MB).
