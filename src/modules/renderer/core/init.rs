@@ -252,6 +252,7 @@ impl Renderer {
             art_prev_color: [0.1, 0.1, 0.1],
             album_art_aspect: 1.0,
             custom_bg_aspect: 1.0,
+            last_occluded: None,
         };
 
         let path = renderer

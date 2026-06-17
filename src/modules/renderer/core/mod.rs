@@ -106,6 +106,7 @@ pub struct Renderer {
     pub(crate) art_prev_color: [f32; 3],
     pub(crate) album_art_aspect: f32,
     pub(crate) custom_bg_aspect: f32,
+    pub(crate) last_occluded: Option<bool>,
 }
 
 impl Renderer {
@@ -138,7 +139,10 @@ impl Renderer {
             interval.tick().await;
 
             let occluded = wayland_manager.is_occluded();
-            let _ = is_visible_tx.send(!occluded);
+            if self.last_occluded != Some(occluded) {
+                let _ = is_visible_tx.send(!occluded);
+                self.last_occluded = Some(occluded);
+            }
 
             wayland_manager.dispatch_events()?;
 
