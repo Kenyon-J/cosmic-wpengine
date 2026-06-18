@@ -85,3 +85,7 @@
 ## 18-05-2025- Optimize visibility notifications with state tracking
 **Learning:** In a high-frequency loop (60+ FPS), sending identical status updates over a channel (like `tokio::sync::watch`) every frame introduces unnecessary atomic overhead and channel pressure.
 **Action:** Always track the last emitted state of reactive properties (e.g., occlusion) and only trigger channel sends when a logical state transition occurs to minimize per-frame overhead.
+
+## 07-02-2025- Hoist display-invariant constants in multi-monitor rendering
+**Learning:** In a multi-monitor loop, redundantly calculating values like `instance_count`, `blur_factor`, or complex coordinate transforms for every output wastes CPU cycles. Hoisting these into the frame-level scope and refactoring math to use pre-calculated constants significantly reduces per-monitor overhead.
+**Action:** Always identify and hoist display-invariant calculations (including `Metrics` object creation and UV transform constants) out of monitor iteration and nested loops in `draw_frame`.
