@@ -60,7 +60,10 @@ impl AudioCapture {
                                 continue;
                             }
 
-                            let mut process_buffer = recycle_complex_rx.try_recv().unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE));
+                            let mut process_buffer = match recycle_complex_rx.try_recv() {
+                                Ok(buf) => buf,
+                                Err(_) => Vec::with_capacity(FFT_SIZE),
+                            };
                             process_buffer.clear();
                             // Optimization: Use zipped iterators and `.extend()` instead of manual `.push()`
                             // to enable LLVM auto-vectorization and eliminate bounds checking overhead
@@ -71,7 +74,10 @@ impl AudioCapture {
 
                             let fft_clone = std::sync::Arc::clone(&fft);
 
-                            let mut norm_buffer = recycle_bands_rx.try_recv().map(|b| b.into_vec()).unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE / 2));
+                            let mut norm_buffer = match recycle_bands_rx.try_recv() {
+                                Ok(b) => b.into_vec(),
+                                Err(_) => Vec::with_capacity(FFT_SIZE / 2),
+                            };
                             let recycle_complex_tx_clone = recycle_complex_tx.clone();
 
                             // Optimization: Offload heavy CPU bound math to the dedicated blocking thread pool
@@ -112,7 +118,10 @@ impl AudioCapture {
                                 warn!("PipeWire audio receive timeout - no data arriving. (Is stream paused/empty?)");
                                 last_warn = std::time::Instant::now();
                             }
-                            let mut norm_buffer = recycle_bands_rx.try_recv().map(|b| b.into_vec()).unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE / 2));
+                            let mut norm_buffer = match recycle_bands_rx.try_recv() {
+                                Ok(b) => b.into_vec(),
+                                Err(_) => Vec::with_capacity(FFT_SIZE / 2),
+                            };
                             norm_buffer.clear();
                             norm_buffer.extend(std::iter::repeat_n(0.0, FFT_SIZE / 2));
                             let mut wave_buffer = Vec::with_capacity(FFT_SIZE);
@@ -259,10 +268,10 @@ impl AudioCapture {
                     }
 
                     while sample_buffer.len() >= FFT_SIZE {
-                        let mut frame = recycle_rx
-                            .try_recv()
-                            .map(|b| b.into_vec())
-                            .unwrap_or_else(|_| Vec::with_capacity(FFT_SIZE));
+                        let mut frame = match recycle_rx.try_recv() {
+                            Ok(b) => b.into_vec(),
+                            Err(_) => Vec::with_capacity(FFT_SIZE),
+                        };
                         frame.clear();
                         frame.extend_from_slice(&sample_buffer[..FFT_SIZE]);
                         sample_buffer.drain(..FFT_SIZE);
