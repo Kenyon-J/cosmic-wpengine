@@ -649,7 +649,7 @@ impl MprisWatcher {
             format!("{} {}", artist, album)
         };
 
-        let resp: ITunesResponse = client
+        let mut response = client
             .get("https://itunes.apple.com/search")
             .query(&[
                 ("term", search_str.as_str()),
@@ -657,9 +657,17 @@ impl MprisWatcher {
                 ("limit", "1"),
             ])
             .send()
-            .await?
-            .json()
             .await?;
+
+        let mut bytes = Vec::new();
+        const MAX_JSON_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
+        while let Some(chunk) = response.chunk().await? {
+            if bytes.len() + chunk.len() > MAX_JSON_SIZE {
+                return Err(anyhow::anyhow!("JSON payload exceeds limit"));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let resp: ITunesResponse = serde_json::from_slice(&bytes)?;
 
         if let Some(first) = resp.results.first() {
             if let Some(art_url) = &first.artwork_url {
@@ -728,13 +736,21 @@ impl MprisWatcher {
         // Replace this URL with your local instance or a trusted public proxy API!
         let proxy_url = "http://localhost:3000/api/canvas";
 
-        if let Ok(resp) = client
+        if let Ok(mut resp) = client
             .get(proxy_url)
             .query(&[("track_id", track_id)])
             .send()
             .await
         {
-            if let Ok(canvas) = resp.json::<CanvasResponse>().await {
+            let mut bytes = Vec::new();
+            const MAX_JSON_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
+            while let Ok(Some(chunk)) = resp.chunk().await {
+                if bytes.len() + chunk.len() > MAX_JSON_SIZE {
+                    return None;
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            if let Ok(canvas) = serde_json::from_slice::<CanvasResponse>(&bytes) {
                 return canvas.url;
             }
         }
