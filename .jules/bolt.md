@@ -85,3 +85,7 @@
 ## 18-05-2025- Optimize visibility notifications with state tracking
 **Learning:** In a high-frequency loop (60+ FPS), sending identical status updates over a channel (like `tokio::sync::watch`) every frame introduces unnecessary atomic overhead and channel pressure.
 **Action:** Always track the last emitted state of reactive properties (e.g., occlusion) and only trigger channel sends when a logical state transition occurs to minimize per-frame overhead.
+
+## 13-02-2025- Consolidate Loop-Invariant Calculations in the Rendering Hot Path
+**Learning:** In multi-monitor and multi-line rendering scenarios (like lyrics), performing calculations that only depend on frame-level or display-level state inside the innermost loops is wasteful. This includes branching logic for draw call parameters, arithmetic for UV transformations, and object instantiation for text metrics.
+**Action:** Always identify and hoist loop-invariant calculations out of the monitor iteration and text line loops. For coordinate transformations, refactor the math to pre-calculate resolution-independent terms as constants at the beginning of the frame to reduce the per-monitor work to minimal arithmetic.
