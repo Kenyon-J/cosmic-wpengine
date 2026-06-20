@@ -254,8 +254,8 @@ pub(crate) fn draw_frame(
     let fg_k2 = 0.5 * fg_art_base_uv[0] + fg_art_base_uv[2];
     let fg_k3 = album_art_fg_pos[0] * fg_k1;
     let fg_scale_y = inv_album_art_fg_size * fg_art_base_uv[1];
-    let fg_offset_y = (0.5 - album_art_fg_pos[1] * inv_album_art_fg_size) * fg_art_base_uv[1]
-        + fg_art_base_uv[3];
+    let fg_offset_y =
+        (0.5 - album_art_fg_pos[1] * inv_album_art_fg_size) * fg_art_base_uv[1] + fg_art_base_uv[3];
 
     // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
     let secondary_text = renderer.secondary_text_color;
