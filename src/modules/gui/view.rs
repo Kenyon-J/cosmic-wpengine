@@ -167,7 +167,8 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
                 15.0..=144.0,
                 app.wp_config.fps as f32,
                 super::Message::FpsChanged,
-            ),
+            )
+            .step(1.0),
             "Higher framerates are smoother but use more system resources.",
             cosmic::iced::widget::tooltip::Position::Top,
         ))

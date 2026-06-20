@@ -19,3 +19,7 @@
 ## $(date +%Y-%m-%d) - Inline Form Validation
 **Learning:** Preventing silent failures or backend errors by validating form inputs dynamically on every keystroke improves the user experience. In `iced`, this can be achieved by calculating validity and conditionally applying both `.on_submit()` to text inputs and `.on_press()` to buttons, coupled with dynamic tooltips to explain the disabled state.
 **Action:** When implementing forms or inputs that create resources, proactively validate the input against existing state (e.g., checking if a theme name already exists). Disable submission actions and provide explanatory tooltips if validation fails.
+
+## $(date +%Y-%m-%d) - Slider Step Modifiers for Integer State
+**Learning:** In `cosmic::iced`, sliders support floating-point values by default. When binding a slider to a state variable that is cast to an integer (e.g., `u32` for framerate), interactions can cause visual jitter or "fighting." The slider handle attempts to move to a fractional position, but instantly snaps back to an integer position when the state is re-rendered.
+**Action:** When creating a `slider` bound to a state variable representing an integer, always append a `.step(1.0)` modifier to align the UI interaction increments with the underlying integer state updates, ensuring smooth and predictable behavior.
