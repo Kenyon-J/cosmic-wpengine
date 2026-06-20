@@ -85,3 +85,7 @@
 ## 18-05-2025- Optimize visibility notifications with state tracking
 **Learning:** In a high-frequency loop (60+ FPS), sending identical status updates over a channel (like `tokio::sync::watch`) every frame introduces unnecessary atomic overhead and channel pressure.
 **Action:** Always track the last emitted state of reactive properties (e.g., occlusion) and only trigger channel sends when a logical state transition occurs to minimize per-frame overhead.
+
+## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
+**Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
+**Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
