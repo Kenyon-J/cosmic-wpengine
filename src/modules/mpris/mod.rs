@@ -385,15 +385,20 @@ impl MprisWatcher {
                             "Fallback art failed: {}. Generating dynamic placeholder.",
                             e
                         );
-                        let mut img = image::RgbaImage::new(640, 640);
-                        for y in 0..640 {
-                            for x in 0..640 {
-                                let r = ((x as f32 / 640.0) * 80.0) as u8 + 20;
-                                let b = ((y as f32 / 640.0) * 80.0) as u8 + 40;
-                                img.put_pixel(x, y, image::Rgba([r, 20, b, 255]));
+                        let img = tokio::task::spawn_blocking(|| {
+                            let mut img = image::RgbaImage::new(640, 640);
+                            for y in 0..640 {
+                                for x in 0..640 {
+                                    let r = ((x as f32 / 640.0) * 80.0) as u8 + 20;
+                                    let b = ((y as f32 / 640.0) * 80.0) as u8 + 40;
+                                    img.put_pixel(x, y, image::Rgba([r, 20, b, 255]));
+                                }
                             }
-                        }
-                        Some(image::DynamicImage::ImageRgba8(img))
+                            image::DynamicImage::ImageRgba8(img)
+                        })
+                        .await
+                        .ok();
+                        img
                     }
                 }
             };
@@ -568,7 +573,7 @@ impl MprisWatcher {
                 })
             })
             .await
-            .unwrap_or_else(|e| Err(anyhow::anyhow!("Image decoding task panicked: {}", e)));
+            .map_err(|e| anyhow::anyhow!("Image decoding task panicked: {}", e))?;
         }
 
         // Use the `url` crate for robust parsing of file:// paths
@@ -597,9 +602,7 @@ impl MprisWatcher {
                         })
                     })
                     .await
-                    .unwrap_or_else(|e| {
-                        Err(anyhow::anyhow!("Image decoding task panicked: {}", e))
-                    });
+                    .map_err(|e| anyhow::anyhow!("Image decoding task panicked: {}", e))?;
                 }
                 warn!(
                     "Could not cleanly convert URL to valid file path: {}",
@@ -634,7 +637,7 @@ impl MprisWatcher {
             })
         })
         .await
-        .unwrap_or_else(|e| Err(anyhow::anyhow!("Image decoding task panicked: {}", e)))
+        .map_err(|e| anyhow::anyhow!("Image decoding task panicked: {}", e))?
     }
 
     async fn fetch_fallback_album_art(
