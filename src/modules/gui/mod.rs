@@ -287,6 +287,7 @@ enum Message {
     ReportIssue,
     UpdateCheckDone(Option<String>),
     OpenUpdateLink,
+    OpenConfigFolder,
 }
 
 impl Application for SettingsApp {
@@ -566,6 +567,15 @@ amplitude = 1.5"#;
                 } else {
                     tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
                     self.status_msg = "Failed to open link: xdg-open not found".into();
+                }
+            }
+            Message::OpenConfigFolder => {
+                if let Some(xdg_open) = resolve_binary("xdg-open") {
+                    let config_dir = config::Config::config_dir();
+                    let _ = std::process::Command::new(xdg_open).arg(config_dir).spawn();
+                } else {
+                    tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
+                    self.status_msg = "Failed to open folder: xdg-open not found".into();
                 }
             }
         }

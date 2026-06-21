@@ -16,10 +16,14 @@
 **Learning:** In `cosmic::iced`, elements within a `row()` that have differing heights (e.g., text labels next to pick_lists or buttons) are aligned to the top by default, causing a jagged visual appearance. Furthermore, `.align_items()` is not a valid method for `Row` in this version of the framework.
 **Action:** To vertically center elements of varying heights within a `row()`, always use the `.align_y(cosmic::iced::Alignment::Center)` method to ensure a clean, balanced layout.
 
-## $(date +%Y-%m-%d) - Inline Form Validation
+## 2025-01-28 - Inline Form Validation
 **Learning:** Preventing silent failures or backend errors by validating form inputs dynamically on every keystroke improves the user experience. In `iced`, this can be achieved by calculating validity and conditionally applying both `.on_submit()` to text inputs and `.on_press()` to buttons, coupled with dynamic tooltips to explain the disabled state.
 **Action:** When implementing forms or inputs that create resources, proactively validate the input against existing state (e.g., checking if a theme name already exists). Disable submission actions and provide explanatory tooltips if validation fails.
 
-## $(date +%Y-%m-%d) - Slider Step Modifiers for Integer State
+## 2025-01-28 - Slider Step Modifiers for Integer State
 **Learning:** In `cosmic::iced`, sliders support floating-point values by default. When binding a slider to a state variable that is cast to an integer (e.g., `u32` for framerate), interactions can cause visual jitter or "fighting." The slider handle attempts to move to a fractional position, but instantly snaps back to an integer position when the state is re-rendered.
 **Action:** When creating a `slider` bound to a state variable representing an integer, always append a `.step(1.0)` modifier to align the UI interaction increments with the underlying integer state updates, ensuring smooth and predictable behavior.
+
+## 2025-01-28 - Easily Access System Directories
+**Learning:** For settings pages where users frequently edit local configuration, scripts, or theme files natively in a text editor built into the app, providing a way to actually view and manipulate those files in their system file manager makes file management much more intuitive and user-friendly. Users may want to drag and drop assets, or rename and delete files without using the terminal.
+**Action:** When creating a GUI app that exposes file modification functions on a specific directory, such as `~/.config/app_name/`, include a button that opens that folder in the system file manager using `xdg-open`.
