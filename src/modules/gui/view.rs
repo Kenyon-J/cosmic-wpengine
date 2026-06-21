@@ -320,9 +320,17 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         }
     };
 
+    let open_folder_btn = cosmic::iced::widget::tooltip(
+        cosmic::iced::widget::button(text("Open Folder").font(font))
+            .on_press(super::Message::OpenConfigFolder),
+        "Open the configuration directory in your file manager.",
+        cosmic::iced::widget::tooltip::Position::Top,
+    );
+
     let toolbar = row()
         .push(text("Edit File:").font(font).width(Length::Shrink))
         .push(file_selector)
+        .push(open_folder_btn)
         .push(save_btn)
         .push(apply_btn)
         .push(text(" | ").font(font))
