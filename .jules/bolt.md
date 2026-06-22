@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 22-06-2026- Optimize Render Loop by Caching Frame-Invariant Constants
+**Learning:** Performing redundant arithmetic, trigonometric conversions (like `.to_radians()`), and conditional logic (like sky color gradients) every single frame in the rendering hot path wastes significant CPU cycles, especially on high-refresh-rate displays or multi-monitor setups.
+**Action:** Identify display-invariant and frame-invariant constants (e.g., visualiser layout, instance counts, or environmental colors). Hoist their calculation out of the render loop and cache them in the `Renderer` state, updating them only when the source configuration, theme, or weather events occur.

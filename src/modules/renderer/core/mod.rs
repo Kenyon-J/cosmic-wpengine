@@ -107,6 +107,12 @@ pub struct Renderer {
     pub(crate) album_art_aspect: f32,
     pub(crate) custom_bg_aspect: f32,
     pub(crate) last_occluded: Option<bool>,
+    pub(crate) visualiser_instance_count: u32,
+    pub(crate) vis_pos_size_rot: [f32; 4],
+    pub(crate) vis_shape_u32: u32,
+    pub(crate) vis_align_u32: u32,
+    pub(crate) cached_final_sky: [f32; 3],
+    pub(crate) last_sky_update_secs: u32,
 }
 
 impl Renderer {
