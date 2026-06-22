@@ -13,11 +13,13 @@ pub(crate) fn draw_frame(
     wayland_manager: &mut WaylandManager,
     delta: f32,
 ) -> Result<()> {
-    let audio_data = if renderer.is_waveform_style {
-        &renderer.state.audio_waveform
-    } else {
-        &renderer.state.audio_bands
-    };
+    // Check if sky update is needed due to weather changes or time passing
+    // Doing this early to avoid borrow checker conflicts with text rendering attributes or audio data
+    let current_secs = (renderer.state.time_of_day * 86400.0) as u32;
+    if current_secs != renderer.last_sky_update_secs {
+        renderer.update_sky_cache();
+        renderer.last_sky_update_secs = current_secs;
+    }
 
     let force_weather = renderer.state.config.mode == WallpaperMode::Weather;
     let force_vis = renderer.state.config.mode == WallpaperMode::AudioVisualiser;
@@ -48,14 +50,6 @@ pub(crate) fn draw_frame(
         (has_media_check_gpu || force_art) && renderer.state.config.appearance.album_art_background;
     let show_color_bg = (has_media_check_gpu || force_art)
         && renderer.state.config.appearance.album_color_background;
-
-    // Check if sky update is needed due to weather changes or time passing
-    // Doing this early to avoid borrow checker conflicts with text rendering attributes
-    let current_secs = (renderer.state.time_of_day * 86400.0) as u32;
-    if current_secs != renderer.last_sky_update_secs {
-        renderer.update_sky_cache();
-        renderer.last_sky_update_secs = current_secs;
-    }
 
     // Optimization: Use cached weather state and sky colors
     let weather_type = renderer.weather_type;
@@ -106,6 +100,12 @@ pub(crate) fn draw_frame(
     }
 
     if has_audio {
+        let audio_data = if renderer.is_waveform_style {
+            &renderer.state.audio_waveform
+        } else {
+            &renderer.state.audio_bands
+        };
+
         let bands_bytes = unsafe {
             std::slice::from_raw_parts(
                 audio_data.as_ptr() as *const u8,
