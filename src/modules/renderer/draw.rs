@@ -1,8 +1,7 @@
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
-use crate::modules::colour::{lerp_colour, time_to_sky_colour};
-use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
-use crate::modules::event::WeatherCondition;
+use crate::modules::colour::lerp_colour;
+use crate::modules::config::{ArtShape, TextAlign, VisShape, WallpaperMode};
 use crate::modules::state::SceneHint;
 use crate::modules::wayland::WaylandManager;
 use anyhow::Result;
@@ -49,6 +48,14 @@ pub(crate) fn draw_frame(
         (has_media_check_gpu || force_art) && renderer.state.config.appearance.album_art_background;
     let show_color_bg = (has_media_check_gpu || force_art)
         && renderer.state.config.appearance.album_color_background;
+
+    // Check if sky update is needed due to weather changes or time passing
+    // Doing this early to avoid borrow checker conflicts with text rendering attributes
+    let current_secs = (renderer.state.time_of_day * 86400.0) as u32;
+    if current_secs != renderer.last_sky_update_secs {
+        renderer.update_sky_cache();
+        renderer.last_sky_update_secs = current_secs;
+    }
 
     // Optimization: Use cached weather state and sky colors
     let weather_type = renderer.weather_type;
@@ -273,13 +280,6 @@ pub(crate) fn draw_frame(
     // Optimization: Capture bounce values and scaling factors once per frame
     let lyric_bounce = renderer.lyric_bounce_value;
     let beat_pulse_mul = pulse * 2.0;
-
-    // Check if sky update is needed due to weather changes or time passing
-    let current_secs = (renderer.state.time_of_day * 86400.0) as u32;
-    if current_secs != renderer.last_sky_update_secs {
-        renderer.update_sky_cache();
-        renderer.last_sky_update_secs = current_secs;
-    }
 
     for (i_idx, gpu_out) in renderer.outputs.iter_mut().enumerate() {
         let i = i_idx as u32;
