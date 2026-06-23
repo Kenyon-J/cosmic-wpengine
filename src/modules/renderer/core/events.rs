@@ -54,6 +54,8 @@ impl Renderer {
                 self.text_buffer_cache.clear();
 
                 self.is_waveform_style = self.state.config.audio.style == "waveform";
+                self.update_visualiser_cache();
+                self.update_sky_cache();
                 self.update_weather_state();
                 self.update_weather_string();
                 info!("Live settings applied!");
@@ -297,6 +299,7 @@ impl Renderer {
                     weather.condition, weather.temperature_celsius
                 );
                 self.state.weather = Some(*weather);
+                self.update_sky_cache();
                 self.update_weather_state();
                 self.update_weather_string();
                 self.state.begin_transition();
