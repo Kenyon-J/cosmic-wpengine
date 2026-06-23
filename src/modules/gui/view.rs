@@ -273,21 +273,28 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         }
     };
 
-    let theme_exists = !app.new_theme_name.trim().is_empty() && {
+    let (theme_exists, is_safe) = if app.new_theme_name.trim().is_empty() {
+        (false, true)
+    } else {
         let name = app.new_theme_name.trim().trim_end_matches(".toml");
         let file_name = format!("shaders/{}.toml", name);
-        app.available_files.contains(&file_name)
+        (
+            app.available_files.contains(&file_name),
+            super::is_safe_path(&file_name),
+        )
     };
 
     let mut theme_input = text_input("New Theme Name...", &app.new_theme_name)
         .on_input(super::Message::NewThemeNameChanged);
-    if !app.new_theme_name.trim().is_empty() && !theme_exists {
+    if !app.new_theme_name.trim().is_empty() && !theme_exists && is_safe {
         theme_input = theme_input.on_submit(|_| super::Message::CreateTheme);
     }
     let new_theme_input = cosmic::iced::widget::tooltip(
         theme_input,
         if theme_exists {
             "A theme with this name already exists."
+        } else if !is_safe {
+            "Theme name contains invalid characters."
         } else {
             "Enter a name to create a new copy of the current theme."
         },
@@ -300,6 +307,13 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
             cosmic::iced::widget::tooltip(
                 btn,
                 "A theme with this name already exists.",
+                cosmic::iced::widget::tooltip::Position::Top,
+            )
+            .into()
+        } else if !is_safe {
+            cosmic::iced::widget::tooltip(
+                btn,
+                "Theme name contains invalid characters.",
                 cosmic::iced::widget::tooltip::Position::Top,
             )
             .into()
