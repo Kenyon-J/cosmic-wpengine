@@ -13,6 +13,18 @@ pub(crate) fn draw_frame(
     wayland_manager: &mut WaylandManager,
     delta: f32,
 ) -> Result<()> {
+    // --- Performance Optimization: Throttled State Updates ---
+    // Perform all mutable calls to `renderer` at the absolute start of draw_frame
+    // to prevent borrow checker error E0502 when immutable references to state
+    // (like audio_data) are later consumed.
+
+    // Update sky color cache only once per simulated second to save FP math
+    let current_time_secs = renderer.state.time_of_day * 86400.0;
+    if (current_time_secs - renderer.last_sky_update_secs).abs() >= 1.0 {
+        renderer.update_sky_cache();
+        renderer.last_sky_update_secs = current_time_secs;
+    }
+
     let audio_data = if renderer.is_waveform_style {
         &renderer.state.audio_waveform
     } else {
@@ -48,13 +60,6 @@ pub(crate) fn draw_frame(
         (has_media_check_gpu || force_art) && renderer.state.config.appearance.album_art_background;
     let show_color_bg = (has_media_check_gpu || force_art)
         && renderer.state.config.appearance.album_color_background;
-
-    // Optimization: Update sky color cache only once per simulated second to save FP math
-    let current_time_secs = renderer.state.time_of_day * 86400.0;
-    if (current_time_secs - renderer.last_sky_update_secs).abs() >= 1.0 {
-        renderer.update_sky_cache();
-        renderer.last_sky_update_secs = current_time_secs;
-    }
 
     // Optimization: Use cached weather state and sky colors
     let weather_type = renderer.weather_type;
