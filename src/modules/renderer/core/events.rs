@@ -56,6 +56,8 @@ impl Renderer {
                 self.is_waveform_style = self.state.config.audio.style == "waveform";
                 self.update_weather_state();
                 self.update_weather_string();
+                self.update_visualiser_cache();
+                self.update_sky_cache();
                 info!("Live settings applied!");
             }
             Event::TrackChanged(mut track) => {
@@ -256,10 +258,6 @@ impl Renderer {
                     self.state.audio_energy = 0.0;
                 }
 
-                if self.state.audio_waveform.len() != target_len {
-                    self.state.audio_waveform = vec![0.0; target_len].into_boxed_slice();
-                }
-
                 let wave_len = waveform.len();
                 let mut max_energy = 0.0f32;
                 // Optimization: Use zipped iterators for the waveform smoothing loop.
@@ -299,6 +297,7 @@ impl Renderer {
                 self.state.weather = Some(*weather);
                 self.update_weather_state();
                 self.update_weather_string();
+                self.update_sky_cache();
                 self.state.begin_transition();
             }
         }
