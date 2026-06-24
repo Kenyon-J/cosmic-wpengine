@@ -252,6 +252,12 @@ impl Renderer {
             art_prev_color: [0.1, 0.1, 0.1],
             album_art_aspect: 1.0,
             custom_bg_aspect: 1.0,
+            visualiser_instance_count: 0,
+            vis_pos_size_rot: [0.0; 4],
+            vis_shape_u32: 0,
+            vis_align_u32: 0,
+            cached_final_sky: [0.0; 3],
+            last_sky_update_secs: 0.0,
             last_occluded: None,
         };
 
@@ -265,6 +271,8 @@ impl Renderer {
         renderer.load_custom_background(path.as_deref());
         renderer.update_theme_colors();
         renderer.update_weather_state();
+        renderer.update_visualiser_cache();
+        renderer.update_sky_cache();
 
         info!("Renderer initialised at {}fps", fps);
         Ok(renderer)

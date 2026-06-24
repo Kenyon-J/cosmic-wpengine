@@ -106,6 +106,12 @@ pub struct Renderer {
     pub(crate) art_prev_color: [f32; 3],
     pub(crate) album_art_aspect: f32,
     pub(crate) custom_bg_aspect: f32,
+    pub(crate) visualiser_instance_count: u32,
+    pub(crate) vis_pos_size_rot: [f32; 4],
+    pub(crate) vis_shape_u32: u32,
+    pub(crate) vis_align_u32: u32,
+    pub(crate) cached_final_sky: [f32; 3],
+    pub(crate) last_sky_update_secs: f32,
     pub(crate) last_occluded: Option<bool>,
 }
 
@@ -252,6 +258,11 @@ impl Renderer {
 
             self.state.update_time();
 
+            // Optimization: Only refresh the procedural sky color once per simulated second.
+            if (self.state.time_of_day * 86400.0 - self.last_sky_update_secs).abs() > 1.0 {
+                self.update_sky_cache();
+            }
+
             let now = Instant::now();
             // Cap the delta to 100ms to prevent the Explicit Euler physics from exploding after a monitor sleep!
             let delta = now.duration_since(last_frame).as_secs_f32().min(0.1);
@@ -356,7 +367,9 @@ impl Renderer {
             // Tell wgpu to process internal garbage collection.
             // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded),
             // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
-            self.device.poll(wgpu::Maintain::Poll);
+            if !wayland_manager.any_monitor_ready() {
+                self.device.poll(wgpu::Maintain::Poll);
+            }
         }
     }
 }

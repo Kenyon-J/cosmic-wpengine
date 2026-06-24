@@ -52,7 +52,7 @@ pub(crate) fn draw_frame(
 
     // Optimization: Use cached weather state and sky colors
     let weather_type = renderer.weather_type;
-    let final_sky = get_final_sky_color(renderer);
+    let final_sky = renderer.cached_final_sky;
     let clear_colour = get_clear_colour_from_sky(renderer, final_sky);
 
     // Use our new smart audio-reactive beat detector instead of the generic timer
@@ -165,22 +165,9 @@ pub(crate) fn draw_frame(
     };
 
     // Optimization: Pre-calculate display-invariant components for the visualizer.
-    let vis_shape_u32 = match renderer.theme.visualiser.shape {
-        VisShape::Circular => 0,
-        VisShape::Linear => 1,
-        VisShape::Square => 2,
-    };
-    let vis_align_u32 = match renderer.theme.visualiser.align {
-        VisAlign::Left => 0,
-        VisAlign::Center => 1,
-        VisAlign::Right => 2,
-    };
-    let vis_pos_size_rot = [
-        renderer.theme.visualiser.position[0],
-        renderer.theme.visualiser.position[1],
-        renderer.theme.visualiser.size,
-        renderer.theme.visualiser.rotation.to_radians(),
-    ];
+    let vis_shape_u32 = renderer.vis_shape_u32;
+    let vis_align_u32 = renderer.vis_align_u32;
+    let vis_pos_size_rot = renderer.vis_pos_size_rot;
     let is_waveform_u32 = if renderer.is_waveform_style { 1 } else { 0 };
 
     // Optimization: Pre-calculate display-invariant album art layout and dimensions.
@@ -224,13 +211,7 @@ pub(crate) fn draw_frame(
     let blur_factor = 30.0 * blur_opacity;
 
     // Optimization: Pre-calculate Visualizer instance count outside the monitor loop
-    let visualiser_instance_count = if renderer.is_waveform_style {
-        1
-    } else if renderer.theme.visualiser.shape == VisShape::Linear {
-        renderer.state.config.audio.bands as u32
-    } else {
-        renderer.state.config.audio.bands as u32 * 2
-    };
+    let visualiser_instance_count = renderer.visualiser_instance_count;
 
     // Optimization: Hoist lyric start/end indices to avoid redundant calculation
     let (lyric_start_idx, lyric_end_idx) = if let Some(lyrics) = renderer
@@ -888,25 +869,6 @@ pub(crate) fn draw_frame(
     }
 
     Ok(())
-}
-
-fn get_final_sky_color(renderer: &super::Renderer) -> [f32; 3] {
-    let sky = time_to_sky_colour(renderer.state.time_of_day);
-    if let Some(weather) = &renderer.state.weather {
-        if renderer.state.config.weather.enabled {
-            match weather.condition {
-                WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
-                    lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
-                }
-                WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
-                _ => sky,
-            }
-        } else {
-            sky
-        }
-    } else {
-        sky
-    }
 }
 
 pub(crate) fn get_clear_colour_from_sky(
