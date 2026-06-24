@@ -53,6 +53,21 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
             "Select a video file to play as the background.",
             cosmic::iced::widget::tooltip::Position::Top,
         );
+
+        let open_videos_btn = cosmic::iced::widget::tooltip(
+            cosmic::iced::widget::button(text("Open Folder").font(font))
+                .on_press(super::Message::OpenVideosFolder),
+            "Open the videos directory in your file manager.",
+            cosmic::iced::widget::tooltip::Position::Top,
+        );
+
+        let refresh_videos_btn = cosmic::iced::widget::tooltip(
+            cosmic::iced::widget::button(text("Refresh").font(font))
+                .on_press(super::Message::RefreshVideos),
+            "Refresh the list of available videos.",
+            cosmic::iced::widget::tooltip::Position::Top,
+        );
+
         toggles_row = toggles_row.push(
             row()
                 .push(
@@ -61,7 +76,9 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
                         .width(Length::Fixed(200.0)),
                 )
                 .push(video_selector)
-                .spacing(20)
+                .push(open_videos_btn)
+                .push(refresh_videos_btn)
+                .spacing(10)
                 .align_y(cosmic::iced::Alignment::Center),
         );
     }
