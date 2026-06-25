@@ -1,6 +1,7 @@
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
-use crate::modules::colour::{lerp_colour, time_to_sky_colour};
+use super::utils::get_uv_transform;
+use crate::modules::colour::lerp_colour;
 use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
 use crate::modules::event::WeatherCondition;
 use crate::modules::state::SceneHint;
@@ -14,6 +15,10 @@ pub(crate) fn draw_frame(
     wayland_manager: &mut WaylandManager,
     delta: f32,
 ) -> Result<()> {
+    // Optimization: Update sky cache at the start to avoid borrow checker conflicts
+    // with immutable state references created later in the function.
+    renderer.update_sky_cache();
+
     let audio_data = if renderer.is_waveform_style {
         &renderer.state.audio_waveform
     } else {
@@ -52,7 +57,7 @@ pub(crate) fn draw_frame(
 
     // Optimization: Use cached weather state and sky colors
     let weather_type = renderer.weather_type;
-    let final_sky = get_final_sky_color(renderer);
+    let final_sky = renderer.cached_final_sky;
     let clear_colour = get_clear_colour_from_sky(renderer, final_sky);
 
     // Use our new smart audio-reactive beat detector instead of the generic timer
@@ -248,7 +253,7 @@ pub(crate) fn draw_frame(
     };
 
     // Optimization: Pre-calculate screen-invariant foreground album art transform components
-    let fg_art_base_uv = get_uv_transform(1, 1.0, album_art_aspect);
+    let fg_art_base_uv = renderer.fg_art_base_uv;
     let inv_album_art_fg_size = 1.0 / album_art_fg_size;
     let fg_k1 = inv_album_art_fg_size * fg_art_base_uv[0];
     let fg_k2 = 0.5 * fg_art_base_uv[0] + fg_art_base_uv[2];
@@ -890,25 +895,6 @@ pub(crate) fn draw_frame(
     Ok(())
 }
 
-fn get_final_sky_color(renderer: &super::Renderer) -> [f32; 3] {
-    let sky = time_to_sky_colour(renderer.state.time_of_day);
-    if let Some(weather) = &renderer.state.weather {
-        if renderer.state.config.weather.enabled {
-            match weather.condition {
-                WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
-                    lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
-                }
-                WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
-                _ => sky,
-            }
-        } else {
-            sky
-        }
-    } else {
-        sky
-    }
-}
-
 pub(crate) fn get_clear_colour_from_sky(
     renderer: &super::Renderer,
     final_sky: [f32; 3],
@@ -946,33 +932,3 @@ pub(crate) fn get_clear_colour_from_sky(
     }
 }
 
-fn get_uv_transform(mode: u32, screen_aspect: f32, image_aspect: f32) -> [f32; 4] {
-    let new_aspect = screen_aspect / image_aspect;
-
-    let mut scale_x = 1.0;
-    let mut scale_y = 1.0;
-    let mut offset_x = 0.0;
-    let mut offset_y = 0.0;
-
-    if mode == 0 || mode == 2 {
-        // object-fit: cover
-        if new_aspect > 1.0 {
-            scale_x = 1.0 / new_aspect;
-            offset_x = (1.0 - scale_x) / 2.0;
-        } else {
-            scale_y = new_aspect;
-            offset_y = (1.0 - scale_y) / 2.0;
-        }
-    } else if mode == 1 {
-        // object-fit: contain
-        if new_aspect > 1.0 {
-            scale_x = new_aspect;
-            offset_x = (1.0 - scale_x) / 2.0;
-        } else {
-            scale_y = 1.0 / new_aspect;
-            offset_y = (1.0 - scale_y) / 2.0;
-        }
-    }
-
-    [scale_x, scale_y, offset_x, offset_y]
-}

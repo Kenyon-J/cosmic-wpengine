@@ -68,6 +68,37 @@ pub(crate) fn build_waveform_bin_ranges(band_count: usize) -> Vec<(usize, usize)
         .collect()
 }
 
+pub(crate) fn get_uv_transform(mode: u32, screen_aspect: f32, image_aspect: f32) -> [f32; 4] {
+    let new_aspect = screen_aspect / image_aspect;
+
+    let mut scale_x = 1.0;
+    let mut scale_y = 1.0;
+    let mut offset_x = 0.0;
+    let mut offset_y = 0.0;
+
+    if mode == 0 || mode == 2 {
+        // object-fit: cover
+        if new_aspect > 1.0 {
+            scale_x = 1.0 / new_aspect;
+            offset_x = (1.0 - scale_x) / 2.0;
+        } else {
+            scale_y = new_aspect;
+            offset_y = (1.0 - scale_y) / 2.0;
+        }
+    } else if mode == 1 {
+        // object-fit: contain
+        if new_aspect > 1.0 {
+            scale_x = new_aspect;
+            offset_x = (1.0 - scale_x) / 2.0;
+        } else {
+            scale_y = 1.0 / new_aspect;
+            offset_y = (1.0 - scale_y) / 2.0;
+        }
+    }
+
+    [scale_x, scale_y, offset_x, offset_y]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

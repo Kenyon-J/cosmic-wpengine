@@ -252,6 +252,9 @@ impl Renderer {
             art_prev_color: [0.1, 0.1, 0.1],
             album_art_aspect: 1.0,
             custom_bg_aspect: 1.0,
+            cached_final_sky: [0.0, 0.0, 0.0],
+            last_sky_update_secs: -1.0,
+            fg_art_base_uv: [1.0, 1.0, 0.0, 0.0],
             last_occluded: None,
         };
 
