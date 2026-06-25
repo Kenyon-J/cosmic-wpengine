@@ -124,6 +124,8 @@ impl Renderer {
         self.current_album_texture = Some(texture);
         self.current_album_size = Some(dimensions);
         self.album_art_aspect = (dimensions.0 as f32 / dimensions.1 as f32).max(0.001);
+        self.fg_art_base_uv =
+            crate::modules::renderer::utils::get_uv_transform(1, 1.0, self.album_art_aspect);
     }
 
     pub(crate) fn update_canvas_video_frame(&mut self, rgba: &image::RgbaImage) {
@@ -531,6 +533,38 @@ impl Renderer {
                 self.weather_type = 0;
             }
         }
+    }
+
+    pub(crate) fn update_sky_cache(&mut self) {
+        use crate::modules::colour::{lerp_colour, time_to_sky_colour};
+        use crate::modules::event::WeatherCondition;
+
+        // Optimization: Throttle sky color updates to once per simulated second.
+        // The source time_of_day only updates once per second, so recalculating
+        // the sky gradient and meteorological lerps every frame (60-144+ FPS)
+        // is a waste of CPU cycles.
+        let current_time_secs = (self.state.time_of_day * 86400.0).floor();
+        if (current_time_secs - self.last_sky_update_secs).abs() < 0.5 {
+            return;
+        }
+        self.last_sky_update_secs = current_time_secs;
+
+        let sky = time_to_sky_colour(self.state.time_of_day);
+        self.cached_final_sky = if let Some(weather) = &self.state.weather {
+            if self.state.config.weather.enabled {
+                match weather.condition {
+                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
+                        lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
+                    }
+                    WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
+                    _ => sky,
+                }
+            } else {
+                sky
+            }
+        } else {
+            sky
+        };
     }
 
     pub(crate) fn update_weather_string(&mut self) {

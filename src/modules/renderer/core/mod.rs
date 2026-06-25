@@ -106,6 +106,9 @@ pub struct Renderer {
     pub(crate) art_prev_color: [f32; 3],
     pub(crate) album_art_aspect: f32,
     pub(crate) custom_bg_aspect: f32,
+    pub(crate) cached_final_sky: [f32; 3],
+    pub(crate) last_sky_update_secs: f32,
+    pub(crate) fg_art_base_uv: [f32; 4],
     pub(crate) last_occluded: Option<bool>,
 }
 
