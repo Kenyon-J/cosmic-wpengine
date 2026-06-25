@@ -3,7 +3,6 @@ use super::types::ArtUniforms;
 use super::utils::get_uv_transform;
 use crate::modules::colour::lerp_colour;
 use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
-use crate::modules::event::WeatherCondition;
 use crate::modules::state::SceneHint;
 use crate::modules::wayland::WaylandManager;
 use anyhow::Result;
