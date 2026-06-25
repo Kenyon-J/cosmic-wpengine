@@ -931,4 +931,3 @@ pub(crate) fn get_clear_colour_from_sky(
         },
     }
 }
-
