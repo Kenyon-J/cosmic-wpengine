@@ -13,3 +13,6 @@
 ## 2024-05-19 - Conditionally Hiding Irrelevant UI Elements
 **Learning:** In `cosmic::iced`, it is a better UX practice to conditionally hide a setting (like a slider) entirely when it doesn't apply to the currently selected mode, rather than showing it constantly with an explanatory tooltip.
 **Action:** Use a mutable container (like `let mut main_col = column()...`) to conditionally push configuration rows to the UI based on top-level state selections.
+## 2024-05-19 - Actionable Directory Links in Settings
+**Learning:** When a settings pane requires a user to manually place files into a specific directory to use a feature (e.g., placing videos in a `videos/` folder), the UX is vastly improved by providing an inline button to open that directory directly in the file manager, rather than just telling them the path in a tooltip or placeholder.
+**Action:** When creating empty states or configuration sections that rely on local filesystem directories, proactively add an "Open Folder" button and ensure the target directory is safely created before attempting to open it.

@@ -288,6 +288,7 @@ enum Message {
     UpdateCheckDone(Option<String>),
     OpenUpdateLink,
     OpenConfigFolder,
+    OpenVideosFolder,
 }
 
 impl Application for SettingsApp {
@@ -576,6 +577,19 @@ amplitude = 1.5"#;
                 } else {
                     tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
                     self.status_msg = "Failed to open folder: xdg-open not found".into();
+                }
+            }
+            Message::OpenVideosFolder => {
+                if let Some(xdg_open) = resolve_binary("xdg-open") {
+                    let videos_dir = config::Config::config_dir().join("videos");
+                    // Ensure the directory exists before trying to open it
+                    let _ = std::fs::create_dir_all(&videos_dir);
+                    let _ = std::process::Command::new(xdg_open).arg(videos_dir).spawn();
+                } else {
+                    tracing::warn!(
+                        "Failed to open videos folder: xdg-open not found in trusted PATH"
+                    );
+                    self.status_msg = "Failed to open videos folder: xdg-open not found".into();
                 }
             }
         }
