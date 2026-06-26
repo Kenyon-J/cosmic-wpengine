@@ -27,3 +27,7 @@
 ## 2025-01-28 - Easily Access System Directories
 **Learning:** For settings pages where users frequently edit local configuration, scripts, or theme files natively in a text editor built into the app, providing a way to actually view and manipulate those files in their system file manager makes file management much more intuitive and user-friendly. Users may want to drag and drop assets, or rename and delete files without using the terminal.
 **Action:** When creating a GUI app that exposes file modification functions on a specific directory, such as `~/.config/app_name/`, include a button that opens that folder in the system file manager using `xdg-open`.
+
+## 2025-01-29 - Indicate Unsaved Changes in Text Editors
+**Learning:** In applications with built-in text editors (e.g., editing configuration files), leaving the 'Save' button continually enabled creates uncertainty. Users might click it multiple times to ensure their changes are saved, or fail to notice if they have pending edits. Disabling the button without explanation is also confusing.
+**Action:** Always track a 'dirty' state by comparing the current editor text against the originally loaded text. When dirty, append a visual indicator (like `*`) to the button text and enable the save action. When not dirty, omit the `.on_press` handler to disable the button, and update its tooltip to explicitly state 'No unsaved changes.'
