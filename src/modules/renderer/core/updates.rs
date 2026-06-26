@@ -1,4 +1,6 @@
 use super::*;
+use crate::modules::event::WeatherCondition;
+
 impl Renderer {
     pub(crate) fn update_album_art_texture(&mut self, rgba: &image::RgbaImage) {
         let dimensions = rgba.dimensions();

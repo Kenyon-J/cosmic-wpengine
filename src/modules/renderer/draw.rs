@@ -1,8 +1,7 @@
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
-use crate::modules::colour::{lerp_colour, time_to_sky_colour};
-use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
-use crate::modules::event::WeatherCondition;
+use crate::modules::colour::lerp_colour;
+use crate::modules::config::{ArtShape, VisShape, WallpaperMode};
 use crate::modules::state::SceneHint;
 use crate::modules::wayland::WaylandManager;
 use anyhow::Result;
@@ -870,7 +869,6 @@ pub(crate) fn draw_frame(
 
     Ok(())
 }
-
 
 pub(crate) fn get_clear_colour_from_sky(
     renderer: &super::Renderer,
