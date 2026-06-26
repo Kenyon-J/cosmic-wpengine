@@ -45,8 +45,10 @@ impl Renderer {
                 // Always reload the theme layout so live edits to the .toml apply instantly!
                 self.theme = *theme_layout;
                 self.inv_smoothing = 1.0 - config.audio.smoothing;
+                self.blur_factor = 30.0 * config.appearance.blur_opacity;
                 self.state.config = *config;
                 self.update_theme_colors();
+                self.update_visualiser_cache();
 
                 // Optimization: Clear the text buffer cache on config updates to ensure
                 // changes like font family or size are applied immediately.
@@ -299,6 +301,7 @@ impl Renderer {
                 self.state.weather = Some(*weather);
                 self.update_weather_state();
                 self.update_weather_string();
+                self.update_sky_cache();
                 self.state.begin_transition();
             }
         }

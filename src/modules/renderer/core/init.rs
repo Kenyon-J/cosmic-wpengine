@@ -171,6 +171,43 @@ impl Renderer {
             0.0
         };
 
+        let vis_pos_size_rot = [
+            theme.visualiser.position[0],
+            theme.visualiser.position[1],
+            theme.visualiser.size,
+            theme.visualiser.rotation.to_radians(),
+        ];
+        let vis_shape_u32 = match theme.visualiser.shape {
+            crate::modules::config::VisShape::Circular => 0,
+            crate::modules::config::VisShape::Linear => 1,
+            crate::modules::config::VisShape::Square => 2,
+        };
+        let vis_align_u32 = match theme.visualiser.align {
+            crate::modules::config::VisAlign::Left => 0,
+            crate::modules::config::VisAlign::Center => 1,
+            crate::modules::config::VisAlign::Right => 2,
+        };
+        let visualiser_instance_count = if is_waveform_style {
+            1
+        } else if theme.visualiser.shape == crate::modules::config::VisShape::Linear {
+            state.config.audio.bands as u32
+        } else {
+            state.config.audio.bands as u32 * 2
+        };
+
+        let map_align = |a: &crate::modules::config::TextAlign| -> cosmic_text::Align {
+            match a {
+                crate::modules::config::TextAlign::Left => cosmic_text::Align::Left,
+                crate::modules::config::TextAlign::Center => cosmic_text::Align::Center,
+                crate::modules::config::TextAlign::Right => cosmic_text::Align::Right,
+            }
+        };
+
+        let lyrics_align = map_align(&theme.lyrics.align);
+        let track_info_align = map_align(&theme.track_info.align);
+        let weather_align = map_align(&theme.weather.align);
+        let blur_factor = 30.0 * state.config.appearance.blur_opacity;
+
         let mut renderer = Self {
             instance,
             adapter,
@@ -253,6 +290,16 @@ impl Renderer {
             album_art_aspect: 1.0,
             custom_bg_aspect: 1.0,
             last_occluded: None,
+            vis_pos_size_rot,
+            vis_shape_u32,
+            vis_align_u32,
+            visualiser_instance_count,
+            lyrics_align,
+            track_info_align,
+            weather_align,
+            blur_factor,
+            cached_final_sky: [0.0; 3],
+            last_sky_update_secs: -1.0,
         };
 
         let path = renderer
