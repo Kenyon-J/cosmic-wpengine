@@ -47,6 +47,8 @@ impl Renderer {
                 self.inv_smoothing = 1.0 - config.audio.smoothing;
                 self.state.config = *config;
                 self.update_theme_colors();
+                self.update_visualiser_cache();
+                self.blur_factor = 30.0 * config.appearance.blur_opacity;
 
                 // Optimization: Clear the text buffer cache on config updates to ensure
                 // changes like font family or size are applied immediately.
@@ -299,6 +301,7 @@ impl Renderer {
                 self.state.weather = Some(*weather);
                 self.update_weather_state();
                 self.update_weather_string();
+                self.update_sky_cache();
                 self.state.begin_transition();
             }
         }

@@ -107,6 +107,16 @@ pub struct Renderer {
     pub(crate) album_art_aspect: f32,
     pub(crate) custom_bg_aspect: f32,
     pub(crate) last_occluded: Option<bool>,
+    pub(crate) vis_pos_size_rot: [f32; 4],
+    pub(crate) vis_shape_u32: u32,
+    pub(crate) vis_align_u32: u32,
+    pub(crate) visualiser_instance_count: u32,
+    pub(crate) lyrics_align: cosmic_text::Align,
+    pub(crate) track_info_align: cosmic_text::Align,
+    pub(crate) weather_align: cosmic_text::Align,
+    pub(crate) blur_factor: f32,
+    pub(crate) cached_final_sky: [f32; 3],
+    pub(crate) last_sky_update_secs: f32,
 }
 
 impl Renderer {
@@ -351,12 +361,13 @@ impl Renderer {
 
             if wayland_manager.any_monitor_ready() {
                 super::draw::draw_frame(self, &mut wayland_manager, delta)?;
+            } else {
+                // Tell wgpu to process internal garbage collection when we aren't rendering.
+                // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded),
+                // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
+                // Note: When draw_frame is called, queue.submit() handles this implicitly.
+                self.device.poll(wgpu::Maintain::Poll);
             }
-
-            // Tell wgpu to process internal garbage collection.
-            // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded),
-            // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
-            self.device.poll(wgpu::Maintain::Poll);
         }
     }
 }

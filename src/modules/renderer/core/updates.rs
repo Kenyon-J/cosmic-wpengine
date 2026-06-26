@@ -303,6 +303,66 @@ impl Renderer {
                 .as_ref()
                 .and_then(|t| t.palette.as_deref()),
         );
+
+        let map_align = |a: &crate::modules::config::TextAlign| -> cosmic_text::Align {
+            match a {
+                crate::modules::config::TextAlign::Left => cosmic_text::Align::Left,
+                crate::modules::config::TextAlign::Center => cosmic_text::Align::Center,
+                crate::modules::config::TextAlign::Right => cosmic_text::Align::Right,
+            }
+        };
+
+        self.lyrics_align = map_align(&self.theme.lyrics.align);
+        self.track_info_align = map_align(&self.theme.track_info.align);
+        self.weather_align = map_align(&self.theme.weather.align);
+    }
+
+    pub(crate) fn update_visualiser_cache(&mut self) {
+        use crate::modules::config::{VisAlign, VisShape};
+
+        self.vis_shape_u32 = match self.theme.visualiser.shape {
+            VisShape::Circular => 0,
+            VisShape::Linear => 1,
+            VisShape::Square => 2,
+        };
+        self.vis_align_u32 = match self.theme.visualiser.align {
+            VisAlign::Left => 0,
+            VisAlign::Center => 1,
+            VisAlign::Right => 2,
+        };
+        self.vis_pos_size_rot = [
+            self.theme.visualiser.position[0],
+            self.theme.visualiser.position[1],
+            self.theme.visualiser.size,
+            self.theme.visualiser.rotation.to_radians(),
+        ];
+        self.visualiser_instance_count = if self.is_waveform_style {
+            1
+        } else if self.theme.visualiser.shape == VisShape::Linear {
+            self.state.config.audio.bands as u32
+        } else {
+            self.state.config.audio.bands as u32 * 2
+        };
+    }
+
+    pub(crate) fn update_sky_cache(&mut self) {
+        use crate::modules::colour::{lerp_colour, time_to_sky_colour};
+        let sky = time_to_sky_colour(self.state.time_of_day);
+        self.cached_final_sky = if let Some(weather) = &self.state.weather {
+            if self.state.config.weather.enabled {
+                match weather.condition {
+                    WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
+                        lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
+                    }
+                    WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
+                    _ => sky,
+                }
+            } else {
+                sky
+            }
+        } else {
+            sky
+        };
     }
 
     pub fn load_custom_background(&mut self, path: Option<&str>) {
