@@ -46,14 +46,16 @@ impl Renderer {
                 self.theme = *theme_layout;
                 self.inv_smoothing = 1.0 - config.audio.smoothing;
                 self.state.config = *config;
+                self.is_waveform_style = self.state.config.audio.style == "waveform";
                 self.update_theme_colors();
+                self.update_visualiser_cache();
+                self.update_sky_cache();
 
                 // Optimization: Clear the text buffer cache on config updates to ensure
                 // changes like font family or size are applied immediately.
                 // We omit shrink_to_fit() to preserve allocated capacity for subsequent lyrics.
                 self.text_buffer_cache.clear();
 
-                self.is_waveform_style = self.state.config.audio.style == "waveform";
                 self.update_weather_state();
                 self.update_weather_string();
                 info!("Live settings applied!");
@@ -97,6 +99,7 @@ impl Renderer {
                     .and_then(|t| t.palette.clone());
                 self.state.current_track = Some(*track);
                 self.update_theme_colors();
+                self.update_sky_cache();
                 self.update_text_colors();
                 self.state.is_playing = true;
                 self.current_lyric_idx = 0;
@@ -137,6 +140,7 @@ impl Renderer {
                 self.state.has_album_art = false;
                 self.state.current_track = None;
                 self.update_theme_colors();
+                self.update_sky_cache();
                 self.update_text_colors();
                 self.state.is_playing = false;
                 self.current_lyric_idx = 0;
@@ -298,6 +302,7 @@ impl Renderer {
                 );
                 self.state.weather = Some(*weather);
                 self.update_weather_state();
+                self.update_sky_cache();
                 self.update_weather_string();
                 self.state.begin_transition();
             }

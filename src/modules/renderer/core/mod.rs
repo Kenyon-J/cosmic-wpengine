@@ -107,6 +107,15 @@ pub struct Renderer {
     pub(crate) album_art_aspect: f32,
     pub(crate) custom_bg_aspect: f32,
     pub(crate) last_occluded: Option<bool>,
+    pub(crate) visualiser_instance_count: u32,
+    pub(crate) cached_final_sky: [f32; 3],
+    pub(crate) last_sky_update_secs: Option<u64>,
+    pub(crate) vis_pos_size_rot: [f32; 4],
+    pub(crate) vis_shape_u32: u32,
+    pub(crate) vis_align_u32: u32,
+    pub(crate) lyrics_align: cosmic_text::Align,
+    pub(crate) track_info_align: cosmic_text::Align,
+    pub(crate) weather_align: cosmic_text::Align,
 }
 
 impl Renderer {
@@ -251,6 +260,7 @@ impl Renderer {
             }
 
             self.state.update_time();
+            self.update_sky_cache();
 
             let now = Instant::now();
             // Cap the delta to 100ms to prevent the Explicit Euler physics from exploding after a monitor sleep!
