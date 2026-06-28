@@ -19,6 +19,7 @@ pub struct AppState {
     pub weather: Option<WeatherData>,
 
     pub time_of_day: f32,
+    pub time_sync_accumulator: f32,
 
     pub transition_progress: f32,
     pub transparent_fade: f32,
@@ -44,6 +45,7 @@ impl AppState {
             audio_energy: 0.0,
             weather: None,
             time_of_day: Self::current_time_of_day(),
+            time_sync_accumulator: 0.0,
             transition_progress: 1.0,
             transparent_fade: initial_fade,
         }
@@ -73,8 +75,18 @@ impl AppState {
         self.transition_progress = 0.0;
     }
 
-    pub fn update_time(&mut self) {
-        self.time_of_day = Self::current_time_of_day();
+    pub fn update_time(&mut self, delta: f32) {
+        // Optimization: Instead of calling SystemTime::now() every frame (60+ syscalls/sec),
+        // we use the frame delta to smoothly increment time and only re-sync with the
+        // system clock once per simulated second. This ensures perfect smoothness
+        // without the overhead of constant syscalls.
+        self.time_of_day = (self.time_of_day + delta / 86400.0) % 1.0;
+        self.time_sync_accumulator += delta;
+
+        if self.time_sync_accumulator >= 1.0 {
+            self.time_of_day = Self::current_time_of_day();
+            self.time_sync_accumulator = 0.0;
+        }
     }
 
     pub fn scene_description(&self) -> SceneHint {

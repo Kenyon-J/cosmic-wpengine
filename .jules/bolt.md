@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 13-02-2025- Optimize Time Tracking and WGPU Maintenance
+**Learning:** Frequent syscalls for time tracking (`SystemTime::now()`) and redundant GPU polling (`wgpu::Maintain::Poll`) in high-frequency rendering loops introduce unnecessary CPU overhead. Simulation time between periodic system clock syncs provides smooth results with minimal syscalls.
+**Action:** Use frame deltas for smooth property increments and only sync with the system clock periodically (e.g., once per second). Ensure `wgpu::Maintain::Poll` is only called when the renderer is idle, as active rendering via `queue.submit()` performs implicit maintenance.

@@ -558,4 +558,5 @@ impl Renderer {
             self.cached_weather_hash = 0;
         }
     }
+
 }
