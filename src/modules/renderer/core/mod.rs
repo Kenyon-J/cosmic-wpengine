@@ -136,7 +136,7 @@ impl Renderer {
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             }
 
-            interval.tick().await;
+            let tick_instant = interval.tick().await;
 
             let occluded = wayland_manager.is_occluded();
             if self.last_occluded != Some(occluded) {
@@ -250,13 +250,16 @@ impl Renderer {
                     .update_opaque_regions(self.state.config.appearance.transparent_background);
             }
 
-            self.state.update_time();
+            // Optimization: Use the timestamp from the interval tick to calculate delta,
+            // avoiding an extra Instant::now() syscall every frame.
+            let delta = tick_instant
+                .duration_since(last_frame.into())
+                .as_secs_f32()
+                .min(0.1);
+            last_frame = tick_instant.into();
 
-            let now = Instant::now();
-            // Cap the delta to 100ms to prevent the Explicit Euler physics from exploding after a monitor sleep!
-            let delta = now.duration_since(last_frame).as_secs_f32().min(0.1);
+            self.state.update_time(delta);
             self.state.tick_transition(delta);
-            last_frame = now;
 
             // Pre-calculate shared exponential decay factors once per frame to reduce redundant math.
             let decay_12 = (-12.0 * delta).exp();
@@ -351,12 +354,13 @@ impl Renderer {
 
             if wayland_manager.any_monitor_ready() {
                 super::draw::draw_frame(self, &mut wayland_manager, delta)?;
+            } else {
+                // Optimization: Tell wgpu to process internal garbage collection.
+                // We only need to call this manually when no frames are being rendered
+                // (e.g. all monitors asleep or occluded), because queue.submit()
+                // performs implicit polling during the active render path.
+                self.device.poll(wgpu::Maintain::Poll);
             }
-
-            // Tell wgpu to process internal garbage collection.
-            // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded),
-            // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
-            self.device.poll(wgpu::Maintain::Poll);
         }
     }
 }
