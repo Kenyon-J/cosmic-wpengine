@@ -253,6 +253,9 @@ impl Renderer {
             album_art_aspect: 1.0,
             custom_bg_aspect: 1.0,
             last_occluded: None,
+            lyrics_align: cosmic_text::Align::Center,
+            track_info_align: cosmic_text::Align::Center,
+            weather_align: cosmic_text::Align::Center,
         };
 
         let path = renderer
