@@ -90,7 +90,9 @@ impl AudioCapture {
                                 // Avoid allocating inside the mapping closure; use zipped iterators or direct maps
                                 norm_buffer.extend(process_buffer[0..half]
                                     .iter()
-                                    .map(|c| (c.norm() / SCALE_FACTOR).clamp(0.0, 1.0)));
+                                    // Optimization: Manual sqrt is significantly faster than c.norm()
+                                    // which relies on hypot(), preventing vectorization.
+                                    .map(|c| ((c.re * c.re + c.im * c.im).sqrt() / SCALE_FACTOR).clamp(0.0, 1.0)));
                                 let _ = recycle_complex_tx_clone.try_send(process_buffer);
                                 (norm_buffer, samples) // Return the processed data
                             }).await {
