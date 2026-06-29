@@ -1,7 +1,7 @@
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
 use crate::modules::colour::{lerp_colour, time_to_sky_colour};
-use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
+use crate::modules::config::{ArtShape, VisAlign, VisShape, WallpaperMode};
 use crate::modules::event::WeatherCondition;
 use crate::modules::state::SceneHint;
 use crate::modules::wayland::WaylandManager;
@@ -260,18 +260,6 @@ pub(crate) fn draw_frame(
     // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
     let secondary_text = renderer.secondary_text_color;
     let text_color_diff = renderer.text_color_diff;
-
-    let map_align = |a: &TextAlign| -> cosmic_text::Align {
-        match a {
-            TextAlign::Left => cosmic_text::Align::Left,
-            TextAlign::Center => cosmic_text::Align::Center,
-            TextAlign::Right => cosmic_text::Align::Right,
-        }
-    };
-
-    let lyrics_align = map_align(&renderer.theme.lyrics.align);
-    let track_info_align = map_align(&renderer.theme.track_info.align);
-    let weather_align = map_align(&renderer.theme.weather.align);
 
     let family = renderer
         .state
@@ -600,7 +588,7 @@ pub(crate) fn draw_frame(
                                 buffer.set_metrics(&mut renderer.font_system, metrics);
                                 buffer.set_size(&mut renderer.font_system, width_f, height_f);
 
-                                let align = lyrics_align;
+                                let align = renderer.lyrics_align;
                                 buffer.lines.iter_mut().for_each(
                                     |line: &mut cosmic_text::BufferLine| {
                                         line.set_align(Some(align));
@@ -658,7 +646,7 @@ pub(crate) fn draw_frame(
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                let align = track_info_align;
+                let align = renderer.track_info_align;
                 buffer
                     .lines
                     .iter_mut()
@@ -714,7 +702,7 @@ pub(crate) fn draw_frame(
                     secondary_text[2],
                     secondary_text[3],
                 ];
-                let align = weather_align;
+                let align = renderer.weather_align;
                 buffer
                     .lines
                     .iter_mut()
