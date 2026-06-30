@@ -767,7 +767,7 @@ fn is_safe_ip(ip: IpAddr) -> bool {
             !ipv4.is_loopback()
                 && !ipv4.is_private()
                 && !ipv4.is_link_local()
-                && !ipv4.is_unspecified()
+                && ipv4.octets()[0] != 0
                 && !ipv4.is_broadcast()
         }
         IpAddr::V6(ipv6) => {
