@@ -253,6 +253,14 @@ impl Renderer {
             album_art_aspect: 1.0,
             custom_bg_aspect: 1.0,
             last_occluded: None,
+            visualiser_instance_count: 0,
+            vis_pos_size_rot: [0.0; 4],
+            vis_shape_u32: 0,
+            vis_align_u32: 0,
+            is_waveform_u32: 0,
+            lyrics_align: cosmic_text::Align::Center,
+            track_info_align: cosmic_text::Align::Center,
+            weather_align: cosmic_text::Align::Center,
         };
 
         let path = renderer
@@ -265,6 +273,7 @@ impl Renderer {
         renderer.load_custom_background(path.as_deref());
         renderer.update_theme_colors();
         renderer.update_weather_state();
+        renderer.update_visualiser_cache();
 
         info!("Renderer initialised at {}fps", fps);
         Ok(renderer)

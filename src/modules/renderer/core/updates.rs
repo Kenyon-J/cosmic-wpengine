@@ -533,6 +533,51 @@ impl Renderer {
         }
     }
 
+    pub(crate) fn update_visualiser_cache(&mut self) {
+        use crate::modules::config::{TextAlign, VisAlign, VisShape};
+
+        self.visualiser_instance_count = if self.is_waveform_style {
+            1
+        } else if self.theme.visualiser.shape == VisShape::Linear {
+            self.state.config.audio.bands as u32
+        } else {
+            self.state.config.audio.bands as u32 * 2
+        };
+
+        self.vis_shape_u32 = match self.theme.visualiser.shape {
+            VisShape::Circular => 0,
+            VisShape::Linear => 1,
+            VisShape::Square => 2,
+        };
+
+        self.vis_align_u32 = match self.theme.visualiser.align {
+            VisAlign::Left => 0,
+            VisAlign::Center => 1,
+            VisAlign::Right => 2,
+        };
+
+        self.vis_pos_size_rot = [
+            self.theme.visualiser.position[0],
+            self.theme.visualiser.position[1],
+            self.theme.visualiser.size,
+            self.theme.visualiser.rotation.to_radians(),
+        ];
+
+        self.is_waveform_u32 = if self.is_waveform_style { 1 } else { 0 };
+
+        let map_align = |a: &TextAlign| -> cosmic_text::Align {
+            match a {
+                TextAlign::Left => cosmic_text::Align::Left,
+                TextAlign::Center => cosmic_text::Align::Center,
+                TextAlign::Right => cosmic_text::Align::Right,
+            }
+        };
+
+        self.lyrics_align = map_align(&self.theme.lyrics.align);
+        self.track_info_align = map_align(&self.theme.track_info.align);
+        self.weather_align = map_align(&self.theme.weather.align);
+    }
+
     pub(crate) fn update_weather_string(&mut self) {
         use crate::modules::renderer::utils::hash_str;
         if let Some(weather) = &self.state.weather {

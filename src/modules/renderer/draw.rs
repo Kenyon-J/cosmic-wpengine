@@ -1,7 +1,7 @@
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::ArtUniforms;
 use crate::modules::colour::{lerp_colour, time_to_sky_colour};
-use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
+use crate::modules::config::{ArtShape, VisShape, WallpaperMode};
 use crate::modules::event::WeatherCondition;
 use crate::modules::state::SceneHint;
 use crate::modules::wayland::WaylandManager;
@@ -164,24 +164,11 @@ pub(crate) fn draw_frame(
         None
     };
 
-    // Optimization: Pre-calculate display-invariant components for the visualizer.
-    let vis_shape_u32 = match renderer.theme.visualiser.shape {
-        VisShape::Circular => 0,
-        VisShape::Linear => 1,
-        VisShape::Square => 2,
-    };
-    let vis_align_u32 = match renderer.theme.visualiser.align {
-        VisAlign::Left => 0,
-        VisAlign::Center => 1,
-        VisAlign::Right => 2,
-    };
-    let vis_pos_size_rot = [
-        renderer.theme.visualiser.position[0],
-        renderer.theme.visualiser.position[1],
-        renderer.theme.visualiser.size,
-        renderer.theme.visualiser.rotation.to_radians(),
-    ];
-    let is_waveform_u32 = if renderer.is_waveform_style { 1 } else { 0 };
+    // Optimization: Use pre-calculated display-invariant components for the visualizer.
+    let vis_shape_u32 = renderer.vis_shape_u32;
+    let vis_align_u32 = renderer.vis_align_u32;
+    let vis_pos_size_rot = renderer.vis_pos_size_rot;
+    let is_waveform_u32 = renderer.is_waveform_u32;
 
     // Optimization: Pre-calculate display-invariant album art layout and dimensions.
     let album_art_bg_mode = if show_color_bg {
@@ -223,14 +210,8 @@ pub(crate) fn draw_frame(
     let blur_opacity = renderer.state.config.appearance.blur_opacity;
     let blur_factor = 30.0 * blur_opacity;
 
-    // Optimization: Pre-calculate Visualizer instance count outside the monitor loop
-    let visualiser_instance_count = if renderer.is_waveform_style {
-        1
-    } else if renderer.theme.visualiser.shape == VisShape::Linear {
-        renderer.state.config.audio.bands as u32
-    } else {
-        renderer.state.config.audio.bands as u32 * 2
-    };
+    // Optimization: Use pre-calculated Visualizer instance count outside the monitor loop
+    let visualiser_instance_count = renderer.visualiser_instance_count;
 
     // Optimization: Hoist lyric start/end indices to avoid redundant calculation
     let (lyric_start_idx, lyric_end_idx) = if let Some(lyrics) = renderer
@@ -261,17 +242,9 @@ pub(crate) fn draw_frame(
     let secondary_text = renderer.secondary_text_color;
     let text_color_diff = renderer.text_color_diff;
 
-    let map_align = |a: &TextAlign| -> cosmic_text::Align {
-        match a {
-            TextAlign::Left => cosmic_text::Align::Left,
-            TextAlign::Center => cosmic_text::Align::Center,
-            TextAlign::Right => cosmic_text::Align::Right,
-        }
-    };
-
-    let lyrics_align = map_align(&renderer.theme.lyrics.align);
-    let track_info_align = map_align(&renderer.theme.track_info.align);
-    let weather_align = map_align(&renderer.theme.weather.align);
+    let lyrics_align = renderer.lyrics_align;
+    let track_info_align = renderer.track_info_align;
+    let weather_align = renderer.weather_align;
 
     let family = renderer
         .state
