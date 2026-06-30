@@ -4,8 +4,8 @@ mod updates;
 use anyhow::Result;
 use cosmic_text::{self, Buffer, FontSystem, SwashCache};
 use std::time::Duration;
-use tokio::time::Instant;
 use tokio::sync::mpsc::Receiver;
+use tokio::time::Instant;
 use tracing::{info, warn};
 
 use crate::modules::event::Event;
@@ -261,7 +261,10 @@ impl Renderer {
             }
 
             // Cap the delta to 100ms to prevent the Explicit Euler physics from exploding after a monitor sleep!
-            let delta = tick_instant.duration_since(last_frame).as_secs_f32().min(0.1);
+            let delta = tick_instant
+                .duration_since(last_frame)
+                .as_secs_f32()
+                .min(0.1);
 
             self.state.update_time(delta);
             self.state.tick_transition(delta);
