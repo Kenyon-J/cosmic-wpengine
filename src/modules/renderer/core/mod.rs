@@ -129,7 +129,7 @@ impl Renderer {
         let mut last_frame = Instant::now();
         let mut last_config_serial = wayland_manager.app_data.configuration_serial;
 
-        let mut interval = tokio::time::interval(self.frame_duration.into());
+        let mut interval = tokio::time::interval(self.frame_duration);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         wayland_manager.update_opaque_regions(self.state.config.appearance.transparent_background);
@@ -142,7 +142,7 @@ impl Renderer {
                 info!("Updating FPS from {} to {}", self.current_fps, target_fps);
                 self.current_fps = target_fps;
                 self.frame_duration = Duration::from_secs_f64(1.0 / target_fps as f64);
-                interval = tokio::time::interval(self.frame_duration.into());
+                interval = tokio::time::interval(self.frame_duration);
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             }
 
