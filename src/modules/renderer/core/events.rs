@@ -56,6 +56,7 @@ impl Renderer {
                 self.is_waveform_style = self.state.config.audio.style == "waveform";
                 self.update_weather_state();
                 self.update_weather_string();
+                self.update_visualiser_cache();
                 info!("Live settings applied!");
             }
             Event::TrackChanged(mut track) => {
@@ -98,6 +99,7 @@ impl Renderer {
                 self.state.current_track = Some(*track);
                 self.update_theme_colors();
                 self.update_text_colors();
+                self.update_visualiser_cache();
                 self.state.is_playing = true;
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;

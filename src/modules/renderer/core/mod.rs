@@ -3,8 +3,9 @@ mod init;
 mod updates;
 use anyhow::Result;
 use cosmic_text::{self, Buffer, FontSystem, SwashCache};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
+use tokio::time::Instant;
 use tracing::{info, warn};
 
 use crate::modules::event::Event;
@@ -107,6 +108,15 @@ pub struct Renderer {
     pub(crate) album_art_aspect: f32,
     pub(crate) custom_bg_aspect: f32,
     pub(crate) last_occluded: Option<bool>,
+    // --- Cached Display-Invariant Parameters ---
+    pub(crate) visualiser_instance_count: u32,
+    pub(crate) vis_pos_size_rot: [f32; 4],
+    pub(crate) vis_shape_u32: u32,
+    pub(crate) vis_align_u32: u32,
+    pub(crate) is_waveform_u32: u32,
+    pub(crate) lyrics_align: cosmic_text::Align,
+    pub(crate) track_info_align: cosmic_text::Align,
+    pub(crate) weather_align: cosmic_text::Align,
 }
 
 impl Renderer {
@@ -136,7 +146,7 @@ impl Renderer {
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             }
 
-            interval.tick().await;
+            let tick_instant = interval.tick().await;
 
             let occluded = wayland_manager.is_occluded();
             if self.last_occluded != Some(occluded) {
@@ -250,13 +260,15 @@ impl Renderer {
                     .update_opaque_regions(self.state.config.appearance.transparent_background);
             }
 
-            self.state.update_time();
-
-            let now = Instant::now();
             // Cap the delta to 100ms to prevent the Explicit Euler physics from exploding after a monitor sleep!
-            let delta = now.duration_since(last_frame).as_secs_f32().min(0.1);
+            let delta = tick_instant
+                .duration_since(last_frame)
+                .as_secs_f32()
+                .min(0.1);
+
+            self.state.update_time(delta);
             self.state.tick_transition(delta);
-            last_frame = now;
+            last_frame = tick_instant;
 
             // Pre-calculate shared exponential decay factors once per frame to reduce redundant math.
             let decay_12 = (-12.0 * delta).exp();

@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 21-05-2025 - Optimize Hot Path by Hoisting Display-Invariant Calculations and Reducing Syscalls
+**Learning:** Calling `SystemTime::now()` and recalculating display-invariant properties (like text alignment or visualiser layout) in every frame of a multi-monitor rendering loop introduces significant CPU overhead. Additionally, using `tokio::time::interval` provides a free timestamp that can eliminate an extra `Instant::now()` call.
+**Action:** Implement periodic clock synchronization (e.g., once per second) with frame-delta interpolation for high-frequency time tracking. Always hoist display-invariant layout and enum-to-integer mappings into the `Renderer` state, updated only on configuration or track changes.
