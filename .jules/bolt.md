@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 04-06-2025- Consolidate Time Syscalls and Throttled State Sync
+**Learning:** Performing multiple independent `Instant::now()` and `SystemTime::now()` syscalls per frame (60+ FPS) across different modules (`Renderer`, `WaylandManager`, `AppState`) introduces measurable kernel-level overhead and can lead to subtle temporal inconsistencies in shaders and physics. Additionally, wall-clock lookups for "time of day" are expensive and unnecessary to perform every frame for a slow-moving 24-hour value.
+**Action:** Consolidate time measurement by capturing a single `Instant` at the start of the render loop and propagating it to all subsystems. Refactor high-frequency state updates (like sky color/time-of-day) to use frame deltas for smooth interpolation, only syncing with the high-precision system clock periodically (e.g., once per second).
