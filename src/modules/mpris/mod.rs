@@ -764,11 +764,13 @@ impl MprisWatcher {
 fn is_safe_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ipv4) => {
+            let is_zero_network = ipv4.octets()[0] == 0;
             !ipv4.is_loopback()
                 && !ipv4.is_private()
                 && !ipv4.is_link_local()
                 && !ipv4.is_unspecified()
                 && !ipv4.is_broadcast()
+                && !is_zero_network
         }
         IpAddr::V6(ipv6) => {
             if let Some(mapped_v4) = ipv6.to_ipv4_mapped() {
