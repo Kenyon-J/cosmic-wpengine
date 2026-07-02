@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 2025-05-18 - Optimize norm calculation in bounded data paths
+**Learning:** In hot loops processing complex numbers with safe, bounded data (e.g., FFT audio bins), `num_complex::Complex::norm()` introduces branching to safely handle potential overflows and underflows via `hypot()`. This branching prevents SIMD auto-vectorization and slows down execution.
+**Action:** Replace `.norm()` with the standard Euclidean formula `(c.re * c.re + c.im * c.im).sqrt()` when the data is known to be bounded (like normalized audio samples), enabling auto-vectorization and significantly improving performance.
