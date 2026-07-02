@@ -395,13 +395,13 @@ impl WaylandManager {
                 .any(|w| !w.frame_pending && w.first_configure)
     }
 
-    pub fn is_occluded(&self) -> bool {
+    pub fn is_occluded(&self, now: std::time::Instant) -> bool {
         if self.app_data.windows.is_empty() {
             return false;
         }
         self.app_data.windows.iter().all(|w| {
             w.frame_pending
-                && w.last_frame_request.elapsed() > std::time::Duration::from_millis(100)
+                && now.duration_since(w.last_frame_request) > std::time::Duration::from_millis(100)
         })
     }
 }
