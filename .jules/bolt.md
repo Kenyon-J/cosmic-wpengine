@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 22-05-2026- Consolidate Monotonic and System Time Retrieval
+**Learning:** Frequent retrieval of monotonic (`Instant::now()`) and system (`SystemTime::now()`) time in high-frequency rendering loops (60+ FPS) can introduce measurable syscall overhead. Monotonic time can be shared across all per-frame logic (physics, visibility, animations), and system time only needs to be queried periodically to maintain wall-clock accuracy.
+**Action:** Consolidate `Instant::now()` into a single call at the start of the frame loop and pass it as a parameter to downstream methods. Use an accumulator to synchronize with `SystemTime` at a lower frequency (e.g., 1Hz) to reduce kernel context switches.
