@@ -769,6 +769,7 @@ fn is_safe_ip(ip: IpAddr) -> bool {
                 && !ipv4.is_link_local()
                 && !ipv4.is_unspecified()
                 && !ipv4.is_broadcast()
+                && ipv4.octets()[0] != 0 // Block 0.0.0.0/8 routing to localhost
         }
         IpAddr::V6(ipv6) => {
             if let Some(mapped_v4) = ipv6.to_ipv4_mapped() {
