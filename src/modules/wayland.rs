@@ -400,7 +400,8 @@ impl WaylandManager {
             return false;
         }
         self.app_data.windows.iter().all(|w| {
-            w.frame_pending && now.duration_since(w.last_frame_request) > std::time::Duration::from_millis(100)
+            w.frame_pending
+                && now.duration_since(w.last_frame_request) > std::time::Duration::from_millis(100)
         })
     }
 }
