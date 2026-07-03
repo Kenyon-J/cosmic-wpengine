@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 22-05-2024- Consolidate Redundant Time Syscalls in Hot Loops
+**Learning:** High-frequency rendering loops (60-144 FPS) often redundantly call `Instant::now()` and `SystemTime::now()` across different modules (occlusion checks, physics deltas, shader uniforms, state updates). While vDSO makes these relatively cheap, they still introduce unnecessary overhead and, more importantly, temporal inconsistency within a single frame's logic.
+**Action:** Consolidate time measurements by capturing a single `Instant` at the start of the frame loop and propagating it. Additionally, use frame deltas to approximate wall-clock time (like `time_of_day`) and only sync with the actual system clock at a much lower frequency (e.g., 1Hz) to eliminate high-frequency `SystemTime` syscalls.
