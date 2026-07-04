@@ -102,3 +102,26 @@ fn test_resolve_safe_path() {
         std::env::remove_var("HOME");
     }
 }
+
+#[test]
+fn test_is_safe_ip() {
+    // Standard loopback should be rejected
+    assert!(!super::is_safe_ip("127.0.0.1".parse().unwrap()));
+    assert!(!super::is_safe_ip("::1".parse().unwrap()));
+
+    // 0.0.0.0/8 block should be rejected (SSRF protection)
+    assert!(!super::is_safe_ip("0.0.0.0".parse().unwrap()));
+    assert!(!super::is_safe_ip("0.0.0.1".parse().unwrap()));
+    assert!(!super::is_safe_ip("0.255.255.255".parse().unwrap()));
+
+    // Private and local addresses should be rejected
+    assert!(!super::is_safe_ip("10.0.0.1".parse().unwrap()));
+    assert!(!super::is_safe_ip("192.168.1.1".parse().unwrap()));
+    assert!(!super::is_safe_ip("172.16.0.1".parse().unwrap()));
+    assert!(!super::is_safe_ip("169.254.0.1".parse().unwrap()));
+
+    // Public IPs should be allowed
+    assert!(super::is_safe_ip("1.1.1.1".parse().unwrap()));
+    assert!(super::is_safe_ip("8.8.8.8".parse().unwrap()));
+    assert!(super::is_safe_ip("2001:4860:4860::8888".parse().unwrap()));
+}
