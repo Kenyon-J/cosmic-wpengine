@@ -10,9 +10,10 @@ struct VisualiserUniforms {
     time: f32,
     align: u32, // 0=left, 1=center, 2=right
     is_waveform: u32, // bool
-    _pad1: u32,
-    _pad2: u32,
-    _pad3: u32,
+    sin_rot: f32,
+    cos_rot: f32,
+    aspect: f32,
+    height_factor: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: VisualiserUniforms;
@@ -61,11 +62,10 @@ fn vs_main(@builtin(vertex_index) v_idx: u32, @builtin(instance_index) i_idx: u3
         let band_idx = min(u32(mapped_x * f32(uniforms.band_count)), uniforms.band_count - 1u);
         let val = bands[band_idx];
 
-        let aspect = uniforms.resolution.x / uniforms.resolution.y;
-        let total_width = uniforms.pos_size_rot.z * aspect;
+        let total_width = uniforms.pos_size_rot.z * uniforms.aspect;
         let bar_width = total_width / f32(uniforms.band_count);
-        let max_height = uniforms.amplitude * 0.25 * (1.0 + uniforms.lyric_pulse * 1.5) + 0.05;
-        let height = max(val, 0.02) * 0.25 * uniforms.amplitude * (1.0 + uniforms.lyric_pulse * 1.5);
+        let height = max(val, 0.02) * uniforms.height_factor;
+        let max_height = uniforms.height_factor + 0.05;
 
         out.local_uv = p_quad;
         out.bar_val = height;
@@ -85,11 +85,11 @@ fn vs_main(@builtin(vertex_index) v_idx: u32, @builtin(instance_index) i_idx: u3
         
         let p = vec2<f32>(offset_x + local_x, offset_y - local_y);
         
-        let s = sin(uniforms.pos_size_rot.w);
-        let c = cos(uniforms.pos_size_rot.w);
+        let s = uniforms.sin_rot;
+        let c = uniforms.cos_rot;
         let p_rot = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
         
-        let screen_p = vec2<f32>(p_rot.x / aspect, p_rot.y);
+        let screen_p = vec2<f32>(p_rot.x / uniforms.aspect, p_rot.y);
         
         let final_uv = screen_p + uniforms.pos_size_rot.xy;
         out.clip_position = vec4<f32>(final_uv.x * 2.0 - 1.0, 1.0 - final_uv.y * 2.0, 0.0, 1.0);
@@ -106,8 +106,8 @@ fn vs_main(@builtin(vertex_index) v_idx: u32, @builtin(instance_index) i_idx: u3
         let val = bands[band_idx];
 
         let base_radius = uniforms.pos_size_rot.z + (uniforms.lyric_pulse * 0.02);
-        let max_height = uniforms.amplitude * 0.25 * (1.0 + uniforms.lyric_pulse * 1.5) + 0.05;
-        let height = max(val, 0.02) * 0.25 * uniforms.amplitude * (1.0 + uniforms.lyric_pulse * 1.5);
+        let height = max(val, 0.02) * uniforms.height_factor;
+        let max_height = uniforms.height_factor + 0.05;
         
         let circumference = 6.2831853 * base_radius;
         let bar_width = circumference / f32(uniforms.band_count * 2u);
@@ -132,12 +132,11 @@ fn vs_main(@builtin(vertex_index) v_idx: u32, @builtin(instance_index) i_idx: u3
             r * sin(angle) + local_x * cos(angle)
         );
         
-        let s = sin(uniforms.pos_size_rot.w);
-        let c = cos(uniforms.pos_size_rot.w);
+        let s = uniforms.sin_rot;
+        let c = uniforms.cos_rot;
         let p_rot = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
         
-        let aspect = uniforms.resolution.x / uniforms.resolution.y;
-        let screen_p = vec2<f32>(p_rot.x / aspect, p_rot.y);
+        let screen_p = vec2<f32>(p_rot.x / uniforms.aspect, p_rot.y);
         let final_uv = screen_p + uniforms.pos_size_rot.xy;
         out.clip_position = vec4<f32>(final_uv.x * 2.0 - 1.0, 1.0 - final_uv.y * 2.0, 0.0, 1.0);
         return out;
@@ -208,9 +207,9 @@ fn eval_shadow(lx: f32, ly: f32, half_w: f32, height: f32, blur: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let aspect = uniforms.resolution.x / uniforms.resolution.y;
-    let s = sin(uniforms.pos_size_rot.w);
-    let c = cos(uniforms.pos_size_rot.w);
+    let aspect = uniforms.aspect;
+    let s = uniforms.sin_rot;
+    let c = uniforms.cos_rot;
 
     if (uniforms.is_waveform == 1u) {
         let bg = get_vis_waveform(in.uv, s, c, aspect);
@@ -242,7 +241,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let glow_pad_x = bar_width * 1.5;
     let glow_pad_y = 0.1 + uniforms.lyric_pulse * 0.05; 
     
-    let max_height = uniforms.amplitude * 0.25 * (1.0 + uniforms.lyric_pulse * 1.5) + 0.05;
+    let max_height = uniforms.height_factor + 0.05;
     let quad_w = bar_width + glow_pad_x * 2.0;
     let quad_h = max_height + glow_pad_y * 2.0;
 

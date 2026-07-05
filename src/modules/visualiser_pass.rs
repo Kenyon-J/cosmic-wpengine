@@ -17,9 +17,9 @@ impl VisualiserPass {
         band_count: usize,
         style: &str,
     ) -> Result<Self> {
-        let mut uniform_data = Vec::with_capacity(96);
+        let mut uniform_data = Vec::with_capacity(112);
         // Placeholder init data; the renderer loop immediately overwrites this
-        for _ in 0..24 {
+        for _ in 0..28 {
             uniform_data.extend_from_slice(&[0u8; 4]);
         }
 
@@ -46,7 +46,7 @@ impl VisualiserPass {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(96),
+                        min_binding_size: wgpu::BufferSize::new(112),
                     },
                     count: None,
                 },

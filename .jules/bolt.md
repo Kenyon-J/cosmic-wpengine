@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 20-05-2025- Hoist Visualiser Trig and Constants to CPU
+**Learning:** Hoisting GPU calculations to the CPU provides a measurable win in high-frequency shaders (like audio visualisers with 1024+ instances), but requires extreme care to preserve arithmetic precision and visual parity. A mismatched constant (e.g. using 0.75 instead of 1.5) can significantly alter visual dynamics. Additionally, uniform structure alignment (16-byte rules) must be strictly maintained when adding new fields to avoid buffer corruption.
+**Action:** Double-check hoisted arithmetic against original shader code and verify uniform buffer sizes and alignments (struct padding) across both Rust and WGSL definitions.
