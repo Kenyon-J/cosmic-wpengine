@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 2025-06-25 - Optimize complex norm calculation in hot paths
+**Learning:** In Rust hot loops processing complex numbers with safe, bounded data (e.g., FFT audio bins), `num_complex::Complex::norm()` uses `hypot()`. This includes branching logic to prevent underflow/overflow, which prevents auto-vectorization and slows down execution significantly.
+**Action:** Replace `c.norm()` with `(c.re * c.re + c.im * c.im).sqrt()` in performance-critical paths where the input data magnitude is known to be safe, enabling SIMD and avoiding branching overhead.
