@@ -102,3 +102,24 @@ fn test_resolve_safe_path() {
         std::env::remove_var("HOME");
     }
 }
+
+#[test]
+fn test_is_safe_ip() {
+    use std::net::Ipv4Addr;
+
+    // Safe IPs
+    assert!(is_safe_ip(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)))); // Google DNS
+    assert!(is_safe_ip(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)))); // Cloudflare DNS
+
+    // Blocked IPs - standard checks
+    assert!(!is_safe_ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))); // Loopback
+    assert!(!is_safe_ip(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)))); // Private
+    assert!(!is_safe_ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)))); // Private
+    assert!(!is_safe_ip(IpAddr::V4(Ipv4Addr::new(169, 254, 0, 1)))); // Link-local
+    assert!(!is_safe_ip(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))); // Unspecified
+    assert!(!is_safe_ip(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)))); // Broadcast
+
+    // Blocked IPs - SSRF bypasses
+    assert!(!is_safe_ip(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 1)))); // 0.0.0.0/8 bypass
+    assert!(!is_safe_ip(IpAddr::V4(Ipv4Addr::new(0, 12, 34, 56)))); // 0.0.0.0/8 bypass
+}
