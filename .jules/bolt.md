@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 07-07-2026- Optimize Hot-Loop Syscalls and GPU Maintenance
+**Learning:** In a high-frequency (60+ FPS) render loop, redundant calls to `Instant::now()` and `wgpu::Device::poll()` create unnecessary CPU overhead. `queue.submit()` already performs implicit maintenance, so manual polling is only needed when idle or occluded.
+**Action:** Consolidate all time measurements to a single `Instant::now()` call at the start of the frame. Limit manual GPU polling to non-rendering frames to reduce driver-side overhead during active playback.
