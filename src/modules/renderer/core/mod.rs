@@ -137,6 +137,7 @@ impl Renderer {
             }
 
             interval.tick().await;
+            let now = Instant::now();
 
             let occluded = wayland_manager.is_occluded();
             if self.last_occluded != Some(occluded) {
@@ -242,7 +243,7 @@ impl Renderer {
                         transparent_changed = true;
                     }
                 }
-                self.handle_event(event).await;
+                self.handle_event(event, now).await;
             }
 
             if transparent_changed {
@@ -250,11 +251,9 @@ impl Renderer {
                     .update_opaque_regions(self.state.config.appearance.transparent_background);
             }
 
-            self.state.update_time();
-
-            let now = Instant::now();
             // Cap the delta to 100ms to prevent the Explicit Euler physics from exploding after a monitor sleep!
             let delta = now.duration_since(last_frame).as_secs_f32().min(0.1);
+            self.state.update_time(delta);
             self.state.tick_transition(delta);
             last_frame = now;
 
@@ -349,14 +348,21 @@ impl Renderer {
                 self.lyric_scroll_offset = 0.0;
             }
 
-            if wayland_manager.any_monitor_ready() {
+            let rendered = if wayland_manager.any_monitor_ready() {
                 super::draw::draw_frame(self, &mut wayland_manager, delta)?;
-            }
+                true
+            } else {
+                false
+            };
 
             // Tell wgpu to process internal garbage collection.
             // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded),
             // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
-            self.device.poll(wgpu::Maintain::Poll);
+            // Optimization: Only poll manually if we didn't render. queue.submit() (called in draw_frame)
+            // already performs an implicit poll.
+            if !rendered {
+                self.device.poll(wgpu::Maintain::Poll);
+            }
         }
     }
 }
