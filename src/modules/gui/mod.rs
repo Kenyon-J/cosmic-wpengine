@@ -26,6 +26,7 @@ struct SettingsApp {
     available_videos: Vec<String>,
     selected_file: Option<String>,
     editor_content: cosmic::widget::text_editor::Content,
+    original_content: String,
     new_theme_name: String,
     status_msg: String,
     autostart: bool,
@@ -38,6 +39,7 @@ impl SettingsApp {
             let path = config::Config::config_dir().join("config.toml");
             let content_str = std::fs::read_to_string(path).unwrap_or_default();
             self.editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
+            self.original_content = content_str.clone();
         }
     }
 }
@@ -314,6 +316,7 @@ impl Application for SettingsApp {
         let path = config::Config::config_dir().join("config.toml");
         let content_str = std::fs::read_to_string(path).unwrap_or_default();
         let editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
+        let original_content = content_str.clone();
 
         (
             SettingsApp {
@@ -324,6 +327,7 @@ impl Application for SettingsApp {
                 available_videos: config::Config::available_videos(),
                 selected_file,
                 editor_content,
+                original_content,
                 autostart: autostart_path().exists(),
                 new_theme_name: String::new(),
                 status_msg: "Ready.".into(),
@@ -410,6 +414,7 @@ impl Application for SettingsApp {
                     let content_str = std::fs::read_to_string(path).unwrap_or_default();
                     self.editor_content =
                         cosmic::widget::text_editor::Content::with_text(&content_str);
+                    self.original_content = content_str.clone();
                     self.status_msg = format!("Loaded {}", file);
                 } else {
                     self.status_msg = format!("Blocked unsafe file path: {}", file);
@@ -426,9 +431,10 @@ impl Application for SettingsApp {
                     }
                     let path = config::Config::config_dir().join(file);
                     let text = self.editor_content.text();
-                    match std::fs::write(&path, text) {
+                    match std::fs::write(&path, text.clone()) {
                         Ok(_) => {
                             self.status_msg = format!("Saved {}", file);
+                            self.original_content = text;
                             // If we edited the base config, ensure our GUI state stays in sync
                             if file == "config.toml" {
                                 if let Ok(new_cfg) = config::Config::load_or_default() {
@@ -520,6 +526,7 @@ amplitude = 1.5"#;
                             let content_str = std::fs::read_to_string(path).unwrap_or_default();
                             self.editor_content =
                                 cosmic::widget::text_editor::Content::with_text(&content_str);
+                            self.original_content = content_str.clone();
                             self.status_msg = format!("Created {}", file_name);
                             self.new_theme_name.clear();
                         }
@@ -537,6 +544,7 @@ amplitude = 1.5"#;
                 self.editor_content = cosmic::widget::text_editor::Content::with_text(
                     "Fetching latest patch notes from GitHub...",
                 );
+                self.original_content = "Fetching latest patch notes from GitHub...".into();
                 self.status_msg = "Fetching patch notes...".into();
                 return Task::perform(fetch_patch_notes(), |notes| {
                     Message::PatchNotesLoaded(notes).into()
@@ -544,6 +552,7 @@ amplitude = 1.5"#;
             }
             Message::PatchNotesLoaded(notes) => {
                 self.editor_content = cosmic::widget::text_editor::Content::with_text(&notes);
+                self.original_content = notes.clone();
                 self.status_msg = "Viewing Patch Notes. Select a file to return to editing.".into();
             }
             Message::ReportIssue => {
