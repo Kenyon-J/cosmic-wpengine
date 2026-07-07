@@ -102,3 +102,41 @@ fn test_resolve_safe_path() {
         std::env::remove_var("HOME");
     }
 }
+
+#[test]
+fn test_is_safe_ip() {
+    // Valid external IPs
+    assert!(super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(8, 8, 8, 8)
+    )));
+    assert!(super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(93, 184, 216, 34)
+    )));
+
+    // Loopback
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(127, 0, 0, 1)
+    )));
+
+    // SSRF bypass attempts
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(0, 0, 0, 0)
+    )));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(0, 0, 0, 1)
+    )));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(0, 12, 34, 56)
+    )));
+
+    // Private networks
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(10, 0, 0, 1)
+    )));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(192, 168, 1, 1)
+    )));
+    assert!(!super::is_safe_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(172, 16, 0, 1)
+    )));
+}
