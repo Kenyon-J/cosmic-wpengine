@@ -90,7 +90,13 @@ impl AudioCapture {
                                 // Avoid allocating inside the mapping closure; use zipped iterators or direct maps
                                 norm_buffer.extend(process_buffer[0..half]
                                     .iter()
-                                    .map(|c| (c.norm() / SCALE_FACTOR).clamp(0.0, 1.0)));
+                                    .map(|c| {
+                                        // Optimization: Use manual magnitude calculation instead of c.norm()
+                                        // which avoids hypot()'s underflow/overflow safety branching
+                                        // and enables SIMD auto-vectorization for this hot loop
+                                        let mag = (c.re * c.re + c.im * c.im).sqrt();
+                                        (mag / SCALE_FACTOR).clamp(0.0, 1.0)
+                                    }));
                                 let _ = recycle_complex_tx_clone.try_send(process_buffer);
                                 (norm_buffer, samples) // Return the processed data
                             }).await {
