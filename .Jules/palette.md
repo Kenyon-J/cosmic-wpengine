@@ -27,3 +27,6 @@
 ## 2025-01-28 - Easily Access System Directories
 **Learning:** For settings pages where users frequently edit local configuration, scripts, or theme files natively in a text editor built into the app, providing a way to actually view and manipulate those files in their system file manager makes file management much more intuitive and user-friendly. Users may want to drag and drop assets, or rename and delete files without using the terminal.
 **Action:** When creating a GUI app that exposes file modification functions on a specific directory, such as `~/.config/app_name/`, include a button that opens that folder in the system file manager using `xdg-open`.
+## 2024-05-19 - Explicit "Clean" State in GUI Editors
+**Learning:** In cosmic/iced configuration apps, visually relying solely on an active "Save File" button for an editor can leave users uncertain if changes exist or are successfully committed.
+**Action:** Always maintain a clean `original_file_content` string and conditionally apply a dirty indicator (like `*`) to save buttons and disable them with a "No unsaved changes" tooltip when identical.
