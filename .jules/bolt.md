@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 11-02-2025- Consolidate Hot-Loop System Calls
+**Learning:** Frequent system calls like `Instant::now()` and `SystemTime::now()` in a high-frequency (60+ FPS) multi-monitor render loop introduce measurable CPU overhead and kernel transitions. Consolidating monotonic timestamping to a single capture per frame and using frame deltas to interpolate wall-clock time (syncing with the real system clock only once per second) significantly reduces syscall pressure and improves frame consistency.
+**Action:** Always capture a single `Instant::now()` at the absolute start of the render loop and propagate it through the entire call stack. Use frame deltas for smooth interpolation of time-of-day or other wall-clock properties, performing an actual `SystemTime` sync only at low frequencies (e.g., 1Hz) to prevent drift without penalizing the hot path.

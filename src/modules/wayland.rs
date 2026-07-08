@@ -370,11 +370,11 @@ impl WaylandManager {
         }
     }
 
-    pub fn mark_frame_rendered(&mut self, index: usize) {
+    pub fn mark_frame_rendered(&mut self, index: usize, now: std::time::Instant) {
         let qh = self._event_queue.handle();
         if let Some(win) = self.app_data.windows.get_mut(index) {
             win.frame_pending = true;
-            win.last_frame_request = std::time::Instant::now();
+            win.last_frame_request = now;
             win.frame_callback = Some(win.surface.frame(&qh, win.surface.clone()));
         }
     }
@@ -395,13 +395,14 @@ impl WaylandManager {
                 .any(|w| !w.frame_pending && w.first_configure)
     }
 
-    pub fn is_occluded(&self) -> bool {
+    pub fn is_occluded(&self, now: std::time::Instant) -> bool {
         if self.app_data.windows.is_empty() {
             return false;
         }
         self.app_data.windows.iter().all(|w| {
             w.frame_pending
-                && w.last_frame_request.elapsed() > std::time::Duration::from_millis(100)
+                && now.saturating_duration_since(w.last_frame_request)
+                    > std::time::Duration::from_millis(100)
         })
     }
 }
