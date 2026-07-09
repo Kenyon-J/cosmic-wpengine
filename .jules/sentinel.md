@@ -75,3 +75,9 @@
 **Vulnerability:** The application was vulnerable to an Out-of-Memory (OOM) Denial of Service (DoS) attack. Multiple areas of the code (MPRIS track fetching, weather lookups, lyric fetching, patch notes and update checks) used `reqwest`'s `.json().await` method to parse HTTP responses. This method buffers the entire HTTP response body into memory before deserializing. If an attacker controlled the external API or executed a Man-in-the-Middle attack and returned an infinitely large payload, the application would exhaust available memory and crash.
 **Learning:** `reqwest`'s default `.json().await` method lacks an inherent size limit, making it unsafe for fetching external or untrusted data.
 **Prevention:** Always replace unbounded `.json().await` calls with a manual loop using `.chunk().await` that explicitly checks the accumulated byte count against a strict maximum size limit (e.g., `MAX_JSON_SIZE`). If the limit is exceeded, cleanly abort the request. Once safely buffered, use `serde_json::from_slice` to parse the resulting bytes.
+
+## 2024-05-24 - Custom SSRF Protection By-Pass
+
+**Vulnerability:** A custom SSRF implementation relied on standard library `.is_loopback()` and `.is_unspecified()` but missed blocking `0.0.0.0/8`, a range which Unix-like systems typically route to localhost (e.g. `0.0.0.1` goes to `127.0.0.1`).
+**Learning:** Standard library IP checks are not enough to prevent SSRF vulnerabilities. Developers often forget the entire `0.0.0.0/8` block which acts as a loopback alias on most non-Windows systems.
+**Prevention:** Always explicitly check for and block the `0.0.0.0/8` range when implementing SSRF prevention manually (e.g., `ipv4.octets()[0] != 0`).

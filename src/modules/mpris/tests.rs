@@ -102,3 +102,19 @@ fn test_resolve_safe_path() {
         std::env::remove_var("HOME");
     }
 }
+
+#[test]
+fn test_is_safe_ip() {
+    // Normal safe external IP
+    assert!(super::is_safe_ip("8.8.8.8".parse().unwrap()));
+
+    // Standard blocked IPs
+    assert!(!super::is_safe_ip("127.0.0.1".parse().unwrap()));
+    assert!(!super::is_safe_ip("10.0.0.1".parse().unwrap()));
+    assert!(!super::is_safe_ip("192.168.1.1".parse().unwrap()));
+
+    // Ensure 0.0.0.0/8 SSRF bypass is blocked
+    assert!(!super::is_safe_ip("0.0.0.0".parse().unwrap()));
+    assert!(!super::is_safe_ip("0.0.0.1".parse().unwrap()));
+    assert!(!super::is_safe_ip("0.1.2.3".parse().unwrap()));
+}
