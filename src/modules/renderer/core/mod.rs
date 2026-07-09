@@ -137,8 +137,9 @@ impl Renderer {
             }
 
             interval.tick().await;
+            let now = Instant::now();
 
-            let occluded = wayland_manager.is_occluded();
+            let occluded = wayland_manager.is_occluded(now);
             if self.last_occluded != Some(occluded) {
                 let _ = is_visible_tx.send(!occluded);
                 self.last_occluded = Some(occluded);
@@ -250,11 +251,9 @@ impl Renderer {
                     .update_opaque_regions(self.state.config.appearance.transparent_background);
             }
 
-            self.state.update_time();
-
-            let now = Instant::now();
             // Cap the delta to 100ms to prevent the Explicit Euler physics from exploding after a monitor sleep!
-            let delta = now.duration_since(last_frame).as_secs_f32().min(0.1);
+            let delta = now.saturating_duration_since(last_frame).as_secs_f32().min(0.1);
+            self.state.update_time(delta);
             self.state.tick_transition(delta);
             last_frame = now;
 
@@ -350,13 +349,14 @@ impl Renderer {
             }
 
             if wayland_manager.any_monitor_ready() {
-                super::draw::draw_frame(self, &mut wayland_manager, delta)?;
+                super::draw::draw_frame(self, &mut wayland_manager, now, delta)?;
+            } else {
+                // Tell wgpu to process internal garbage collection.
+                // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded),
+                // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
+                // Optimization: Only poll when we aren't submitting a frame, as submit/present handles it.
+                self.device.poll(wgpu::Maintain::Poll);
             }
-
-            // Tell wgpu to process internal garbage collection.
-            // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded),
-            // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
-            self.device.poll(wgpu::Maintain::Poll);
         }
     }
 }

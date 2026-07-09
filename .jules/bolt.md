@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 12-02-2025- Consolidate high-frequency syscalls and optimize hot path polling
+**Learning:** Redundantly calling `Instant::now()` across multiple modules within the same frame and using `SystemTime::now()` for time-of-day tracking every frame adds significant syscall overhead. Additionally, explicitly calling `wgpu::Device::poll(wgpu::Maintain::Poll)` during active frame submission is redundant as `queue.submit()` and `surface.present()` already handle internal polling.
+**Action:** Capture a single `Instant` at the start of the render loop and propagate it. Use frame deltas to increment procedural time-of-day, syncing with the system clock only once per second. Limit explicit `wgpu` polling to idle or occluded frames where no submission occurs.
