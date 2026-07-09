@@ -252,7 +252,10 @@ impl Renderer {
             }
 
             // Cap the delta to 100ms to prevent the Explicit Euler physics from exploding after a monitor sleep!
-            let delta = now.saturating_duration_since(last_frame).as_secs_f32().min(0.1);
+            let delta = now
+                .saturating_duration_since(last_frame)
+                .as_secs_f32()
+                .min(0.1);
             self.state.update_time(delta);
             self.state.tick_transition(delta);
             last_frame = now;
