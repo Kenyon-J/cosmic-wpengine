@@ -89,3 +89,6 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+## 2026-06-21 - Do Not Cache Dynamic Uniform Buffers Behind Static Constraints
+**Learning:** In `wgpu` rendering loops, gating uniform buffer updates behind a static condition (like checking if the screen resolution changed) breaks dynamic animations (e.g. `time`, `beat_pulse`, `audio_energy`, `transition_progress`). These uniforms must update every frame regardless of window resizing.
+**Action:** Always verify which variables exist in a uniform struct. If the struct contains continuously changing variables, it must be written to the GPU queue unconditionally every frame (e.g. `queue.write_buffer()`). Reserve cached updates only for purely static uniforms.
