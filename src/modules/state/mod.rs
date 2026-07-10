@@ -19,6 +19,7 @@ pub struct AppState {
     pub weather: Option<WeatherData>,
 
     pub time_of_day: f32,
+    pub time_sync_accumulator: f32,
 
     pub transition_progress: f32,
     pub transparent_fade: f32,
@@ -44,6 +45,7 @@ impl AppState {
             audio_energy: 0.0,
             weather: None,
             time_of_day: Self::current_time_of_day(),
+            time_sync_accumulator: 0.0,
             transition_progress: 1.0,
             transparent_fade: initial_fade,
         }
@@ -73,8 +75,18 @@ impl AppState {
         self.transition_progress = 0.0;
     }
 
-    pub fn update_time(&mut self) {
-        self.time_of_day = Self::current_time_of_day();
+    pub fn update_time(&mut self, delta: f32) {
+        // Increment time_of_day smoothly using the frame delta.
+        // 86400.0 is the number of seconds in a day.
+        self.time_of_day = (self.time_of_day + delta / 86400.0) % 1.0;
+
+        // Synchronize with SystemTime only once per second to reduce syscall overhead
+        // while maintaining long-term accuracy.
+        self.time_sync_accumulator += delta;
+        if self.time_sync_accumulator >= 1.0 {
+            self.time_of_day = Self::current_time_of_day();
+            self.time_sync_accumulator = 0.0;
+        }
     }
 
     pub fn scene_description(&self) -> SceneHint {
@@ -92,11 +104,11 @@ impl AppState {
 
     fn current_time_of_day() -> f32 {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let secs = SystemTime::now()
+        let duration = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        (secs % 86400) as f32 / 86400.0
+            .unwrap_or_default();
+        let secs_of_day = duration.as_secs_f64() % 86400.0;
+        (secs_of_day / 86400.0) as f32
     }
 }
 
