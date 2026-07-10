@@ -212,9 +212,11 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         cosmic::iced::widget::tooltip::Position::Top,
     );
 
+    let is_dirty = app.selected_file.is_some() && app.editor_content.text() != app.original_content;
+
     let save_btn: cosmic::Element<'_, super::Message> = {
-        let btn = cosmic::iced::widget::button(text("Save File").font(font));
-        if app.selected_file.is_some() {
+        if is_dirty {
+            let btn = cosmic::iced::widget::button(text("Save File *").font(font));
             cosmic::iced::widget::tooltip(
                 btn.on_press(super::Message::SaveFile),
                 "Save changes to the current file.",
@@ -222,9 +224,14 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
             )
             .into()
         } else {
+            let btn = cosmic::iced::widget::button(text("Save File").font(font));
             cosmic::iced::widget::tooltip(
                 btn,
-                "Select a file to enable saving.",
+                if app.selected_file.is_some() {
+                    "No changes to save."
+                } else {
+                    "Select a file to enable saving."
+                },
                 cosmic::iced::widget::tooltip::Position::Top,
             )
             .into()
