@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 15-02-2025- Consolidate Syscalls and Time Tracking in Hot Path
+**Learning:** Frequent syscalls like `Instant::now()` and `SystemTime::now()` in a 60+ FPS rendering loop introduce measurable CPU overhead and kernel/user-space transition jitter. Additionally, manual GPU polling via `device.poll()` is redundant during frames where `queue.submit()` is already called.
+**Action:** Fetch a single `Instant::now()` at the beginning of the frame and propagate it throughout the call stack. Implement local time-of-day tracking in `AppState` using frame deltas, syncing with the wall clock only once per second. Throttling `device.poll()` to non-rendering frames further reduces driver overhead.
