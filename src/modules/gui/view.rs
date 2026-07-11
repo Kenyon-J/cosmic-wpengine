@@ -213,14 +213,26 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
     );
 
     let save_btn: cosmic::Element<'_, super::Message> = {
-        let btn = cosmic::iced::widget::button(text("Save File").font(font));
+        let is_dirty = app.editor_content.text() != app.initial_editor_text;
+        let btn_label = if is_dirty { "Save File *" } else { "Save File" };
+        let btn = cosmic::iced::widget::button(text(btn_label).font(font));
+
         if app.selected_file.is_some() {
-            cosmic::iced::widget::tooltip(
-                btn.on_press(super::Message::SaveFile),
-                "Save changes to the current file.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            )
-            .into()
+            if is_dirty {
+                cosmic::iced::widget::tooltip(
+                    btn.on_press(super::Message::SaveFile),
+                    "Save changes to the current file.",
+                    cosmic::iced::widget::tooltip::Position::Top,
+                )
+                .into()
+            } else {
+                cosmic::iced::widget::tooltip(
+                    btn,
+                    "No unsaved changes.",
+                    cosmic::iced::widget::tooltip::Position::Top,
+                )
+                .into()
+            }
         } else {
             cosmic::iced::widget::tooltip(
                 btn,

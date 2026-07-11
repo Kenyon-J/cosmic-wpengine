@@ -27,3 +27,7 @@
 ## 2025-01-28 - Easily Access System Directories
 **Learning:** For settings pages where users frequently edit local configuration, scripts, or theme files natively in a text editor built into the app, providing a way to actually view and manipulate those files in their system file manager makes file management much more intuitive and user-friendly. Users may want to drag and drop assets, or rename and delete files without using the terminal.
 **Action:** When creating a GUI app that exposes file modification functions on a specific directory, such as `~/.config/app_name/`, include a button that opens that folder in the system file manager using `xdg-open`.
+
+## 2024-05-19 - Conditional Text Editor Save Buttons
+**Learning:** In `cosmic::iced`, if you have a `text_editor` to edit files with a 'Save' button, keeping the 'Save' button active at all times can cause confusion and unnecessary disk writes if no changes were made.
+**Action:** Track a 'dirty' state by comparing current input against the initially loaded text. Conditionally enable the 'Save' button only when dirty, append a visual indicator (like `*`) to its label, and provide a tooltip explaining its disabled state when unchanged.
