@@ -1,4 +1,75 @@
 use super::*;
+
+/// Uploads RGBA8 pixel data to `texture`, honouring wgpu's 256-byte row-alignment
+/// requirement. `pad_buffer` is reused across calls (and only grown, never shrunk)
+/// to avoid re-allocating a scratch buffer on every frame.
+fn upload_rgba_to_texture(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    width: u32,
+    height: u32,
+    data: &[u8],
+    pad_buffer: &mut Vec<u8>,
+) {
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let unpadded_bytes_per_row = width * 4;
+    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+    let texture_size = wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+
+    if unpadded_bytes_per_row == padded_bytes_per_row {
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(unpadded_bytes_per_row),
+                rows_per_image: Some(height),
+            },
+            texture_size,
+        );
+    } else {
+        let required_size = (padded_bytes_per_row * height) as usize;
+        // Skip .clear() so we don't re-zero the whole buffer every frame; resize()
+        // only zero-fills newly-allocated space.
+        if pad_buffer.len() < required_size {
+            pad_buffer.resize(required_size, 0);
+        }
+
+        // Exact chunks + zip eliminate manual bounds checking and index arithmetic,
+        // letting LLVM auto-vectorize the copy.
+        for (dst_row, src_row) in pad_buffer[..required_size]
+            .chunks_exact_mut(padded_bytes_per_row as usize)
+            .zip(data.chunks_exact(unpadded_bytes_per_row as usize))
+        {
+            dst_row[..unpadded_bytes_per_row as usize].copy_from_slice(src_row);
+        }
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &pad_buffer[..required_size],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row),
+                rows_per_image: Some(height),
+            },
+            texture_size,
+        );
+    }
+}
+
 impl Renderer {
     pub(crate) fn update_album_art_texture(&mut self, rgba: &image::RgbaImage) {
         let dimensions = rgba.dimensions();
@@ -13,11 +84,6 @@ impl Renderer {
             depth_or_array_layers: 1,
         };
 
-        // Guarantee dimensions are compatible with wgpu's 256-byte row alignment!
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let unpadded_bytes_per_row = dimensions.0 * 4;
-        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
-
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             size: texture_size,
             mip_level_count: 1,
@@ -29,55 +95,14 @@ impl Renderer {
             view_formats: &[],
         });
 
-        if unpadded_bytes_per_row == padded_bytes_per_row {
-            self.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                rgba.as_raw(),
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(unpadded_bytes_per_row),
-                    rows_per_image: Some(dimensions.1),
-                },
-                texture_size,
-            );
-        } else {
-            let required_size = (padded_bytes_per_row * dimensions.1) as usize;
-            // Optimization: Re-use the existing buffer if possible. resize(..., 0) only zero-fills
-            // newly-allocated space, so by skipping .clear() at the end of the previous frame,
-            // we avoid zeroing the entire buffer every single frame.
-            if self.album_art_pad_buffer.len() < required_size {
-                self.album_art_pad_buffer.resize(required_size, 0);
-            }
-
-            // Optimization: Use exact chunks and zip to eliminate manual bounds checking
-            // and index arithmetic, allowing LLVM to auto-vectorize the memory copy.
-            for (dst_row, src_row) in self.album_art_pad_buffer[..required_size]
-                .chunks_exact_mut(padded_bytes_per_row as usize)
-                .zip(rgba.as_raw().chunks_exact(unpadded_bytes_per_row as usize))
-            {
-                dst_row[..unpadded_bytes_per_row as usize].copy_from_slice(src_row);
-            }
-            self.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &self.album_art_pad_buffer[..required_size],
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(dimensions.1),
-                },
-                texture_size,
-            );
-        }
+        upload_rgba_to_texture(
+            &self.queue,
+            &texture,
+            dimensions.0,
+            dimensions.1,
+            rgba.as_raw(),
+            &mut self.album_art_pad_buffer,
+        );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -132,58 +157,14 @@ impl Renderer {
         if let Some(texture) = &self.current_album_texture {
             let dimensions = rgba.dimensions();
             if texture.size().width == dimensions.0 && texture.size().height == dimensions.1 {
-                let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-                let unpadded_bytes_per_row = dimensions.0 * 4;
-                let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
-
-                if unpadded_bytes_per_row == padded_bytes_per_row {
-                    self.queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        rgba.as_raw(),
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(unpadded_bytes_per_row),
-                            rows_per_image: Some(dimensions.1),
-                        },
-                        texture.size(),
-                    );
-                } else {
-                    let required_size = (padded_bytes_per_row * dimensions.1) as usize;
-                    // Optimization: Skip .clear() to avoid redundant zero-filling by .resize()
-                    if self.video_frame_buffer.len() < required_size {
-                        self.video_frame_buffer.resize(required_size, 0);
-                    }
-
-                    // Optimization: Use exact chunks and zip to eliminate manual bounds checking
-                    // and index arithmetic, allowing LLVM to auto-vectorize the memory copy.
-                    for (dst_row, src_row) in self.video_frame_buffer[..required_size]
-                        .chunks_exact_mut(padded_bytes_per_row as usize)
-                        .zip(rgba.as_raw().chunks_exact(unpadded_bytes_per_row as usize))
-                    {
-                        dst_row[..unpadded_bytes_per_row as usize].copy_from_slice(src_row);
-                    }
-
-                    self.queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        &self.video_frame_buffer[..required_size],
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(padded_bytes_per_row),
-                            rows_per_image: Some(dimensions.1),
-                        },
-                        texture.size(),
-                    );
-                }
+                upload_rgba_to_texture(
+                    &self.queue,
+                    texture,
+                    dimensions.0,
+                    dimensions.1,
+                    rgba.as_raw(),
+                    &mut self.video_frame_buffer,
+                );
                 return;
             }
         }
@@ -197,58 +178,14 @@ impl Renderer {
         if let Some(texture) = &self.current_custom_bg_texture {
             let dimensions = rgba.dimensions();
             if texture.size().width == dimensions.0 && texture.size().height == dimensions.1 {
-                let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-                let unpadded_bytes_per_row = dimensions.0 * 4;
-                let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
-
-                if unpadded_bytes_per_row == padded_bytes_per_row {
-                    self.queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        rgba.as_raw(),
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(unpadded_bytes_per_row),
-                            rows_per_image: Some(dimensions.1),
-                        },
-                        texture.size(),
-                    );
-                } else {
-                    let required_size = (padded_bytes_per_row * dimensions.1) as usize;
-                    // Optimization: Skip .clear() to avoid redundant zero-filling by .resize()
-                    if self.video_frame_buffer.len() < required_size {
-                        self.video_frame_buffer.resize(required_size, 0);
-                    }
-
-                    // Optimization: Use exact chunks and zip to eliminate manual bounds checking
-                    // and index arithmetic, allowing LLVM to auto-vectorize the memory copy.
-                    for (dst_row, src_row) in self.video_frame_buffer[..required_size]
-                        .chunks_exact_mut(padded_bytes_per_row as usize)
-                        .zip(rgba.as_raw().chunks_exact(unpadded_bytes_per_row as usize))
-                    {
-                        dst_row[..unpadded_bytes_per_row as usize].copy_from_slice(src_row);
-                    }
-
-                    self.queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        &self.video_frame_buffer[..required_size],
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(padded_bytes_per_row),
-                            rows_per_image: Some(dimensions.1),
-                        },
-                        texture.size(),
-                    );
-                }
+                upload_rgba_to_texture(
+                    &self.queue,
+                    texture,
+                    dimensions.0,
+                    dimensions.1,
+                    rgba.as_raw(),
+                    &mut self.video_frame_buffer,
+                );
                 return;
             }
         }
@@ -336,11 +273,6 @@ impl Renderer {
             depth_or_array_layers: 1,
         };
 
-        // Guarantee dimensions are compatible with wgpu's 256-byte row alignment!
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let unpadded_bytes_per_row = dimensions.0 * 4;
-        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
-
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             size: texture_size,
             mip_level_count: 1,
@@ -352,53 +284,14 @@ impl Renderer {
             view_formats: &[],
         });
 
-        if unpadded_bytes_per_row == padded_bytes_per_row {
-            self.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                img.as_raw(),
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(unpadded_bytes_per_row),
-                    rows_per_image: Some(dimensions.1),
-                },
-                texture_size,
-            );
-        } else {
-            let required_size = (padded_bytes_per_row * dimensions.1) as usize;
-            // Optimization: Avoid redundant zero-filling by reuse of the pad buffer
-            if self.album_art_pad_buffer.len() < required_size {
-                self.album_art_pad_buffer.resize(required_size, 0);
-            }
-
-            // Optimization: Use exact chunks and zip to eliminate manual bounds checking
-            // and index arithmetic, allowing LLVM to auto-vectorize the memory copy.
-            for (dst_row, src_row) in self.album_art_pad_buffer[..required_size]
-                .chunks_exact_mut(padded_bytes_per_row as usize)
-                .zip(img.as_raw().chunks_exact(unpadded_bytes_per_row as usize))
-            {
-                dst_row[..unpadded_bytes_per_row as usize].copy_from_slice(src_row);
-            }
-            self.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &self.album_art_pad_buffer[..required_size],
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(dimensions.1),
-                },
-                texture_size,
-            );
-        }
+        upload_rgba_to_texture(
+            &self.queue,
+            &texture,
+            dimensions.0,
+            dimensions.1,
+            img.as_raw(),
+            &mut self.album_art_pad_buffer,
+        );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
