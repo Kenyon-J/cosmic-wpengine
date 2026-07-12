@@ -1,0 +1,84 @@
+name: Release
+
+# Builds release binaries and attaches them to the GitHub Release for the
+# pushed tag. Triggered by `git push --tags` (tag must be vX.Y.Z, matching
+# Cargo.toml's version) or manually via workflow_dispatch against an
+# existing tag (useful for backfilling a release that predates this
+# workflow).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and publish release binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Same dependency list as pr-build.yml's Ubuntu job, which already
+      # verifies this set is sufficient to build cosmic-wallpaper.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev ffmpeg libssl-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev libpostproc-dev
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION="$(grep -m1 '^version' Cargo.toml | sed -E 's/version = "(.*)"/\1/')"
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME (version $TAG_VERSION) does not match Cargo.toml version $CARGO_VERSION"
+            exit 1
+          fi
+
+      - name: Build release binaries
+        run: cargo build --release --locked --all-targets
+
+      - name: Package release assets
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          DIST="$(pwd)/dist"
+          mkdir -p "$DIST"
+
+          # Stably-named standalone binaries (no version in the filename)
+          # so a scripted consumer - e.g. a future in-app updater - can
+          # always find "the current release" without knowing the version
+          # ahead of time.
+          cp target/release/cosmic-wallpaper "$DIST/cosmic-wallpaper-x86_64-linux-gnu"
+          cp target/release/cosmic-wallpaper-gui "$DIST/cosmic-wallpaper-gui-x86_64-linux-gnu"
+
+          # Versioned tarball with desktop entries, license and docs for
+          # anyone installing by hand.
+          PKG="cosmic-wallpaper-v${VERSION}-x86_64-linux-gnu"
+          mkdir -p "$PKG"
+          cp target/release/cosmic-wallpaper "$PKG/"
+          cp target/release/cosmic-wallpaper-gui "$PKG/"
+          cp io.github.kenyon_j.cosmic_wpengine.desktop "$PKG/"
+          cp io.github.kenyon_j.cosmic_wpengine.autostart.desktop "$PKG/"
+          cp LICENSE README.md "$PKG/"
+          tar -czf "$DIST/$PKG.tar.gz" "$PKG"
+          rm -rf "$PKG"
+
+          ( cd "$DIST" && sha256sum -- * > SHA256SUMS.txt )
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
