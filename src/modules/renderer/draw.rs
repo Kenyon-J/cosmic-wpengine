@@ -300,17 +300,18 @@ pub(crate) fn draw_frame(
         }
 
         let output = match gpu_out.surface.get_current_texture() {
-            Ok(texture) => texture,
-            Err(wgpu::SurfaceError::Outdated) | Err(wgpu::SurfaceError::Lost) => {
+            wgpu::CurrentSurfaceTexture::Success(texture)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 warn!("wgpu surface outdated or lost, reconfiguring...");
                 gpu_out.surface.configure(&renderer.device, &gpu_out.config);
                 continue;
             }
-            Err(wgpu::SurfaceError::Timeout) => {
-                warn!("wgpu surface timeout, skipping frame...");
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                warn!("wgpu surface timeout or occluded, skipping frame...");
                 continue;
             }
-            Err(e) => anyhow::bail!("Failed to get current texture: {:?}", e),
+            e => anyhow::bail!("Failed to get current texture: {:?}", e),
         };
 
         wayland_manager.mark_frame_rendered(i as usize); // Request the next frame callback
@@ -814,6 +815,7 @@ pub(crate) fn draw_frame(
                 label: Some("Main Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(clear_colour),
@@ -823,6 +825,7 @@ pub(crate) fn draw_frame(
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
 
             // --- Background Rendering ---
@@ -878,7 +881,7 @@ pub(crate) fn draw_frame(
         }
 
         renderer.queue.submit(std::iter::once(encoder.finish()));
-        output.present();
+        renderer.queue.present(output);
     }
 
     for p_buf in renderer.text_buffers.drain(..) {

@@ -31,14 +31,14 @@ impl Renderer {
 
         if unpadded_bytes_per_row == padded_bytes_per_row {
             self.queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
                 rgba.as_raw(),
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(unpadded_bytes_per_row),
                     rows_per_image: Some(dimensions.1),
@@ -63,14 +63,14 @@ impl Renderer {
                 dst_row[..unpadded_bytes_per_row as usize].copy_from_slice(src_row);
             }
             self.queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
                 &self.album_art_pad_buffer[..required_size],
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(padded_bytes_per_row),
                     rows_per_image: Some(dimensions.1),
@@ -138,14 +138,14 @@ impl Renderer {
 
                 if unpadded_bytes_per_row == padded_bytes_per_row {
                     self.queue.write_texture(
-                        wgpu::ImageCopyTexture {
+                        wgpu::TexelCopyTextureInfo {
                             texture,
                             mip_level: 0,
                             origin: wgpu::Origin3d::ZERO,
                             aspect: wgpu::TextureAspect::All,
                         },
                         rgba.as_raw(),
-                        wgpu::ImageDataLayout {
+                        wgpu::TexelCopyBufferLayout {
                             offset: 0,
                             bytes_per_row: Some(unpadded_bytes_per_row),
                             rows_per_image: Some(dimensions.1),
@@ -169,14 +169,14 @@ impl Renderer {
                     }
 
                     self.queue.write_texture(
-                        wgpu::ImageCopyTexture {
+                        wgpu::TexelCopyTextureInfo {
                             texture,
                             mip_level: 0,
                             origin: wgpu::Origin3d::ZERO,
                             aspect: wgpu::TextureAspect::All,
                         },
                         &self.video_frame_buffer[..required_size],
-                        wgpu::ImageDataLayout {
+                        wgpu::TexelCopyBufferLayout {
                             offset: 0,
                             bytes_per_row: Some(padded_bytes_per_row),
                             rows_per_image: Some(dimensions.1),
@@ -203,14 +203,14 @@ impl Renderer {
 
                 if unpadded_bytes_per_row == padded_bytes_per_row {
                     self.queue.write_texture(
-                        wgpu::ImageCopyTexture {
+                        wgpu::TexelCopyTextureInfo {
                             texture,
                             mip_level: 0,
                             origin: wgpu::Origin3d::ZERO,
                             aspect: wgpu::TextureAspect::All,
                         },
                         rgba.as_raw(),
-                        wgpu::ImageDataLayout {
+                        wgpu::TexelCopyBufferLayout {
                             offset: 0,
                             bytes_per_row: Some(unpadded_bytes_per_row),
                             rows_per_image: Some(dimensions.1),
@@ -234,14 +234,14 @@ impl Renderer {
                     }
 
                     self.queue.write_texture(
-                        wgpu::ImageCopyTexture {
+                        wgpu::TexelCopyTextureInfo {
                             texture,
                             mip_level: 0,
                             origin: wgpu::Origin3d::ZERO,
                             aspect: wgpu::TextureAspect::All,
                         },
                         &self.video_frame_buffer[..required_size],
-                        wgpu::ImageDataLayout {
+                        wgpu::TexelCopyBufferLayout {
                             offset: 0,
                             bytes_per_row: Some(padded_bytes_per_row),
                             rows_per_image: Some(dimensions.1),
@@ -354,14 +354,14 @@ impl Renderer {
 
         if unpadded_bytes_per_row == padded_bytes_per_row {
             self.queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
                 img.as_raw(),
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(unpadded_bytes_per_row),
                     rows_per_image: Some(dimensions.1),
@@ -384,14 +384,14 @@ impl Renderer {
                 dst_row[..unpadded_bytes_per_row as usize].copy_from_slice(src_row);
             }
             self.queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
                 &self.album_art_pad_buffer[..required_size],
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(padded_bytes_per_row),
                     rows_per_image: Some(dimensions.1),

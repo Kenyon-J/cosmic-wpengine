@@ -163,7 +163,7 @@ impl Renderer {
 
                 for info in current_outputs {
                     let target = wgpu::SurfaceTargetUnsafe::RawHandle {
-                        raw_display_handle: info.raw_display_handle(),
+                        raw_display_handle: Some(info.raw_display_handle()),
                         raw_window_handle: info.raw_window_handle(),
                     };
                     let surface = unsafe { self.instance.create_surface_unsafe(target) }
@@ -208,6 +208,7 @@ impl Renderer {
                         alpha_mode,
                         view_formats: vec![],
                         desired_maximum_frame_latency: 1,
+                        color_space: wgpu::SurfaceColorSpace::Auto,
                     };
                     surface.configure(&self.device, &config);
 
@@ -356,7 +357,7 @@ impl Renderer {
             // Tell wgpu to process internal garbage collection.
             // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded),
             // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
-            self.device.poll(wgpu::Maintain::Poll);
+            let _ = self.device.poll(wgpu::PollType::Poll);
         }
     }
 }

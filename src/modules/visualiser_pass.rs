@@ -174,7 +174,7 @@ impl VisualiserPass {
         layout: &wgpu::BindGroupLayout,
         shader_src: &str,
     ) -> Option<wgpu::RenderPipeline> {
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Visualiser Shader"),
@@ -183,8 +183,8 @@ impl VisualiserPass {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Visualiser Pipeline Layout"),
-            bind_group_layouts: &[layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(layout)],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -192,13 +192,13 @@ impl VisualiserPass {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -212,10 +212,11 @@ impl VisualiserPass {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
+            cache: None,
         });
 
-        if let Some(err) = device.pop_error_scope().await {
+        if let Some(err) = error_scope.pop().await {
             tracing::error!("Shader validation error:\n{}", err);
             None
         } else {

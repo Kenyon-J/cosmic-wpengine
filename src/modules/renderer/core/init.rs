@@ -10,10 +10,9 @@ impl Renderer {
 
         info!("Initialising wgpu self...");
 
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
-            ..Default::default()
-        });
+        let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        instance_desc.backends = wgpu::Backends::VULKAN | wgpu::Backends::GL;
+        let instance = wgpu::Instance::new(instance_desc);
 
         let outputs_info: Vec<_> = wayland_manager.outputs().collect();
         if outputs_info.is_empty() {
@@ -23,7 +22,7 @@ impl Renderer {
         let mut surfaces = Vec::new();
         for info in &outputs_info {
             let target = wgpu::SurfaceTargetUnsafe::RawHandle {
-                raw_display_handle: info.raw_display_handle(),
+                raw_display_handle: Some(info.raw_display_handle()),
                 raw_window_handle: info.raw_window_handle(),
             };
             surfaces.push(unsafe { instance.create_surface_unsafe(target) }?);
@@ -34,19 +33,20 @@ impl Renderer {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: Some(&surfaces[0]),
                 force_fallback_adapter: false,
+                apply_limit_buckets: false,
             })
             .await
-            .ok_or_else(|| anyhow::anyhow!("No suitable GPU adapter found"))?;
+            .map_err(|e| anyhow::anyhow!("No suitable GPU adapter found: {}", e))?;
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("COSMIC Wallpaper Device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("COSMIC Wallpaper Device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::default(),
+                trace: wgpu::Trace::Off,
+            })
             .await?;
 
         let mut outputs = Vec::new();
@@ -90,6 +90,7 @@ impl Renderer {
                 alpha_mode,
                 view_formats: vec![],
                 desired_maximum_frame_latency: 1, // Enforce Double Buffering to save ~33MB+ VRAM per monitor
+                color_space: wgpu::SurfaceColorSpace::Auto,
             };
             surface.configure(&device, &config);
 

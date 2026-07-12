@@ -29,14 +29,14 @@ pub(crate) fn create_album_art_pipeline(
     });
 
     queue.write_texture(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &empty_texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
         &[0, 0, 0, 255],
-        wgpu::ImageDataLayout {
+        wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(4),
             rows_per_image: Some(1),
@@ -101,8 +101,8 @@ pub(crate) fn create_album_art_pipeline(
     let album_art_pipeline_layout =
         device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Album Art Pipeline Layout"),
-            bind_group_layouts: &[&album_art_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&album_art_layout)],
+            immediate_size: 0,
         });
 
     let album_art_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -110,13 +110,13 @@ pub(crate) fn create_album_art_pipeline(
         layout: Some(&album_art_pipeline_layout),
         vertex: wgpu::VertexState {
             module: &album_art_shader,
-            entry_point: "vs_main",
+            entry_point: Some("vs_main"),
             buffers: &[],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &album_art_shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: config_format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -130,7 +130,8 @@ pub(crate) fn create_album_art_pipeline(
         },
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
+        cache: None,
     });
 
     let album_art_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -139,7 +140,7 @@ pub(crate) fn create_album_art_pipeline(
         address_mode_w: wgpu::AddressMode::ClampToEdge,
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
         ..Default::default()
     });
 
@@ -201,8 +202,8 @@ pub(crate) fn create_ambient_pipeline(
 
     let ambient_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Ambient Pipeline Layout"),
-        bind_group_layouts: &[&ambient_bind_group_layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&ambient_bind_group_layout)],
+        immediate_size: 0,
     });
 
     let ambient_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -210,13 +211,13 @@ pub(crate) fn create_ambient_pipeline(
         layout: Some(&ambient_pipeline_layout),
         vertex: wgpu::VertexState {
             module: &ambient_shader,
-            entry_point: "vs_main",
+            entry_point: Some("vs_main"),
             buffers: &[],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &ambient_shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: config_format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -230,7 +231,8 @@ pub(crate) fn create_ambient_pipeline(
         },
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
+        cache: None,
     });
 
     let custom_bg_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -355,8 +357,8 @@ pub(crate) fn create_weather_pipelines(
     let weather_compute_pipeline_layout =
         device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Weather Compute Pipeline Layout"),
-            bind_group_layouts: &[&weather_compute_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&weather_compute_bind_group_layout)],
+            immediate_size: 0,
         });
 
     let weather_compute_pipeline =
@@ -364,8 +366,9 @@ pub(crate) fn create_weather_pipelines(
             label: Some("Weather Compute Pipeline"),
             layout: Some(&weather_compute_pipeline_layout),
             module: &weather_compute_shader,
-            entry_point: "main",
+            entry_point: Some("main"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
         });
 
     // --- Weather Render Pipeline Setup ---
@@ -401,8 +404,8 @@ pub(crate) fn create_weather_pipelines(
     let weather_render_pipeline_layout =
         device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Weather Render Pipeline Layout"),
-            bind_group_layouts: &[&weather_render_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&weather_render_bind_group_layout)],
+            immediate_size: 0,
         });
 
     let weather_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -410,13 +413,13 @@ pub(crate) fn create_weather_pipelines(
         layout: Some(&weather_render_pipeline_layout),
         vertex: wgpu::VertexState {
             module: &weather_render_shader,
-            entry_point: "vs_main",
+            entry_point: Some("vs_main"),
             buffers: &[],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &weather_render_shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: config_format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -430,7 +433,8 @@ pub(crate) fn create_weather_pipelines(
         },
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
+        cache: None,
     });
 
     (

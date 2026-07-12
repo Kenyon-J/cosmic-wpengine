@@ -133,8 +133,8 @@ impl TextRenderer {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Text Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -142,17 +142,17 @@ impl TextRenderer {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
-                buffers: &[wgpu::VertexBufferLayout {
+                entry_point: Some("vs_main"),
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<TextVertex>() as wgpu::BufferAddress,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4],
-                }],
+                })],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -163,7 +163,8 @@ impl TextRenderer {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
+            cache: None,
         });
 
         let vertex_capacity = 2048;
@@ -287,7 +288,7 @@ impl TextRenderer {
 
                                 if let cosmic_text::SwashContent::Mask = image.content {
                                     queue.write_texture(
-                                        wgpu::ImageCopyTexture {
+                                        wgpu::TexelCopyTextureInfo {
                                             texture: &text_renderer.texture,
                                             mip_level: 0,
                                             origin: wgpu::Origin3d {
@@ -298,7 +299,7 @@ impl TextRenderer {
                                             aspect: wgpu::TextureAspect::All,
                                         },
                                         &image.data,
-                                        wgpu::ImageDataLayout {
+                                        wgpu::TexelCopyBufferLayout {
                                             offset: 0,
                                             bytes_per_row: Some(img_w),
                                             rows_per_image: Some(img_h),
