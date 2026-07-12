@@ -1,10 +1,8 @@
 #![cfg(test)]
 
 use crate::modules::config::types::*;
+use crate::modules::utils::test_support::ENV_MUTEX;
 use std::path::PathBuf;
-use std::sync::Mutex;
-
-static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
 /// A helper function to run a test with environment variables locked.
 /// It saves the original state of XDG_CONFIG_HOME and HOME, sets the new ones,
@@ -13,7 +11,7 @@ fn with_env_lock<F>(xdg_config: Option<&str>, home: Option<&str>, test: F)
 where
     F: FnOnce() + std::panic::UnwindSafe,
 {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
 
     let orig_xdg = std::env::var("XDG_CONFIG_HOME").ok();
     let orig_home = std::env::var("HOME").ok();

@@ -10,3 +10,16 @@ pub fn resolve_binary(name: &str) -> Option<PathBuf> {
     }
     None
 }
+
+#[cfg(test)]
+pub mod test_support {
+    use std::sync::Mutex;
+
+    /// Guards tests that mutate process-global environment variables (HOME,
+    /// XDG_CONFIG_HOME, ...). `cargo test` runs tests in parallel threads by
+    /// default, and env vars are shared process state, so any two tests that
+    /// touch the same variable without sharing this lock can interleave and
+    /// flake. Every test file that sets these vars must lock this, not a
+    /// module-local mutex of its own.
+    pub static ENV_MUTEX: Mutex<()> = Mutex::new(());
+}

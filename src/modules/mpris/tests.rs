@@ -1,15 +1,37 @@
 #![cfg(test)]
 
 use super::*;
+use crate::modules::utils::test_support::ENV_MUTEX;
 use std::fs;
 use std::path::Path;
 
 /// Tests the `resolve_safe_path` function to ensure it properly blocks path traversal and arbitrary file reads.
 /// This prevents untrusted MPRIS metadata (like album art paths) from leaking sensitive local files.
+///
+/// Mutates the process-global HOME env var, so it must hold the shared
+/// ENV_MUTEX (see `config::tests`) to avoid racing other tests that read or
+/// mutate HOME/XDG_CONFIG_HOME concurrently.
 #[test]
 fn test_resolve_safe_path() {
+    let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
     let old_home = std::env::var("HOME").ok();
 
+    let result = std::panic::catch_unwind(run_test_resolve_safe_path);
+
+    if let Some(old) = old_home {
+        std::env::set_var("HOME", old);
+    } else {
+        std::env::remove_var("HOME");
+    }
+
+    if let Err(err) = result {
+        std::panic::resume_unwind(err);
+    }
+}
+
+/// Restores HOME even if an assertion panics, so a failure here can't leave
+/// HOME pointing at a since-deleted tempdir for whichever test runs next.
+fn run_test_resolve_safe_path() {
     // Create a mock home directory structure outside of /tmp and /run/user
     // to prevent false-positives since /tmp is allowed by default.
     // In many build environments, tempdir() creates inside /tmp.
@@ -95,10 +117,4 @@ fn test_resolve_safe_path() {
     // The symlink is inside /tmp, but it points to an unsafe location.
     // It should be rejected.
     assert!(MprisWatcher::resolve_safe_path(&symlink_path).is_none());
-
-    if let Some(old) = old_home {
-        std::env::set_var("HOME", old);
-    } else {
-        std::env::remove_var("HOME");
-    }
 }
