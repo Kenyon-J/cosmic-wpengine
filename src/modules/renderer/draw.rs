@@ -9,6 +9,75 @@ use anyhow::Result;
 use cosmic_text::{self, Attrs, Family, Metrics, Shaping};
 use tracing::warn;
 
+/// Builds (or refreshes from cache) a shaped text buffer for one on-screen
+/// text element, applies this frame's alignment, and appends the result to
+/// `renderer.text_buffers`. Shared by the lyric, track-info, and weather
+/// blocks in `draw_frame`, which differ only in font metrics, position, and
+/// source text.
+///
+/// `set_align` resets a line's shaped layout as a side effect, so we track
+/// whether it actually changed and only re-shape when it did: reshaping
+/// unconditionally is wasted work, and skipping it after a real alignment
+/// change leaves `layout_runs()` empty and the text invisible.
+/// Takes the three `Renderer` fields it needs individually, rather than
+/// `&mut Renderer`, so callers inside the per-output loop (which already
+/// holds `renderer.outputs` mutably borrowed via its iterator) can still
+/// call this: borrowing disjoint fields is fine, but a function taking the
+/// whole struct is opaque to the borrow checker and would conflict.
+#[allow(clippy::too_many_arguments)]
+fn push_text_buffer(
+    text_buffer_cache: &mut std::collections::HashMap<
+        TextCacheKey,
+        cosmic_text::Buffer,
+        rustc_hash::FxBuildHasher,
+    >,
+    font_system: &mut cosmic_text::FontSystem,
+    text_buffers: &mut Vec<PositionedBuffer>,
+    text_key: TextCacheKey,
+    text: &str,
+    attrs: &Attrs,
+    metrics: Metrics,
+    align: cosmic_text::Align,
+    width_f: f32,
+    height_f: f32,
+    pos: [f32; 2],
+    color: [f32; 4],
+    scale: f32,
+) {
+    let mut buffer = text_buffer_cache.remove(&text_key).unwrap_or_else(|| {
+        let mut b = cosmic_text::Buffer::new(font_system, metrics);
+        b.set_metrics(font_system, metrics);
+        b.set_size(font_system, Some(width_f), Some(height_f));
+        b.set_text(font_system, text, attrs, Shaping::Advanced, Some(align));
+        b
+    });
+
+    // Re-apply metrics/size even for a cached buffer: a monitor swap can
+    // change DPI/resolution without changing the text content or its cache key.
+    buffer.set_metrics(font_system, metrics);
+    buffer.set_size(font_system, Some(width_f), Some(height_f));
+
+    let mut realigned = false;
+    buffer
+        .lines
+        .iter_mut()
+        .for_each(|line: &mut cosmic_text::BufferLine| {
+            realigned |= line.set_align(Some(align));
+        });
+    if realigned {
+        buffer.shape_until_scroll(font_system, false);
+    }
+
+    text_buffers.push(PositionedBuffer {
+        buffer,
+        text_key,
+        pos,
+        color,
+        scale,
+        align,
+    });
+}
+
 pub(crate) fn draw_frame(
     renderer: &mut super::Renderer,
     wayland_manager: &mut WaylandManager,
@@ -273,11 +342,12 @@ pub(crate) fn draw_frame(
     let track_info_align = map_align(&renderer.theme.track_info.align);
     let weather_align = map_align(&renderer.theme.weather.align);
 
-    let family = renderer
-        .state
-        .config
-        .appearance
-        .font_family
+    // Cloned (rather than borrowed from renderer.state) so `attrs` has no
+    // lifetime tied to `renderer`: push_text_buffer() below needs `&mut
+    // renderer` and `&attrs` in the same call, which the borrow checker
+    // would otherwise reject.
+    let font_family_owned = renderer.state.config.appearance.font_family.clone();
+    let family = font_family_owned
         .as_deref()
         .map_or(Family::SansSerif, Family::Name);
     let attrs = Attrs::new().family(family);
@@ -524,235 +594,160 @@ pub(crate) fn draw_frame(
             }
 
             if renderer.state.config.audio.show_lyrics {
-                if let Some(track) = &renderer.state.current_track {
-                    if let Some(lyrics) = &track.lyrics {
-                        let base_font_size =
-                            (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
-                        let active_font_size = base_font_size * 1.5;
-                        let inv_active_font_size = 1.0 / active_font_size;
-                        let line_spacing = active_font_size * 1.2;
+                // Clone the small (~5-line) active window of lyric text up front,
+                // ending the borrow through renderer.state.current_track before
+                // push_text_buffer() below needs `&mut renderer`. This block only
+                // runs on resolution/DPI change, so the clones are rare, not a
+                // per-frame cost.
+                let lyric_window: Option<Vec<(usize, Box<str>, u64)>> = renderer
+                    .state
+                    .current_track
+                    .as_ref()
+                    .and_then(|t| t.lyrics.as_ref())
+                    .map(|lyrics| {
+                        (lyric_start_idx..=lyric_end_idx)
+                            .map(|line_idx| {
+                                let l = &lyrics[line_idx - 1];
+                                (line_idx, l.text.clone(), l.text_hash)
+                            })
+                            .collect()
+                    });
 
-                        // Pre-calculate bounce scalars for the current monitor's scale factor
-                        let bounce_8_scaled = lyric_bounce * 8.0 * scale_factor;
-                        let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
+                if let Some(lyric_window) = lyric_window {
+                    let base_font_size =
+                        (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
+                    let active_font_size = base_font_size * 1.5;
+                    let inv_active_font_size = 1.0 / active_font_size;
+                    let line_spacing = active_font_size * 1.2;
 
-                        let metrics = Metrics::new(active_font_size, active_font_size * 1.2);
+                    // Pre-calculate bounce scalars for the current monitor's scale factor
+                    let bounce_8_scaled = lyric_bounce * 8.0 * scale_factor;
+                    let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
 
-                        for line_idx in lyric_start_idx..=lyric_end_idx {
-                            let lyric_line = &lyrics[line_idx - 1];
-                            // Compute exactly how far this string is from the "current active string"
-                            let dist = (line_idx as f32)
-                                - (renderer.current_lyric_idx as f32)
-                                - renderer.lyric_scroll_offset;
-                            let abs_dist = dist.abs();
+                    let metrics = Metrics::new(active_font_size, active_font_size * 1.2);
 
-                            if abs_dist > 2.0 {
-                                continue;
-                            }
+                    for (line_idx, text, text_hash) in lyric_window {
+                        // Compute exactly how far this string is from the "current active string"
+                        let dist = (line_idx as f32)
+                            - (renderer.current_lyric_idx as f32)
+                            - renderer.lyric_scroll_offset;
+                        let abs_dist = dist.abs();
 
-                            let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
+                        if abs_dist > 2.0 {
+                            continue;
+                        }
 
-                            let scale = base_font_size
-                                + (active_font_size - base_font_size) * center_weight;
-                            let final_scale = scale + bounce_8_scaled * center_weight;
+                        let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
 
-                            let render_scale = final_scale * inv_active_font_size;
-                            let bounce_y = bounce_12_scaled * center_weight;
-                            let y_pos = (dist * line_spacing) - bounce_y;
+                        let scale = base_font_size
+                            + (active_font_size - base_font_size) * center_weight;
+                        let final_scale = scale + bounce_8_scaled * center_weight;
 
-                            // Optimization: Use cached color difference to replace 4 subtractions with 1 multiply-add
-                            let color = [
-                                secondary_text[0] + text_color_diff[0] * center_weight,
-                                secondary_text[1] + text_color_diff[1] * center_weight,
-                                secondary_text[2] + text_color_diff[2] * center_weight,
-                                secondary_text[3] + text_color_diff[3] * center_weight,
+                        let render_scale = final_scale * inv_active_font_size;
+                        let bounce_y = bounce_12_scaled * center_weight;
+                        let y_pos = (dist * line_spacing) - bounce_y;
+
+                        // Optimization: Use cached color difference to replace 4 subtractions with 1 multiply-add
+                        let color = [
+                            secondary_text[0] + text_color_diff[0] * center_weight,
+                            secondary_text[1] + text_color_diff[1] * center_weight,
+                            secondary_text[2] + text_color_diff[2] * center_weight,
+                            secondary_text[3] + text_color_diff[3] * center_weight,
+                        ];
+
+                        // Fade out gracefully to prevent popping strings at top/bottom
+                        let alpha_fade = (1.5 - abs_dist).clamp(0.0, 1.0);
+                        let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
+
+                        if final_color[3] > 0.01 {
+                            let text_key = TextCacheKey::Lyric {
+                                monitor: i,
+                                line: line_idx as u32,
+                                content_hash: text_hash,
+                            };
+                            let pos = [
+                                renderer.theme.lyrics.position[0] * width_f,
+                                renderer.theme.lyrics.position[1] * height_f + y_pos,
                             ];
-
-                            // Fade out gracefully to prevent popping strings at top/bottom
-                            let alpha_fade = (1.5 - abs_dist).clamp(0.0, 1.0);
-                            let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
-
-                            if final_color[3] > 0.01 {
-                                let text_key = TextCacheKey::Lyric {
-                                    monitor: i,
-                                    line: line_idx as u32,
-                                    content_hash: lyric_line.text_hash,
-                                };
-                                let buffer = renderer
-                                    .text_buffer_cache
-                                    .remove(&text_key)
-                                    .unwrap_or_else(|| {
-                                        let mut b = cosmic_text::Buffer::new(
-                                            &mut renderer.font_system,
-                                            metrics,
-                                        );
-                                        b.set_metrics(&mut renderer.font_system, metrics);
-                                        b.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
-                                        b.set_text(
-                                            &mut renderer.font_system,
-                                            &lyric_line.text,
-                                            &attrs,
-                                            Shaping::Advanced,
-                                            Some(lyrics_align),
-                                        );
-                                        b
-                                    });
-                                let mut buffer = buffer;
-                                // Re-apply metrics and size to ensure scaling is correct for the current monitor (multi-monitor/DPI support)
-                                buffer.set_metrics(&mut renderer.font_system, metrics);
-                                buffer.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
-
-                                let align = lyrics_align;
-                                // set_align resets the line layout, so re-shape if it changed;
-                                // otherwise layout_runs() yields nothing and the text vanishes
-                                let mut realigned = false;
-                                buffer.lines.iter_mut().for_each(
-                                    |line: &mut cosmic_text::BufferLine| {
-                                        realigned |= line.set_align(Some(align));
-                                    },
-                                );
-                                if realigned {
-                                    buffer.shape_until_scroll(&mut renderer.font_system, false);
-                                }
-
-                                let pos = [
-                                    renderer.theme.lyrics.position[0] * width_f,
-                                    renderer.theme.lyrics.position[1] * height_f + y_pos,
-                                ];
-
-                                renderer.text_buffers.push(PositionedBuffer {
-                                    buffer,
-                                    text_key,
-                                    pos,
-                                    color: final_color,
-                                    scale: render_scale,
-                                    align,
-                                });
-                            }
+                            push_text_buffer(
+                                &mut renderer.text_buffer_cache,
+                                &mut renderer.font_system,
+                                &mut renderer.text_buffers,
+                                text_key,
+                                &text,
+                                &attrs,
+                                metrics,
+                                lyrics_align,
+                                width_f,
+                                height_f,
+                                pos,
+                                final_color,
+                                render_scale,
+                            );
                         }
                     }
                 }
             }
 
             if renderer.state.current_track.is_some() && !renderer.cached_track_str.is_empty() {
+                let text = renderer.cached_track_str.clone();
                 let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
                 let text_key = TextCacheKey::Track {
                     monitor: i,
                     content_hash: track_hash,
                 };
-                let mut buffer =
-                    renderer
-                        .text_buffer_cache
-                        .remove(&text_key)
-                        .unwrap_or_else(|| {
-                            let mut b =
-                                cosmic_text::Buffer::new(&mut renderer.font_system, metrics);
-                            b.set_metrics(&mut renderer.font_system, metrics);
-                            b.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
-                            b.set_text(
-                                &mut renderer.font_system,
-                                &renderer.cached_track_str,
-                                &attrs,
-                                Shaping::Advanced,
-                                Some(track_info_align),
-                            );
-                            b
-                        });
-                buffer.set_metrics(&mut renderer.font_system, metrics);
-                buffer.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
-                let final_color = [
-                    secondary_text[0],
-                    secondary_text[1],
-                    secondary_text[2],
-                    secondary_text[3],
-                ];
-                let align = track_info_align;
-                // set_align resets the line layout, so re-shape if it changed
-                let mut realigned = false;
-                buffer
-                    .lines
-                    .iter_mut()
-                    .for_each(|line: &mut cosmic_text::BufferLine| {
-                        realigned |= line.set_align(Some(align));
-                    });
-                if realigned {
-                    buffer.shape_until_scroll(&mut renderer.font_system, false);
-                }
                 let pos = [
                     renderer.theme.track_info.position[0] * width_f,
                     renderer.theme.track_info.position[1] * height_f,
                 ];
-                renderer.text_buffers.push(PositionedBuffer {
-                    buffer,
+                push_text_buffer(
+                    &mut renderer.text_buffer_cache,
+                    &mut renderer.font_system,
+                    &mut renderer.text_buffers,
                     text_key,
+                    &text,
+                    &attrs,
+                    metrics,
+                    track_info_align,
+                    width_f,
+                    height_f,
                     pos,
-                    color: final_color,
-                    scale: 1.0,
-                    align,
-                });
+                    secondary_text,
+                    1.0,
+                );
             }
 
             if renderer.state.config.weather.enabled
                 && renderer.state.weather.is_some()
                 && !renderer.cached_weather_str.is_empty()
             {
+                let text = renderer.cached_weather_str.clone();
                 let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
                 let text_key = TextCacheKey::Weather {
                     monitor: i,
                     content_hash: weather_hash,
                 };
-                let mut buffer =
-                    renderer
-                        .text_buffer_cache
-                        .remove(&text_key)
-                        .unwrap_or_else(|| {
-                            let mut b =
-                                cosmic_text::Buffer::new(&mut renderer.font_system, metrics);
-                            b.set_metrics(&mut renderer.font_system, metrics);
-                            b.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
-                            b.set_text(
-                                &mut renderer.font_system,
-                                &renderer.cached_weather_str,
-                                &attrs,
-                                Shaping::Advanced,
-                                Some(weather_align),
-                            );
-                            b
-                        });
-                buffer.set_metrics(&mut renderer.font_system, metrics);
-                buffer.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
-                let final_color = [
-                    secondary_text[0],
-                    secondary_text[1],
-                    secondary_text[2],
-                    secondary_text[3],
-                ];
-                let align = weather_align;
-                // set_align resets the line layout, so re-shape if it changed
-                let mut realigned = false;
-                buffer
-                    .lines
-                    .iter_mut()
-                    .for_each(|line: &mut cosmic_text::BufferLine| {
-                        realigned |= line.set_align(Some(align));
-                    });
-                if realigned {
-                    buffer.shape_until_scroll(&mut renderer.font_system, false);
-                }
                 let pos = [
                     renderer.theme.weather.position[0] * width_f,
                     renderer.theme.weather.position[1] * height_f,
                 ];
-                renderer.text_buffers.push(PositionedBuffer {
-                    buffer,
+                push_text_buffer(
+                    &mut renderer.text_buffer_cache,
+                    &mut renderer.font_system,
+                    &mut renderer.text_buffers,
                     text_key,
+                    &text,
+                    &attrs,
+                    metrics,
+                    weather_align,
+                    width_f,
+                    height_f,
                     pos,
-                    color: final_color,
-                    scale: 1.0,
-                    align,
-                });
+                    secondary_text,
+                    1.0,
+                );
             }
 
             // Prepare text vertices
