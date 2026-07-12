@@ -44,7 +44,7 @@ fn sample_art(uv: vec2<f32>) -> vec4f {
     return textureSampleLevel(current_art, art_sampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
 }
 
-const BLUR_OFFSETS = array<vec2<f32>, 16>(
+var<private> BLUR_OFFSETS: array<vec2<f32>, 16> = array<vec2<f32>, 16>(
     vec2<f32>(0.176777, 0.000000),
     vec2<f32>(-0.225772, 0.206827),
     vec2<f32>(0.034556, -0.393771),
