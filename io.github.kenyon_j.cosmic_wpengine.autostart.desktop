@@ -3,4 +3,6 @@ Type=Application
 Name=COSMIC Wallpaper Engine
 Comment=Live wallpaper engine for the COSMIC desktop
 Exec=cosmic-wallpaper
+Terminal=false
+StartupNotify=false
 X-GNOME-Autostart-enabled=true

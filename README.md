@@ -105,8 +105,36 @@ cd cosmic-wpengine
 # This builds both the main engine and the cosmic-wallpaper-gui binary
 cargo build --release --locked --all-targets
 
-# Run
-./target/release/cosmic-wallpaper
+# Install both binaries to ~/.local/bin (or anywhere on your PATH)
+install -Dm755 target/release/cosmic-wallpaper ~/.local/bin/cosmic-wallpaper
+install -Dm755 target/release/cosmic-wallpaper-gui ~/.local/bin/cosmic-wallpaper-gui
+
+# Try it out in the foreground (Ctrl+C to stop)
+cosmic-wallpaper
+
+# Or launch it detached, so it survives closing the terminal
+nohup cosmic-wallpaper >/dev/null 2>&1 & disown
+```
+
+## Autostart on Login
+
+To start the engine automatically with your COSMIC session, install the
+bundled autostart entry with the full path to wherever you installed the
+binary (`cosmic-session` does not search `~/.local/bin` or `~/.cargo/bin`):
+
+```bash
+mkdir -p ~/.config/autostart
+sed "s|^Exec=.*|Exec=$HOME/.local/bin/cosmic-wallpaper|" \
+    io.github.kenyon_j.cosmic_wpengine.autostart.desktop \
+    > ~/.config/autostart/io.github.kenyon_j.cosmic_wpengine.desktop
+```
+
+If you installed via a system package (binary in `/usr/bin`), the file works
+as-is:
+
+```bash
+cp io.github.kenyon_j.cosmic_wpengine.autostart.desktop \
+   ~/.config/autostart/io.github.kenyon_j.cosmic_wpengine.desktop
 ```
 
 ## Configuration
