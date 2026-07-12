@@ -587,26 +587,33 @@ pub(crate) fn draw_frame(
                                             metrics,
                                         );
                                         b.set_metrics(&mut renderer.font_system, metrics);
-                                        b.set_size(&mut renderer.font_system, width_f, height_f);
+                                        b.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
                                         b.set_text(
                                             &mut renderer.font_system,
                                             &lyric_line.text,
-                                            attrs,
+                                            &attrs,
                                             Shaping::Advanced,
+                                            Some(lyrics_align),
                                         );
                                         b
                                     });
                                 let mut buffer = buffer;
                                 // Re-apply metrics and size to ensure scaling is correct for the current monitor (multi-monitor/DPI support)
                                 buffer.set_metrics(&mut renderer.font_system, metrics);
-                                buffer.set_size(&mut renderer.font_system, width_f, height_f);
+                                buffer.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
 
                                 let align = lyrics_align;
+                                // set_align resets the line layout, so re-shape if it changed;
+                                // otherwise layout_runs() yields nothing and the text vanishes
+                                let mut realigned = false;
                                 buffer.lines.iter_mut().for_each(
                                     |line: &mut cosmic_text::BufferLine| {
-                                        line.set_align(Some(align));
+                                        realigned |= line.set_align(Some(align));
                                     },
                                 );
+                                if realigned {
+                                    buffer.shape_until_scroll(&mut renderer.font_system, false);
+                                }
 
                                 let pos = [
                                     renderer.theme.lyrics.position[0] * width_f,
@@ -642,17 +649,18 @@ pub(crate) fn draw_frame(
                             let mut b =
                                 cosmic_text::Buffer::new(&mut renderer.font_system, metrics);
                             b.set_metrics(&mut renderer.font_system, metrics);
-                            b.set_size(&mut renderer.font_system, width_f, height_f);
+                            b.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
                             b.set_text(
                                 &mut renderer.font_system,
                                 &renderer.cached_track_str,
-                                attrs,
+                                &attrs,
                                 Shaping::Advanced,
+                                Some(track_info_align),
                             );
                             b
                         });
                 buffer.set_metrics(&mut renderer.font_system, metrics);
-                buffer.set_size(&mut renderer.font_system, width_f, height_f);
+                buffer.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
                 let final_color = [
                     secondary_text[0],
                     secondary_text[1],
@@ -660,12 +668,17 @@ pub(crate) fn draw_frame(
                     secondary_text[3],
                 ];
                 let align = track_info_align;
+                // set_align resets the line layout, so re-shape if it changed
+                let mut realigned = false;
                 buffer
                     .lines
                     .iter_mut()
                     .for_each(|line: &mut cosmic_text::BufferLine| {
-                        line.set_align(Some(align));
+                        realigned |= line.set_align(Some(align));
                     });
+                if realigned {
+                    buffer.shape_until_scroll(&mut renderer.font_system, false);
+                }
                 let pos = [
                     renderer.theme.track_info.position[0] * width_f,
                     renderer.theme.track_info.position[1] * height_f,
@@ -698,17 +711,18 @@ pub(crate) fn draw_frame(
                             let mut b =
                                 cosmic_text::Buffer::new(&mut renderer.font_system, metrics);
                             b.set_metrics(&mut renderer.font_system, metrics);
-                            b.set_size(&mut renderer.font_system, width_f, height_f);
+                            b.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
                             b.set_text(
                                 &mut renderer.font_system,
                                 &renderer.cached_weather_str,
-                                attrs,
+                                &attrs,
                                 Shaping::Advanced,
+                                Some(weather_align),
                             );
                             b
                         });
                 buffer.set_metrics(&mut renderer.font_system, metrics);
-                buffer.set_size(&mut renderer.font_system, width_f, height_f);
+                buffer.set_size(&mut renderer.font_system, Some(width_f), Some(height_f));
                 let final_color = [
                     secondary_text[0],
                     secondary_text[1],
@@ -716,12 +730,17 @@ pub(crate) fn draw_frame(
                     secondary_text[3],
                 ];
                 let align = weather_align;
+                // set_align resets the line layout, so re-shape if it changed
+                let mut realigned = false;
                 buffer
                     .lines
                     .iter_mut()
                     .for_each(|line: &mut cosmic_text::BufferLine| {
-                        line.set_align(Some(align));
+                        realigned |= line.set_align(Some(align));
                     });
+                if realigned {
+                    buffer.shape_until_scroll(&mut renderer.font_system, false);
+                }
                 let pos = [
                     renderer.theme.weather.position[0] * width_f,
                     renderer.theme.weather.position[1] * height_f,
