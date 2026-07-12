@@ -137,8 +137,9 @@ impl Renderer {
             }
 
             interval.tick().await;
+            let now = Instant::now();
 
-            let occluded = wayland_manager.is_occluded();
+            let occluded = wayland_manager.is_occluded(now);
             if self.last_occluded != Some(occluded) {
                 let _ = is_visible_tx.send(!occluded);
                 self.last_occluded = Some(occluded);
@@ -242,7 +243,7 @@ impl Renderer {
                         transparent_changed = true;
                     }
                 }
-                self.handle_event(event).await;
+                self.handle_event(event, now).await;
             }
 
             if transparent_changed {
@@ -252,7 +253,6 @@ impl Renderer {
 
             self.state.update_time();
 
-            let now = Instant::now();
             // Cap the delta to 100ms to prevent the Explicit Euler physics from exploding after a monitor sleep!
             let delta = now.duration_since(last_frame).as_secs_f32().min(0.1);
             self.state.tick_transition(delta);
@@ -349,14 +349,19 @@ impl Renderer {
                 self.lyric_scroll_offset = 0.0;
             }
 
+            let mut frame_drawn = false;
             if wayland_manager.any_monitor_ready() {
-                super::draw::draw_frame(self, &mut wayland_manager, delta)?;
+                super::draw::draw_frame(self, &mut wayland_manager, delta, now)?;
+                frame_drawn = true;
             }
 
             // Tell wgpu to process internal garbage collection.
             // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded),
             // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
-            self.device.poll(wgpu::Maintain::Poll);
+            // Optimization: Only poll when no frame was drawn, as queue.submit() handles implicit polling.
+            if !frame_drawn {
+                self.device.poll(wgpu::Maintain::Poll);
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 use super::*;
 impl Renderer {
-    pub(crate) async fn handle_event(&mut self, event: Event) {
+    pub(crate) async fn handle_event(&mut self, event: Event, now: std::time::Instant) {
         use crate::modules::renderer::utils::hash_str;
         match event {
             Event::ConfigUpdated(config, theme_layout) => {
@@ -178,7 +178,7 @@ impl Renderer {
                 // Trigger a beat if the bass spikes significantly above the recent average
                 if current_bass > self.bass_moving_average * 1.3
                     && current_bass > 0.005
-                    && self.last_beat_time.elapsed().as_millis() > 200
+                    && now.saturating_duration_since(self.last_beat_time).as_millis() > 200
                 {
                     // 200ms cooldown prevents double-triggering
                     self.beat_pulse = 1.0;
@@ -187,7 +187,7 @@ impl Renderer {
                     let spike =
                         (current_bass / self.bass_moving_average.max(0.001)).clamp(1.2, 3.0);
                     self.lyric_bounce_velocity += (15.0 * spike) * self.theme.effects.lyric_bounce;
-                    self.last_beat_time = Instant::now();
+                    self.last_beat_time = now;
                 }
 
                 // --- Smart Treble Detection (Snares / Hi-Hats) ---
@@ -205,11 +205,11 @@ impl Renderer {
 
                 if current_treble > self.treble_moving_average * 1.2
                     && current_treble > 0.002
-                    && self.last_treble_time.elapsed().as_millis() > 50
+                    && now.saturating_duration_since(self.last_treble_time).as_millis() > 50
                 {
                     // Fast 50ms cooldown for rapid 16th-note hi-hats
                     self.treble_pulse = 1.0;
-                    self.last_treble_time = Instant::now();
+                    self.last_treble_time = now;
                 }
 
                 let mut total_energy = 0.0;
