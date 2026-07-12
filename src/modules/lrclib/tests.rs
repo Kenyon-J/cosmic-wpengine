@@ -78,6 +78,30 @@ fn test_parse_lrc_empty_lines_and_metadata() {
     assert_eq!(lines[1].text.as_ref(), "Valid lyrics");
 }
 
+/// Tests that lines are sorted into ascending start_time_secs order regardless
+/// of the order they appear in the source text. The renderer's lyric-scroll
+/// tracking (both its O(1) fast path and its partition_point fallback) relies
+/// on this invariant, and community-submitted LRC files aren't guaranteed to
+/// list lines in chronological order.
+#[test]
+fn test_parse_lrc_sorts_out_of_order_timestamps() {
+    let lrc_data = "\
+        [02:00.00] Third chronologically\n\
+        [00:05.00] First chronologically\n\
+        [01:00.00] Second chronologically\
+    ";
+
+    let lines = parse_lrc(lrc_data);
+
+    assert_eq!(lines.len(), 3);
+    assert!((lines[0].start_time_secs - 5.0).abs() < TOLERANCE);
+    assert_eq!(lines[0].text.as_ref(), "First chronologically");
+    assert!((lines[1].start_time_secs - 60.0).abs() < TOLERANCE);
+    assert_eq!(lines[1].text.as_ref(), "Second chronologically");
+    assert!((lines[2].start_time_secs - 120.0).abs() < TOLERANCE);
+    assert_eq!(lines[2].text.as_ref(), "Third chronologically");
+}
+
 /// Tests edge cases of LRC syntax like missing colons, dots, reversed brackets, or extra bracket layers.
 /// This guarantees robust fallback mechanisms so the lyrics parser is as resilient as possible.
 #[test]
@@ -101,18 +125,18 @@ fn test_parse_lrc_edge_cases() {
 
     let lines = parse_lrc(lrc_data);
 
-    // It successfully extracts 3 valid timestamps from the edge cases
+    // It successfully extracts 3 valid timestamps from the edge cases,
+    // sorted into ascending chronological order rather than file order.
     assert_eq!(lines.len(), 3);
 
-    // "[01:22] No dot should be ignored safely" parses as 1 min, 22 secs
-    assert!((lines[0].start_time_secs - 82.0).abs() < TOLERANCE);
-    assert_eq!(lines[0].text.as_ref(), "No dot should be ignored safely");
-
-    // "[03:00.00] Valid amid chaos" parses as 3 mins, 0 secs
-    assert!((lines[1].start_time_secs - 180.0).abs() < TOLERANCE);
-    assert_eq!(lines[1].text.as_ref(), "Valid amid chaos");
-
     // "[00:10.00] Valid lyrics" parses as 0 mins, 10 secs
-    assert!((lines[2].start_time_secs - 10.0).abs() < TOLERANCE);
-    assert_eq!(lines[2].text.as_ref(), "Valid lyrics");
+    assert!((lines[0].start_time_secs - 10.0).abs() < TOLERANCE);
+    assert_eq!(lines[0].text.as_ref(), "Valid lyrics");
+
+    // "[01:22] No dot should be ignored safely" parses as 1 min, 22 secs
+    assert!((lines[1].start_time_secs - 82.0).abs() < TOLERANCE);
+    assert_eq!(lines[1].text.as_ref(), "No dot should be ignored safely");
+
+    assert!((lines[2].start_time_secs - 180.0).abs() < TOLERANCE);
+    assert_eq!(lines[2].text.as_ref(), "Valid amid chaos");
 }

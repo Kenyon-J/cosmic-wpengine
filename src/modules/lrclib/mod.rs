@@ -72,6 +72,13 @@ fn parse_lrc(lrc: &str) -> Box<[LyricLine]> {
             }
         }
     }
+
+    // The renderer's lyric-scroll tracking (both its O(1) fast path and its
+    // partition_point fallback) assumes lines are in ascending start_time_secs
+    // order. Community-submitted LRC files aren't guaranteed to be sorted, so
+    // enforce it here rather than at every consumer.
+    lines.sort_by(|a, b| a.start_time_secs.total_cmp(&b.start_time_secs));
+
     lines.into_boxed_slice()
 }
 
