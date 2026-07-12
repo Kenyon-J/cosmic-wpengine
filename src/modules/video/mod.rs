@@ -50,6 +50,26 @@ impl std::fmt::Debug for PooledImage {
     }
 }
 
+/// Copies a scaled ffmpeg video frame's plane 0 into `dst`, taking a fast
+/// bulk-`memcpy` path when the frame is densely packed (stride == row width)
+/// and falling back to a row-by-row copy when ffmpeg has padded each row.
+fn copy_scaled_frame(dst: &mut [u8], rgb_frame: &ffmpeg::frame::Video, width: u32, frame_size: usize) {
+    let stride = rgb_frame.stride(0);
+    let data = rgb_frame.data(0);
+    let expected_row_bytes = (width * 4) as usize;
+
+    if stride == expected_row_bytes {
+        dst[..frame_size].copy_from_slice(&data[..frame_size]);
+    } else {
+        for (dst_row, src_row) in dst[..frame_size]
+            .chunks_exact_mut(expected_row_bytes)
+            .zip(data.chunks(stride))
+        {
+            dst_row.copy_from_slice(&src_row[..expected_row_bytes]);
+        }
+    }
+}
+
 pub struct VideoDecoder;
 
 impl VideoDecoder {
@@ -128,6 +148,11 @@ impl VideoDecoder {
             let time_base = input.time_base();
             let time_base_f64 = time_base.numerator() as f64 / time_base.denominator() as f64;
 
+            // Reused across every frame: scaler.run() only allocates this frame's
+            // internal buffer the first time (while it's still empty), so keeping
+            // it outside the loop avoids a full-resolution RGBA allocation per frame.
+            let mut rgb_frame = ffmpeg::frame::Video::empty();
+
             // Loop infinitely
             'outer: loop {
                 if *cancel_rx.borrow() {
@@ -185,7 +210,6 @@ impl VideoDecoder {
                                 continue;
                             }
 
-                            let mut rgb_frame = ffmpeg::frame::Video::empty();
                             if scaler.run(&decoded, &mut rgb_frame).is_ok() {
                                 let mut buffer = recycle_rx
                                     .try_recv()
@@ -194,25 +218,7 @@ impl VideoDecoder {
                                     buffer.resize(frame_size, 0);
                                 }
 
-                                let stride = rgb_frame.stride(0);
-                                let data = rgb_frame.data(0);
-                                let expected_row_bytes = (width * 4) as usize;
-
-                                // Optimization: If the video frame is densely packed (stride == expected row width),
-                                // we can perform a single bulk `copy_from_slice` to leverage a highly optimized
-                                // `memcpy` instead of iterating row-by-row and suffering bounds checking overhead.
-                                if stride == expected_row_bytes {
-                                    buffer[..frame_size].copy_from_slice(&data[..frame_size]);
-                                } else {
-                                    // Optimization: Use exact chunks and zip to eliminate manual bounds checking
-                                    // and index arithmetic, allowing LLVM to auto-vectorize the memory copy.
-                                    for (dst_row, src_row) in buffer[..frame_size]
-                                        .chunks_exact_mut(expected_row_bytes)
-                                        .zip(data.chunks(stride))
-                                    {
-                                        dst_row.copy_from_slice(&src_row[..expected_row_bytes]);
-                                    }
-                                }
+                                copy_scaled_frame(&mut buffer, &rgb_frame, width, frame_size);
 
                                 if let Some(img) = image::RgbaImage::from_raw(width, height, buffer)
                                 {
@@ -241,7 +247,6 @@ impl VideoDecoder {
                 if decoder.send_eof().is_ok() {
                     let mut decoded = ffmpeg::frame::Video::empty();
                     while decoder.receive_frame(&mut decoded).is_ok() {
-                        let mut rgb_frame = ffmpeg::frame::Video::empty();
                         if scaler.run(&decoded, &mut rgb_frame).is_ok() {
                             let mut buffer = recycle_rx
                                 .try_recv()
@@ -250,25 +255,7 @@ impl VideoDecoder {
                                 buffer.resize(frame_size, 0);
                             }
 
-                            let stride = rgb_frame.stride(0);
-                            let data = rgb_frame.data(0);
-                            let expected_row_bytes = (width * 4) as usize;
-
-                            // Optimization: If the video frame is densely packed (stride == expected row width),
-                            // we can perform a single bulk `copy_from_slice` to leverage a highly optimized
-                            // `memcpy` instead of iterating row-by-row and suffering bounds checking overhead.
-                            if stride == expected_row_bytes {
-                                buffer[..frame_size].copy_from_slice(&data[..frame_size]);
-                            } else {
-                                // Optimization: Use exact chunks and zip to eliminate manual bounds checking
-                                // and index arithmetic, allowing LLVM to auto-vectorize the memory copy.
-                                for (dst_row, src_row) in buffer[..frame_size]
-                                    .chunks_exact_mut(expected_row_bytes)
-                                    .zip(data.chunks(stride))
-                                {
-                                    dst_row.copy_from_slice(&src_row[..expected_row_bytes]);
-                                }
-                            }
+                            copy_scaled_frame(&mut buffer, &rgb_frame, width, frame_size);
 
                             if let Some(img) = image::RgbaImage::from_raw(width, height, buffer) {
                                 let pooled_img =
