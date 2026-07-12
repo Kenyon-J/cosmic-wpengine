@@ -32,4 +32,12 @@ package() {
   # Install binaries
   install -Dm755 target/release/cosmic-wallpaper "$pkgdir/usr/bin/cosmic-wallpaper"
   install -Dm755 target/release/cosmic-wallpaper-gui "$pkgdir/usr/bin/cosmic-wallpaper-gui"
+
+  # Install desktop entry for the GUI so it appears in app launchers
+  install -Dm644 io.github.kenyon_j.cosmic_wpengine.desktop \
+    "$pkgdir/usr/share/applications/io.github.kenyon_j.cosmic_wpengine.desktop"
+
+  # Autostart the engine with the desktop session
+  install -Dm644 io.github.kenyon_j.cosmic_wpengine.autostart.desktop \
+    "$pkgdir/etc/xdg/autostart/io.github.kenyon_j.cosmic_wpengine.desktop"
 }

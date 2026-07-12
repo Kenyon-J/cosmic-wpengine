@@ -202,20 +202,22 @@ To create a new theme:
    ```
 2. Select your custom theme from the System Tray applet, or manually set `style = "my_theme"` in your main `config.toml`.
 3. **Live Reloading:** Any edits you make to the `.toml` file while the wallpaper is running will be instantly applied to your desktop!
-4. *(Advanced)* You can also provide a custom `my_theme.wgsl` shader file alongside your `.toml` to completely rewrite the graphics pipeline!
+4. *(Advanced)* You can also provide a custom `my_theme.wgsl` shader file alongside your `.toml` to completely rewrite the graphics pipeline! For example:
+   ```toml
+   [album_art]
+   position = [0.5, 0.5]
+   size = 0.25
+   shape = "circular"
 
-[album_art]
-position = [0.5, 0.5]
-size = 0.25
-shape = "circular"
+   [visualiser]
+   shape = "circular"
+   position = [0.5, 0.5]
+   size = 0.25
+   amplitude = 1.0
+   # Point this theme to your custom shader!
+   shader = "radial_spin.wgsl"
+   ```
 
-[visualiser]
-shape = "circular"
-position = [0.5, 0.5]
-size = 0.25
-amplitude = 1.0
-# Point this theme to your custom shader!
-shader = "radial_spin.wgsl" 
 ### Writing Custom WGSL Shaders
 
 If you provide a custom `shader = "my_shader.wgsl"` in your theme's `.toml`, place the `.wgsl` file in `~/.config/cosmic-wallpaper/shaders/`.

@@ -39,6 +39,10 @@ package() {
   install -Dm644 "../io.github.kenyon_j.cosmic_wpengine.desktop" \
     "$pkgdir/usr/share/applications/io.github.kenyon_j.cosmic_wpengine.desktop"
 
+  # Autostart the engine with the desktop session
+  install -Dm644 io.github.kenyon_j.cosmic_wpengine.autostart.desktop \
+    "$pkgdir/etc/xdg/autostart/io.github.kenyon_j.cosmic_wpengine.desktop"
+
   # Install the license file
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
