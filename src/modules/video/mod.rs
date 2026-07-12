@@ -53,7 +53,12 @@ impl std::fmt::Debug for PooledImage {
 /// Copies a scaled ffmpeg video frame's plane 0 into `dst`, taking a fast
 /// bulk-`memcpy` path when the frame is densely packed (stride == row width)
 /// and falling back to a row-by-row copy when ffmpeg has padded each row.
-fn copy_scaled_frame(dst: &mut [u8], rgb_frame: &ffmpeg::frame::Video, width: u32, frame_size: usize) {
+fn copy_scaled_frame(
+    dst: &mut [u8],
+    rgb_frame: &ffmpeg::frame::Video,
+    width: u32,
+    frame_size: usize,
+) {
     let stride = rgb_frame.stride(0);
     let data = rgb_frame.data(0);
     let expected_row_bytes = (width * 4) as usize;

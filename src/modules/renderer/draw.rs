@@ -614,8 +614,7 @@ pub(crate) fn draw_frame(
                     });
 
                 if let Some(lyric_window) = lyric_window {
-                    let base_font_size =
-                        (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
+                    let base_font_size = (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
                     let active_font_size = base_font_size * 1.5;
                     let inv_active_font_size = 1.0 / active_font_size;
                     let line_spacing = active_font_size * 1.2;
@@ -639,8 +638,8 @@ pub(crate) fn draw_frame(
 
                         let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
 
-                        let scale = base_font_size
-                            + (active_font_size - base_font_size) * center_weight;
+                        let scale =
+                            base_font_size + (active_font_size - base_font_size) * center_weight;
                         let final_scale = scale + bounce_8_scaled * center_weight;
 
                         let render_scale = final_scale * inv_active_font_size;
