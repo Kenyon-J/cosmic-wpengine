@@ -107,6 +107,10 @@ pub struct ThemeLayout {
     pub visualiser: VisualiserLayout,
     #[serde(default)]
     pub effects: EffectsLayout,
+    /// Font family for this style's text. Overridden by the user's global
+    /// `appearance.font_family` when that is set.
+    #[serde(default)]
+    pub font_family: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -346,6 +350,7 @@ impl Default for ThemeLayout {
             weather: default_weather_layout(),
             visualiser: default_visualiser_layout(),
             effects: EffectsLayout::default(),
+            font_family: None,
         }
     }
 }
@@ -384,6 +389,7 @@ impl ThemeLayout {
             theme.track_info.align = TextAlign::Left;
             theme.lyrics.position = [0.49, 0.72];
             theme.lyrics.align = TextAlign::Left;
+            theme.font_family = Some("Inter".to_string());
         } else if style == "symmetric" {
             theme.visualiser.shape = VisShape::Linear;
             theme.visualiser.position = [0.5, 0.85];
@@ -396,9 +402,11 @@ impl ThemeLayout {
             theme.lyrics.position = [0.5, 0.55];
             theme.lyrics.align = TextAlign::Center;
             theme.weather.position = [0.98, 0.03];
+            theme.font_family = Some("Inter".to_string());
         } else if style == "waveform" {
             theme.visualiser.shape = VisShape::Circular;
             theme.album_art.shape = ArtShape::Circular;
+            theme.font_family = Some("Fira Sans".to_string());
         }
         theme
     }
@@ -420,6 +428,8 @@ impl ThemeLayout {
 # Bars Theme (Default)
 # ==============================================================================
 # A central, circular floating hub that radiates frequency bands outward.
+
+# font_family = "Inter" # Optional: font name for all text (falls back to system default)
 
 [album_art]
 position = [0.5, 0.5]
@@ -474,6 +484,8 @@ beat_pulse = 0.5
 # ==============================================================================
 # A sleek, linear audio visualiser layout inspired by Monstercat's videos.
 
+# font_family = "Inter" # Optional: font name for all text (falls back to system default)
+
 [album_art]
 position = [0.24, 0.59]
 size = 0.15
@@ -517,6 +529,8 @@ amplitude = 1.5
 # Waveform Theme
 # ==============================================================================
 # Same layout as "bars", but optimized for the waveform audio style.
+
+# font_family = "Fira Sans" # Optional: font name for all text (falls back to system default)
 
 [album_art]
 position = [0.5, 0.5]
@@ -886,6 +900,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 # Symmetric Theme
 # ==============================================================================
 # A center-aligned visualizer layout that mirrors frequencies perfectly.
+
+# font_family = "Inter" # Optional: font name for all text (falls back to system default)
 
 [album_art]
 position = [0.5, 0.3]

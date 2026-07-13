@@ -326,3 +326,28 @@ fn test_fallback_with_both_env_vars_missing() {
         assert_eq!(rt.block_on(config.resolved_background_path()), None);
     });
 }
+
+/// Tests that `font_family` round-trips through TOML and defaults to `None`
+/// when absent, so themes without an opinion fall back to the user's global
+/// font setting instead of silently failing to parse.
+#[test]
+fn test_theme_layout_font_family_toml_roundtrip() {
+    let with_font: ThemeLayout = toml::from_str(r#"font_family = "Foo""#).unwrap();
+    assert_eq!(with_font.font_family, Some("Foo".to_string()));
+
+    let without_font: ThemeLayout = toml::from_str("").unwrap();
+    assert_eq!(without_font.font_family, None);
+}
+
+/// Tests that the built-in "monstercat" style (no on-disk override) ships a
+/// fitting default font, so users see a deliberate choice out of the box
+/// rather than an unset field that silently falls back to SansSerif.
+#[test]
+fn test_theme_layout_load_monstercat_default_font() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    with_env_lock(Some(temp_dir.path().to_str().unwrap()), None, || {
+        let theme = ThemeLayout::load("monstercat");
+        assert_eq!(theme.font_family, Some("Inter".to_string()));
+    });
+}

@@ -197,3 +197,38 @@ fn test_extract_palette_no_valid_colors() {
     // We expect 0 colors since bright, dark and transparent are filtered out
     assert_eq!(palette.len(), 0);
 }
+
+/// Tests WCAG relative luminance at the extremes, since every contrast
+/// decision downstream (text color, ensure_contrast) is built on this value.
+#[test]
+fn test_relative_luminance_extremes() {
+    assert!((relative_luminance([0.0, 0.0, 0.0])).abs() < 1e-6);
+    assert!((relative_luminance([1.0, 1.0, 1.0]) - 1.0).abs() < 1e-6);
+}
+
+/// Tests that black-on-white hits the canonical WCAG contrast ratio of 21:1.
+/// This anchors ensure_contrast's min_ratio units to the WCAG spec.
+#[test]
+fn test_contrast_ratio_black_white() {
+    let ratio = contrast_ratio([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+    assert!(ratio > 20.9 && ratio <= 21.0, "ratio was {ratio}");
+}
+
+/// Tests that a color already meeting the minimum ratio is returned untouched.
+/// This prevents ensure_contrast from needlessly washing out already-legible text.
+#[test]
+fn test_ensure_contrast_noop_when_already_passing() {
+    let text = [1.0, 1.0, 1.0];
+    let bg = [0.0, 0.0, 0.0];
+    assert_eq!(ensure_contrast(text, bg, 4.5), text);
+}
+
+/// Tests that a low-contrast pair gets pushed to satisfy the minimum ratio.
+/// This is the core guarantee: text must stay readable against any album art.
+#[test]
+fn test_ensure_contrast_fixes_low_contrast_pair() {
+    let text = [0.55, 0.55, 0.55];
+    let bg = [0.5, 0.5, 0.5];
+    let fixed = ensure_contrast(text, bg, 4.5);
+    assert!(contrast_ratio(fixed, bg) >= 4.5);
+}

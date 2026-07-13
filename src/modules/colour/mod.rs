@@ -80,5 +80,51 @@ pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
     }
 }
 
+/// WCAG relative luminance of an sRGB color (components 0.0-1.0).
+pub fn relative_luminance(c: [f32; 3]) -> f32 {
+    fn lin(u: f32) -> f32 {
+        if u <= 0.04045 {
+            u / 12.92
+        } else {
+            ((u + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2])
+}
+
+/// WCAG contrast ratio between two sRGB colors, in the range 1.0..=21.0.
+pub fn contrast_ratio(a: [f32; 3], b: [f32; 3]) -> f32 {
+    let la = relative_luminance(a);
+    let lb = relative_luminance(b);
+    let (l1, l2) = (la.max(lb), la.min(lb));
+    (l1 + 0.05) / (l2 + 0.05)
+}
+
+/// Returns `text` nudged toward black or white (whichever contrasts better
+/// with `bg`) until it reaches `min_ratio` against `bg`, preserving hue for
+/// as long as possible. Returns `text` unchanged if it already passes.
+pub fn ensure_contrast(text: [f32; 3], bg: [f32; 3], min_ratio: f32) -> [f32; 3] {
+    if contrast_ratio(text, bg) >= min_ratio {
+        return text;
+    }
+    // 0.179 is the background luminance at which black and white text give
+    // equal contrast (WCAG's own crossover point).
+    let target = if relative_luminance(bg) > 0.179 {
+        [0.0; 3]
+    } else {
+        [1.0; 3]
+    };
+    // 16 fixed steps is plenty of resolution for a wallpaper text color;
+    // binary search would be overkill for a range this small.
+    for i in 1..=16 {
+        let t = i as f32 / 16.0;
+        let candidate = lerp_colour(text, target, t);
+        if contrast_ratio(candidate, bg) >= min_ratio {
+            return candidate;
+        }
+    }
+    target
+}
+
 #[cfg(test)]
 mod tests;

@@ -337,17 +337,17 @@ impl Renderer {
             .copied()
             .unwrap_or([1.0, 1.0, 1.0]);
 
-        let luminance =
-            0.299 * text_bg_color[0] + 0.587 * text_bg_color[1] + 0.114 * text_bg_color[2];
-        if luminance > 0.55 {
+        let luminance = crate::modules::colour::relative_luminance(text_bg_color);
+        if luminance > 0.179 {
             // Dark text for bright backgrounds, tinted with the accent color
             let tint = [
                 text_accent[0] * 0.3,
                 text_accent[1] * 0.3,
                 text_accent[2] * 0.3,
             ];
-            self.primary_text_color = [tint[0], tint[1], tint[2], 1.0];
-            self.secondary_text_color = [tint[0], tint[1], tint[2], 0.7];
+            let rgb = crate::modules::colour::ensure_contrast(tint, text_bg_color, 4.5);
+            self.primary_text_color = [rgb[0], rgb[1], rgb[2], 1.0];
+            self.secondary_text_color = [rgb[0], rgb[1], rgb[2], 0.7];
         } else {
             // Light text for dark backgrounds, lightly tinted with the accent color
             let tint = [
@@ -355,8 +355,9 @@ impl Renderer {
                 text_accent[1] * 0.3 + 0.7,
                 text_accent[2] * 0.3 + 0.7,
             ];
-            self.primary_text_color = [tint[0], tint[1], tint[2], 1.0];
-            self.secondary_text_color = [tint[0], tint[1], tint[2], 0.45];
+            let rgb = crate::modules::colour::ensure_contrast(tint, text_bg_color, 4.5);
+            self.primary_text_color = [rgb[0], rgb[1], rgb[2], 1.0];
+            self.secondary_text_color = [rgb[0], rgb[1], rgb[2], 0.45];
         }
 
         self.text_color_diff = [

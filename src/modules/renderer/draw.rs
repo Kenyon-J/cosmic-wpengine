@@ -377,7 +377,13 @@ pub(crate) fn draw_frame(
     // lifetime tied to `renderer`: push_text_buffer() below needs `&mut
     // renderer` and `&attrs` in the same call, which the borrow checker
     // would otherwise reject.
-    let font_family_owned = renderer.state.config.appearance.font_family.clone();
+    let font_family_owned = renderer
+        .state
+        .config
+        .appearance
+        .font_family
+        .clone()
+        .or_else(|| renderer.theme.font_family.clone());
     let family = font_family_owned
         .as_deref()
         .map_or(Family::SansSerif, Family::Name);
