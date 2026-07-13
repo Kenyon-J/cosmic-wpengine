@@ -1195,6 +1195,7 @@ dependencies = [
  "iced",
  "image 0.24.9",
  "ksni",
+ "libc",
  "libcosmic",
  "lru 0.12.5",
  "mimalloc",

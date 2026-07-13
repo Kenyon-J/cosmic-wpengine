@@ -3,8 +3,6 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-use cosmic_wallpaper::modules::utils::resolve_binary;
-
 const RELEASE_LATEST_DOWNLOAD_BASE: &str =
     "https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download";
 const ENGINE_ASSET: &str = "cosmic-wallpaper-x86_64-linux-gnu";
@@ -124,15 +122,16 @@ fn find_running_engine_pid(engine_path: &Path) -> Option<u32> {
 /// to find the process that's still running.
 fn terminate_and_relaunch(engine_path: &Path, old_pid: Option<u32>) -> Result<(), String> {
     if let Some(pid) = old_pid {
-        if let Some(kill_bin) = resolve_binary("kill") {
-            let _ = std::process::Command::new(kill_bin)
-                .arg("-TERM")
-                .arg(pid.to_string())
-                .status();
-            // Give it a moment to release its Wayland/wgpu resources before
-            // the new instance tries to claim the same layer-shell surfaces.
-            std::thread::sleep(std::time::Duration::from_millis(500));
+        // A raw kill(2) syscall rather than shelling out to a `kill` binary:
+        // terminating a PID doesn't need an external process, and relying on
+        // one being installed at a guessed path is a needless failure mode
+        // (e.g. minimal containers/systems without procps-ng).
+        unsafe {
+            libc::kill(pid as libc::pid_t, libc::SIGTERM);
         }
+        // Give it a moment to release its Wayland/wgpu resources before
+        // the new instance tries to claim the same layer-shell surfaces.
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
     std::process::Command::new(engine_path)
@@ -275,10 +274,10 @@ mod tests {
     }
 
     fn reap(mut child: std::process::Child) {
-        let _ = std::process::Command::new("/usr/bin/kill")
-            .arg("-TERM")
-            .arg(child.id().to_string())
-            .status();
+        // `child` is our own spawned process, so `Child::kill()` (SIGKILL, no
+        // external binary needed) is sufficient - this is cleanup, not a
+        // test of the graceful-SIGTERM behavior that's covered below.
+        let _ = child.kill();
         let _ = child.wait();
     }
 
@@ -341,9 +340,11 @@ mod tests {
         );
         assert_ne!(new_pid, Some(old_pid));
 
-        let _ = std::process::Command::new("/usr/bin/kill")
-            .arg("-TERM")
-            .arg(new_pid.unwrap().to_string())
-            .status();
+        // `new_pid` is a foreign process (relaunched internally by
+        // terminate_and_relaunch, not a Child we hold), so this needs a raw
+        // kill(2) rather than Child::kill() - mirrors production cleanup.
+        unsafe {
+            libc::kill(new_pid.unwrap() as libc::pid_t, libc::SIGTERM);
+        }
     }
 }
