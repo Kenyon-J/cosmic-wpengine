@@ -221,7 +221,9 @@ pub(crate) fn draw_frame(
         [0.1, 0.1, 0.1]
     };
 
-    let elapsed = now.saturating_duration_since(renderer.start_time).as_secs_f32();
+    let elapsed = now
+        .saturating_duration_since(renderer.start_time)
+        .as_secs_f32();
 
     // Optimization: Use pre-calculated hashes for display-invariant strings
     let track_hash = renderer.cached_track_hash;
