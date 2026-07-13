@@ -26,6 +26,7 @@ struct SettingsApp {
     available_videos: Vec<String>,
     selected_file: Option<String>,
     editor_content: cosmic::widget::text_editor::Content,
+    editor_initial_content: String,
     new_theme_name: String,
     status_msg: String,
     autostart: bool,
@@ -37,6 +38,7 @@ impl SettingsApp {
         if self.selected_file.as_deref() == Some("config.toml") {
             let path = config::Config::config_dir().join("config.toml");
             let content_str = std::fs::read_to_string(path).unwrap_or_default();
+            self.editor_initial_content = content_str.clone();
             self.editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
         }
     }
@@ -313,6 +315,7 @@ impl Application for SettingsApp {
 
         let path = config::Config::config_dir().join("config.toml");
         let content_str = std::fs::read_to_string(path).unwrap_or_default();
+        let editor_initial_content = content_str.clone();
         let editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
 
         (
@@ -324,6 +327,7 @@ impl Application for SettingsApp {
                 available_videos: config::Config::available_videos(),
                 selected_file,
                 editor_content,
+                editor_initial_content,
                 autostart: autostart_path().exists(),
                 new_theme_name: String::new(),
                 status_msg: "Ready.".into(),
@@ -408,6 +412,7 @@ impl Application for SettingsApp {
                     self.selected_file = Some(file.clone());
                     let path = config::Config::config_dir().join(&file);
                     let content_str = std::fs::read_to_string(path).unwrap_or_default();
+                    self.editor_initial_content = content_str.clone();
                     self.editor_content =
                         cosmic::widget::text_editor::Content::with_text(&content_str);
                     self.status_msg = format!("Loaded {}", file);
@@ -429,6 +434,7 @@ impl Application for SettingsApp {
                     match std::fs::write(&path, text) {
                         Ok(_) => {
                             self.status_msg = format!("Saved {}", file);
+                            self.editor_initial_content = self.editor_content.text();
                             // If we edited the base config, ensure our GUI state stays in sync
                             if file == "config.toml" {
                                 if let Ok(new_cfg) = config::Config::load_or_default() {
@@ -518,6 +524,7 @@ amplitude = 1.5"#;
                             self.available_files = load_files();
                             self.selected_file = Some(file_name.clone());
                             let content_str = std::fs::read_to_string(path).unwrap_or_default();
+                            self.editor_initial_content = content_str.clone();
                             self.editor_content =
                                 cosmic::widget::text_editor::Content::with_text(&content_str);
                             self.status_msg = format!("Created {}", file_name);
@@ -534,6 +541,8 @@ amplitude = 1.5"#;
             }
             Message::ShowPatchNotes => {
                 self.selected_file = None;
+                self.editor_initial_content =
+                    "Fetching latest patch notes from GitHub...".to_string();
                 self.editor_content = cosmic::widget::text_editor::Content::with_text(
                     "Fetching latest patch notes from GitHub...",
                 );
@@ -543,6 +552,7 @@ amplitude = 1.5"#;
                 });
             }
             Message::PatchNotesLoaded(notes) => {
+                self.editor_initial_content = notes.clone();
                 self.editor_content = cosmic::widget::text_editor::Content::with_text(&notes);
                 self.status_msg = "Viewing Patch Notes. Select a file to return to editing.".into();
             }
