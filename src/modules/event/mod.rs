@@ -37,6 +37,11 @@ impl<T: std::fmt::Debug> std::fmt::Debug for PooledAudioBuffer<T> {
 pub enum Event {
     ConfigUpdated(Box<super::config::Config>, Box<super::config::ThemeLayout>),
     TrackChanged(Box<TrackInfo>),
+    /// Slow, network-fetched assets (remote art, lyrics, canvas video) for a
+    /// track already announced via `TrackChanged`. Only the `Some` fields are
+    /// updates; title/artist/album identify which track they belong to so
+    /// stale results can be dropped if the track changed again mid-fetch.
+    TrackAssetsLoaded(Box<TrackInfo>),
     PlaybackStopped,
     PlaybackResumed,
     PlayerShutDown,

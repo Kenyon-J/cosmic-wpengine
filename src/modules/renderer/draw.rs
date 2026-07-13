@@ -25,14 +25,13 @@ use tracing::warn;
 /// call this: borrowing disjoint fields is fine, but a function taking the
 /// whole struct is opaque to the borrow checker and would conflict.
 #[allow(clippy::too_many_arguments)]
-fn push_text_buffer(
+fn prepare_text_buffer(
     text_buffer_cache: &mut std::collections::HashMap<
         TextCacheKey,
         cosmic_text::Buffer,
         rustc_hash::FxBuildHasher,
     >,
     font_system: &mut cosmic_text::FontSystem,
-    text_buffers: &mut Vec<PositionedBuffer>,
     text_key: TextCacheKey,
     text: &str,
     attrs: &Attrs,
@@ -40,10 +39,7 @@ fn push_text_buffer(
     align: cosmic_text::Align,
     width_f: f32,
     height_f: f32,
-    pos: [f32; 2],
-    color: [f32; 4],
-    scale: f32,
-) {
+) -> cosmic_text::Buffer {
     let mut buffer = text_buffer_cache.remove(&text_key).unwrap_or_else(|| {
         let mut b = cosmic_text::Buffer::new(font_system, metrics);
         b.set_metrics(font_system, metrics);
@@ -67,6 +63,41 @@ fn push_text_buffer(
     if realigned {
         buffer.shape_until_scroll(font_system, false);
     }
+
+    buffer
+}
+
+#[expect(clippy::too_many_arguments)]
+fn push_text_buffer(
+    text_buffer_cache: &mut std::collections::HashMap<
+        TextCacheKey,
+        cosmic_text::Buffer,
+        rustc_hash::FxBuildHasher,
+    >,
+    font_system: &mut cosmic_text::FontSystem,
+    text_buffers: &mut Vec<PositionedBuffer>,
+    text_key: TextCacheKey,
+    text: &str,
+    attrs: &Attrs,
+    metrics: Metrics,
+    align: cosmic_text::Align,
+    width_f: f32,
+    height_f: f32,
+    pos: [f32; 2],
+    color: [f32; 4],
+    scale: f32,
+) {
+    let buffer = prepare_text_buffer(
+        text_buffer_cache,
+        font_system,
+        text_key,
+        text,
+        attrs,
+        metrics,
+        align,
+        width_f,
+        height_f,
+    );
 
     text_buffers.push(PositionedBuffer {
         buffer,
@@ -260,7 +291,7 @@ pub(crate) fn draw_frame(
     } else {
         0
     };
-    let album_art_bg_alpha = 1.0 - renderer.state.transparent_fade;
+    let album_art_bg_alpha = (1.0 - renderer.state.transparent_fade) * renderer.art_fade;
     let album_art_aspect = renderer.album_art_aspect;
 
     let mut album_art_fg_pos = renderer.theme.album_art.position;
@@ -487,7 +518,9 @@ pub(crate) fn draw_frame(
                     blur_step: [0.0, 0.0], // FG art is never blurred
                     audio_energy,
                     mode: 1,
-                    bg_alpha: 1.0, // The sharp foreground art never fades!
+                    // The sharp foreground art only fades when stale art is
+                    // being eased out after the fetch grace period expires.
+                    bg_alpha: renderer.art_fade,
                     art_size: album_art_fg_size,
                     shape: album_art_fg_shape,
                     blur_opacity: 1.0,
@@ -619,11 +652,46 @@ pub(crate) fn draw_frame(
                     let inv_active_font_size = 1.0 / active_font_size;
                     let line_spacing = active_font_size * 1.2;
 
+                    // Bound wrapping to the space actually visible between the
+                    // lyrics anchor point and this monitor's own edge. Themes
+                    // like "monstercat" anchor lyrics off-center (x=0.49, left
+                    // aligned), so shaping against the full monitor width let
+                    // long lines run past the right edge before cosmic-text
+                    // ever wrapped them. Each monitor renders as an
+                    // independent surface here (no cross-monitor spanning),
+                    // so bounding to this monitor's own visible span is
+                    // always correct, whether or not another display sits
+                    // next to it.
+                    let lyrics_anchor_x = renderer.theme.lyrics.position[0] * width_f;
+                    let lyrics_wrap_width = match lyrics_align {
+                        cosmic_text::Align::Left => width_f - lyrics_anchor_x,
+                        cosmic_text::Align::Right => lyrics_anchor_x,
+                        _ => 2.0 * lyrics_anchor_x.min(width_f - lyrics_anchor_x),
+                    }
+                    .max(active_font_size * 3.0);
+
                     // Pre-calculate bounce scalars for the current monitor's scale factor
                     let bounce_8_scaled = lyric_bounce * 8.0 * scale_factor;
                     let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
 
                     let metrics = Metrics::new(active_font_size, active_font_size * 1.2);
+
+                    // First pass: shape (or fetch from cache) each visible line and
+                    // measure how many rows it wrapped to. A wrapped line occupies
+                    // more than its one line_spacing slot, so the second pass shifts
+                    // its neighbours apart to keep rows from overlapping.
+                    struct ShapedLyric {
+                        dist: f32,
+                        render_scale: f32,
+                        color: [f32; 4],
+                        y_base: f32,
+                        /// Vertical overflow beyond the line's nominal slot:
+                        /// (rows - 1) * line height at this line's drawn scale.
+                        extra: f32,
+                        text_key: TextCacheKey,
+                        buffer: cosmic_text::Buffer,
+                    }
+                    let mut shaped_lines: Vec<ShapedLyric> = Vec::with_capacity(5);
 
                     for (line_idx, text, text_hash) in lyric_window {
                         // Compute exactly how far this string is from the "current active string"
@@ -642,9 +710,15 @@ pub(crate) fn draw_frame(
                             base_font_size + (active_font_size - base_font_size) * center_weight;
                         let final_scale = scale + bounce_8_scaled * center_weight;
 
-                        let render_scale = final_scale * inv_active_font_size;
+                        // The buffer was shaped/wrapped assuming font_size == active_font_size
+                        // (see `metrics` above), so a render_scale above 1.0 - which the
+                        // beat-reactive bounce can produce, since lyric_bounce_value is an
+                        // unclamped spring - would draw the active line larger than the box it
+                        // was just wrapped to fit, spilling back past the screen edge. Clamp to
+                        // the shaped size; the pulse still reads clearly on the way up to it.
+                        let render_scale = (final_scale * inv_active_font_size).min(1.0);
                         let bounce_y = bounce_12_scaled * center_weight;
-                        let y_pos = (dist * line_spacing) - bounce_y;
+                        let y_base = (dist * line_spacing) - bounce_y;
 
                         // Optimization: Use cached color difference to replace 4 subtractions with 1 multiply-add
                         let color = [
@@ -664,26 +738,62 @@ pub(crate) fn draw_frame(
                                 line: line_idx as u32,
                                 content_hash: text_hash,
                             };
-                            let pos = [
-                                renderer.theme.lyrics.position[0] * width_f,
-                                renderer.theme.lyrics.position[1] * height_f + y_pos,
-                            ];
-                            push_text_buffer(
+                            let buffer = prepare_text_buffer(
                                 &mut renderer.text_buffer_cache,
                                 &mut renderer.font_system,
-                                &mut renderer.text_buffers,
                                 text_key,
                                 &text,
                                 &attrs,
                                 metrics,
                                 lyrics_align,
-                                width_f,
+                                lyrics_wrap_width,
                                 height_f,
-                                pos,
-                                final_color,
-                                render_scale,
                             );
+                            let rows = buffer.layout_runs().count().max(1);
+                            let extra = (rows - 1) as f32 * line_spacing * render_scale;
+                            shaped_lines.push(ShapedLyric {
+                                dist,
+                                render_scale,
+                                color: final_color,
+                                y_base,
+                                extra,
+                                text_key,
+                                buffer,
+                            });
                         }
+                    }
+
+                    // Second pass: place the lines (already in top-to-bottom order).
+                    // The weights keep the layout continuous while lines scroll:
+                    // a wrapped line pushes everything below it down while it is at
+                    // or below the active slot (weight fades in over dist -1 -> 0),
+                    // and pulls itself plus everything above it up once it scrolls
+                    // above the active slot, so its overflow never collides with
+                    // the anchored active line.
+                    let anchor_x = renderer.theme.lyrics.position[0] * width_f;
+                    let anchor_y = renderer.theme.lyrics.position[1] * height_f;
+                    let shifts: Vec<f32> = (0..shaped_lines.len())
+                        .map(|idx| {
+                            let mut shift = 0.0;
+                            for line in &shaped_lines[..idx] {
+                                shift += line.extra * (line.dist + 1.0).clamp(0.0, 1.0);
+                            }
+                            for line in &shaped_lines[idx..] {
+                                shift -= line.extra * (-line.dist).clamp(0.0, 1.0);
+                            }
+                            shift
+                        })
+                        .collect();
+
+                    for (line, shift) in shaped_lines.into_iter().zip(shifts) {
+                        renderer.text_buffers.push(PositionedBuffer {
+                            buffer: line.buffer,
+                            text_key: line.text_key,
+                            pos: [anchor_x, anchor_y + line.y_base + shift],
+                            color: line.color,
+                            scale: line.render_scale,
+                            align: lyrics_align,
+                        });
                     }
                 }
             }
@@ -991,4 +1101,61 @@ fn get_uv_transform(mode: u32, screen_aspect: f32, image_aspect: f32) -> [f32; 4
     }
 
     [scale_x, scale_y, offset_x, offset_y]
+}
+
+#[cfg(test)]
+mod tests {
+    use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping};
+
+    /// Regression test for long lyric lines spilling past the monitor edge
+    /// under themes that anchor lyrics off-center (e.g. "monstercat", which
+    /// uses position=[0.49, 0.72] with left alignment). Exercises the real
+    /// cosmic-text shaping/wrapping the renderer relies on: shaping against
+    /// the full monitor width lets a long line's shaped width exceed the
+    /// space actually visible between the anchor and the screen edge,
+    /// whereas shaping against that visible span (as draw_frame now does
+    /// via `lyrics_wrap_width`) wraps the line instead.
+    #[test]
+    fn long_lyric_line_wraps_within_visible_span_not_full_monitor_width() {
+        let mut font_system = FontSystem::new();
+        let width_f = 2560.0_f32;
+        let anchor_x = 0.49 * width_f;
+        let available = width_f - anchor_x; // left-aligned: space to the right edge
+
+        let font_size = 33.0_f32;
+        let metrics = Metrics::new(font_size, font_size * 1.2);
+        let attrs = Attrs::new().family(Family::SansSerif);
+        let text = "This is a deliberately long lyric line that would previously run past the right edge of the monitor before wrapping";
+
+        let mut old_buf = Buffer::new(&mut font_system, metrics);
+        old_buf.set_size(&mut font_system, Some(width_f), Some(1000.0));
+        old_buf.set_text(&mut font_system, text, &attrs, Shaping::Advanced, None);
+        let old_max_line_w = old_buf
+            .layout_runs()
+            .map(|r| r.line_w)
+            .fold(0.0_f32, f32::max);
+        assert!(
+            old_max_line_w > available,
+            "expected the pre-fix wrap width ({old_max_line_w}) to exceed the visible \
+             span ({available}) so the bug this test guards actually reproduces"
+        );
+
+        let mut new_buf = Buffer::new(&mut font_system, metrics);
+        new_buf.set_size(&mut font_system, Some(available), Some(1000.0));
+        new_buf.set_text(&mut font_system, text, &attrs, Shaping::Advanced, None);
+        let new_max_line_w = new_buf
+            .layout_runs()
+            .map(|r| r.line_w)
+            .fold(0.0_f32, f32::max);
+        let run_count = new_buf.layout_runs().count();
+
+        assert!(
+            new_max_line_w <= available + 1.0,
+            "line width {new_max_line_w} still exceeds the visible span {available}"
+        );
+        assert!(
+            run_count >= 2,
+            "expected the long line to wrap onto multiple lines, got {run_count}"
+        );
+    }
 }

@@ -222,10 +222,15 @@ impl TextRenderer {
         let height_to_ndc = 2.0 / height;
 
         for p_buf in positioned_buffers {
+            // Use this buffer's own wrap width (not the monitor's full
+            // width) for the alignment origin: some buffers (e.g. lyrics)
+            // are shaped against a narrower box so they wrap before
+            // running off the edge of the screen.
+            let buffer_width = p_buf.buffer.size().0.unwrap_or(width);
             let origin_x = match p_buf.align {
                 cosmic_text::Align::Left => 0.0,
-                cosmic_text::Align::Right => width,
-                _ => width / 2.0,
+                cosmic_text::Align::Right => buffer_width,
+                _ => buffer_width / 2.0,
             };
             let origin_y = p_buf.buffer.metrics().font_size;
 

@@ -72,6 +72,9 @@ fn upload_rgba_to_texture(
 
 impl Renderer {
     pub(crate) fn update_album_art_texture(&mut self, rgba: &image::RgbaImage) {
+        // Fresh art always shows at full opacity, even if the previous art was
+        // mid-fade when it arrived.
+        self.art_fade = 1.0;
         let dimensions = rgba.dimensions();
         info!(
             "Creating GPU texture for album art. Dimensions: {}x{}",

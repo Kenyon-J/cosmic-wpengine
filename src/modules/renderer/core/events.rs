@@ -71,7 +71,6 @@ impl Renderer {
                 self.text_renderer.cache_row_height = 0;
 
                 info!("Now playing: {} - {}", track.artist, track.title);
-                let has_art = track.album_art.is_some();
                 // take() strips the massive image payload out of TrackInfo so we don't hoard it in RAM permanently!
                 if let Some(art) = track.album_art.take() {
                     info!(
@@ -79,14 +78,29 @@ impl Renderer {
                         (art.len() as wgpu::BufferAddress)
                     );
                     self.update_album_art_texture(&art);
+                    self.state.has_album_art = true;
+                    self.pending_art_deadline = None;
                 } else {
-                    warn!("Track event received, but album_art payload is None!");
-                    self.album_art_bg_bind_group = None;
-                    self.album_art_fg_bind_group = None;
-                    self.current_album_texture = None;
-                    self.current_album_size = None;
+                    // The art is still being fetched in the background and will
+                    // arrive via TrackAssetsLoaded. Keep the previous track's art
+                    // and colours on screen meanwhile - clearing them here made
+                    // every track change flash the no-media scene - but set a
+                    // deadline so they fade out if nothing ever arrives.
+                    // Grace period matches the HTTP client's 10s timeout: any fetch
+                    // that will succeed at all lands within it, so the fade only
+                    // triggers on genuine failures (which also fade themselves out
+                    // early via an art-less TrackAssetsLoaded).
+                    info!("Track event received without album art; keeping previous art while it loads");
+                    self.pending_art_deadline =
+                        Some(Instant::now() + std::time::Duration::from_secs(10));
+                    if track.palette.is_none() {
+                        track.palette = self
+                            .state
+                            .current_track
+                            .as_ref()
+                            .and_then(|t| t.palette.clone());
+                    }
                 }
-                self.state.has_album_art = has_art;
                 self.cached_track_str =
                     format!("{} — {}\n{}", track.title, track.artist, track.album);
                 self.cached_track_hash = hash_str(&self.cached_track_str);
@@ -102,6 +116,49 @@ impl Renderer {
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;
                 self.state.begin_transition();
+            }
+
+            Event::TrackAssetsLoaded(mut track) => {
+                // Drop stale results: the track may have changed again while the
+                // network fetch behind this event was still in flight.
+                let matches_current = self.state.current_track.as_ref().is_some_and(|t| {
+                    t.title == track.title && t.artist == track.artist && t.album == track.album
+                });
+                if matches_current {
+                    if let Some(art) = track.album_art.take() {
+                        info!(
+                            "Late album art arrived for current track ({} bytes raw). Sending to GPU...",
+                            (art.len() as wgpu::BufferAddress)
+                        );
+                        self.update_album_art_texture(&art);
+                        self.state.has_album_art = true;
+                        self.pending_art_deadline = None;
+                    } else if self.pending_art_deadline.is_some() {
+                        // The fetch chain concluded without any art: start the
+                        // fade-out now instead of waiting out the grace period.
+                        self.pending_art_deadline = Some(Instant::now());
+                    }
+                    let mut palette_updated = false;
+                    if let Some(current) = self.state.current_track.as_mut() {
+                        if track.palette.is_some() {
+                            self.state.previous_palette = current.palette.take();
+                            current.palette = track.palette.take();
+                            palette_updated = true;
+                        }
+                        if track.lyrics.is_some() {
+                            current.lyrics = track.lyrics.take();
+                        }
+                        if track.video_url.is_some() {
+                            current.video_url = track.video_url.take();
+                        }
+                    }
+                    if palette_updated {
+                        self.update_theme_colors();
+                        self.update_text_colors();
+                        // Fade towards the new palette instead of hard-popping colors
+                        self.state.begin_transition();
+                    }
+                }
             }
 
             Event::PlaybackStopped => {
@@ -122,6 +179,7 @@ impl Renderer {
             }
 
             Event::PlayerShutDown => {
+                self.pending_art_deadline = None;
                 self.cached_track_str.clear();
                 self.cached_track_hash = 0;
                 self.text_buffer_cache.clear();

@@ -226,6 +226,8 @@ impl Renderer {
             waveform_bin_ranges,
             lyric_bounce_value: 0.0,
             lyric_bounce_velocity: 0.0,
+            pending_art_deadline: None,
+            art_fade: 1.0,
             cached_track_str: String::new(),
             cached_track_hash: 0,
             cached_weather_str: String::new(),

@@ -78,6 +78,13 @@ pub struct Renderer {
     pub(crate) waveform_bin_ranges: Vec<(usize, usize)>,
     pub(crate) lyric_bounce_value: f32,
     pub(crate) lyric_bounce_velocity: f32,
+    /// While a new track's art is still being fetched in the background, the
+    /// previous track's art/palette stay on screen. If nothing has arrived by
+    /// this deadline, they fade out rather than lingering stale forever.
+    pub(crate) pending_art_deadline: Option<Instant>,
+    /// Opacity multiplier for the album art (bg + fg). Normally 1.0; eases to
+    /// 0.0 once `pending_art_deadline` expires, after which the art is dropped.
+    pub(crate) art_fade: f32,
     pub(crate) cached_track_str: String,
     pub(crate) cached_track_hash: u64,
     pub(crate) cached_weather_str: String,
@@ -290,6 +297,35 @@ impl Renderer {
             }
             if self.lyric_bounce_value.abs() < 1e-5 {
                 self.lyric_bounce_value = 0.0;
+            }
+
+            // The grace period for keeping the previous track's art on screen
+            // expired without replacement art arriving: ease its opacity out
+            // over ~1.5s, then drop it, rather than showing stale art
+            // indefinitely or popping it off screen in a single frame.
+            if self
+                .pending_art_deadline
+                .is_some_and(|deadline| now >= deadline)
+            {
+                if self.art_fade >= 1.0 {
+                    tracing::info!("No album art arrived within the grace period; fading out");
+                }
+                self.art_fade = (self.art_fade - delta / 1.5).max(0.0);
+                if self.art_fade == 0.0 {
+                    self.pending_art_deadline = None;
+                    self.art_fade = 1.0;
+                    self.album_art_bg_bind_group = None;
+                    self.album_art_fg_bind_group = None;
+                    self.current_album_texture = None;
+                    self.current_album_size = None;
+                    self.state.has_album_art = false;
+                    if let Some(track) = self.state.current_track.as_mut() {
+                        self.state.previous_palette = track.palette.take();
+                    }
+                    self.update_theme_colors();
+                    self.update_text_colors();
+                    self.state.begin_transition();
+                }
             }
 
             let playback_pos = self.state.playback_position.as_secs_f32();
