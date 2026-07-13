@@ -378,8 +378,23 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
         }
     };
 
-    let version_display: cosmic::Element<'_, super::Message> =
-        if let Some(new_v) = &app.update_available {
+    let version_display: cosmic::Element<'_, super::Message> = match &app.update_state {
+        super::UpdateState::Available(new_v) if super::updater::is_self_updatable() => {
+            let update_btn = cosmic::iced::widget::button(
+                text(format!("Update to {}", new_v)).font(font).size(14),
+            )
+            .on_press(super::Message::StartUpdate);
+
+            cosmic::iced::widget::tooltip(
+                update_btn,
+                "Download, verify, and install the update, then restart the wallpaper engine.",
+                cosmic::iced::widget::tooltip::Position::Top,
+            )
+            .into()
+        }
+        super::UpdateState::Available(new_v) => {
+            // Package-managed install (e.g. under /usr) - update via the
+            // system package manager instead of overwriting its files.
             let update_btn = cosmic::iced::widget::button(
                 text(format!("Update Available: {}", new_v))
                     .font(font)
@@ -389,16 +404,28 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
 
             cosmic::iced::widget::tooltip(
                 update_btn,
-                "Open the release page to download the update.",
+                "Installed via a system package - open the release page and update with your package manager.",
                 cosmic::iced::widget::tooltip::Position::Top,
             )
             .into()
-        } else {
-            text(format!("v{}", env!("CARGO_PKG_VERSION")))
-                .font(font)
-                .size(14)
-                .into()
-        };
+        }
+        super::UpdateState::Updating(tag) => cosmic::iced::widget::tooltip(
+            cosmic::iced::widget::button(
+                text(format!("Updating to {}...", tag)).font(font).size(14),
+            ),
+            "Downloading and verifying the update...",
+            cosmic::iced::widget::tooltip::Position::Top,
+        )
+        .into(),
+        super::UpdateState::Installed(tag) => text(format!("v{} installed, restart to apply", tag))
+            .font(font)
+            .size(14)
+            .into(),
+        super::UpdateState::UpToDate => text(format!("v{}", env!("CARGO_PKG_VERSION")))
+            .font(font)
+            .size(14)
+            .into(),
+    };
 
     let footer_row = row()
         .push(

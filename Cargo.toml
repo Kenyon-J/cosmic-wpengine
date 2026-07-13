@@ -35,6 +35,7 @@ mimalloc = "0.1"
 lru = "0.12"
 ffmpeg-next = "8.1.0"
 rustc-hash = "2.1.2"
+sha2 = "0.10"
 
 [profile.release]
 opt-level = 3

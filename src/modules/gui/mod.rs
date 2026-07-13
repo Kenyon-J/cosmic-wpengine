@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests;
+mod updater;
 mod view;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -29,7 +30,17 @@ struct SettingsApp {
     new_theme_name: String,
     status_msg: String,
     autostart: bool,
-    update_available: Option<String>,
+    update_state: UpdateState,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum UpdateState {
+    UpToDate,
+    Available(String),
+    /// Holds the tag being installed so a failed attempt can fall back to
+    /// `Available(tag)` (offering a retry) instead of losing track of it.
+    Updating(String),
+    Installed(String),
 }
 
 impl SettingsApp {
@@ -286,6 +297,8 @@ enum Message {
     PatchNotesLoaded(String),
     ReportIssue,
     UpdateCheckDone(Option<String>),
+    StartUpdate,
+    UpdateFinished(Result<String, String>),
     OpenUpdateLink,
     OpenConfigFolder,
 }
@@ -327,7 +340,7 @@ impl Application for SettingsApp {
                 autostart: autostart_path().exists(),
                 new_theme_name: String::new(),
                 status_msg: "Ready.".into(),
-                update_available: None,
+                update_state: UpdateState::UpToDate,
             },
             Task::perform(check_for_updates(), |version| {
                 Message::UpdateCheckDone(version).into()
@@ -557,8 +570,45 @@ amplitude = 1.5"#;
                 }
             }
             Message::UpdateCheckDone(version) => {
-                self.update_available = version;
+                self.update_state = match version {
+                    Some(v) => UpdateState::Available(v),
+                    None => UpdateState::UpToDate,
+                };
             }
+            Message::StartUpdate => {
+                if let UpdateState::Available(tag) = self.update_state.clone() {
+                    match get_http_client() {
+                        Ok(client) => {
+                            let client = client.clone();
+                            self.update_state = UpdateState::Updating(tag.clone());
+                            self.status_msg = format!("Downloading {tag}...");
+                            return Task::perform(updater::perform_update(client, tag), |res| {
+                                Message::UpdateFinished(res).into()
+                            });
+                        }
+                        Err(e) => {
+                            self.status_msg = format!("Update failed: {e}");
+                        }
+                    }
+                }
+            }
+            Message::UpdateFinished(result) => match result {
+                Ok(tag) => {
+                    self.update_state = UpdateState::Installed(tag.clone());
+                    self.status_msg = format!(
+                        "Updated to {tag}! The wallpaper engine restarted automatically; restart Settings to use the new version too."
+                    );
+                }
+                Err(e) => {
+                    self.status_msg = format!("Update failed: {e}");
+                    // Fall back to Available so the button offers a retry
+                    // instead of getting stuck showing "Updating...".
+                    self.update_state = match &self.update_state {
+                        UpdateState::Updating(tag) => UpdateState::Available(tag.clone()),
+                        other => other.clone(),
+                    };
+                }
+            },
             Message::OpenUpdateLink => {
                 if let Some(xdg_open) = resolve_binary("xdg-open") {
                     let _ = std::process::Command::new(xdg_open)
