@@ -82,6 +82,7 @@ pub(crate) fn draw_frame(
     renderer: &mut super::Renderer,
     wayland_manager: &mut WaylandManager,
     delta: f32,
+    now: std::time::Instant,
 ) -> Result<()> {
     let audio_data = if renderer.is_waveform_style {
         &renderer.state.audio_waveform
@@ -220,7 +221,7 @@ pub(crate) fn draw_frame(
         [0.1, 0.1, 0.1]
     };
 
-    let elapsed = renderer.start_time.elapsed().as_secs_f32();
+    let elapsed = now.saturating_duration_since(renderer.start_time).as_secs_f32();
 
     // Optimization: Use pre-calculated hashes for display-invariant strings
     let track_hash = renderer.cached_track_hash;
@@ -384,7 +385,7 @@ pub(crate) fn draw_frame(
             e => anyhow::bail!("Failed to get current texture: {:?}", e),
         };
 
-        wayland_manager.mark_frame_rendered(i as usize); // Request the next frame callback
+        wayland_manager.mark_frame_rendered(i as usize, now); // Request the next frame callback
 
         let current_res = (gpu_out.config.width, gpu_out.config.height);
         let screen_res_f = [gpu_out.config.width as f32, gpu_out.config.height as f32];
