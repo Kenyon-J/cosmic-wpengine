@@ -42,12 +42,14 @@ jobs:
         run: cargo build --release
 
   # Pop!_OS is Ubuntu-based and most COSMIC users run it, so build the .deb
-  # inside an Ubuntu 22.04 container to verify the package builds and installs
-  # against Pop!_OS 22.04-era libraries (FFmpeg 4.4, PipeWire 0.3.48, ...).
+  # inside an Ubuntu 24.04 container to verify the package builds and installs
+  # against the Pop!_OS 24.04 library baseline (FFmpeg 6.1, PipeWire 1.0.5).
+  # 22.04 is not buildable: libspa 0.10 requires SPA symbols/fields newer
+  # than PipeWire 0.3.48's headers.
   build-deb:
-    name: Build .deb on Ubuntu 22.04 (Pop!_OS base)
+    name: Build .deb on Ubuntu 24.04 (Pop!_OS base)
     runs-on: ubuntu-latest
-    container: ubuntu:22.04
+    container: ubuntu:24.04
 
     steps:
       - name: Install system dependencies
@@ -81,7 +83,7 @@ jobs:
             exit 1
           fi
 
-      - name: Verify package installs on Ubuntu 22.04
+      - name: Verify package installs on Ubuntu 24.04
         shell: bash
         run: |
           dpkg-deb --info target/debian/*.deb

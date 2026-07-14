@@ -83,13 +83,13 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
 
-  # Build the .deb for Pop!_OS / Ubuntu inside an Ubuntu 22.04 container so
-  # the package's dependencies resolve against Pop!_OS 22.04-era libraries,
+  # Build the .deb for Pop!_OS / Ubuntu inside an Ubuntu 24.04 container so
+  # the package's dependencies resolve against the Pop!_OS 24.04 library baseline,
   # then attach it to the same release.
   build-and-release-deb:
-    name: Build and publish .deb (Ubuntu 22.04 / Pop!_OS)
+    name: Build and publish .deb (Ubuntu 24.04 / Pop!_OS)
     runs-on: ubuntu-latest
-    container: ubuntu:22.04
+    container: ubuntu:24.04
 
     steps:
       - name: Install system dependencies
@@ -121,7 +121,7 @@ jobs:
       - name: Build .deb package
         run: cargo deb -- --locked
 
-      - name: Verify package installs on Ubuntu 22.04
+      - name: Verify package installs on Ubuntu 24.04
         shell: bash
         run: |
           apt-get install -y ./target/debian/*.deb
