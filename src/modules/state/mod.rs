@@ -22,6 +22,7 @@ pub struct AppState {
 
     pub transition_progress: f32,
     pub transparent_fade: f32,
+    pub time_sync_accumulator: f32,
 }
 
 impl AppState {
@@ -46,6 +47,7 @@ impl AppState {
             time_of_day: Self::current_time_of_day(),
             transition_progress: 1.0,
             transparent_fade: initial_fade,
+            time_sync_accumulator: 0.0,
         }
     }
 
@@ -73,8 +75,18 @@ impl AppState {
         self.transition_progress = 0.0;
     }
 
-    pub fn update_time(&mut self) {
-        self.time_of_day = Self::current_time_of_day();
+    pub fn update_time(&mut self, delta: f32) {
+        self.time_sync_accumulator += delta;
+
+        // Sync with the actual system time only once per second to reduce syscall overhead.
+        // In between, we smoothly increment our local time tracker.
+        if self.time_sync_accumulator >= 1.0 {
+            self.time_of_day = Self::current_time_of_day();
+            self.time_sync_accumulator = 0.0;
+        } else {
+            // 86400 seconds in a day
+            self.time_of_day = (self.time_of_day + delta / 86400.0) % 1.0;
+        }
     }
 
     pub fn scene_description(&self) -> SceneHint {
