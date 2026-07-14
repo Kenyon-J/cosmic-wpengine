@@ -70,22 +70,30 @@ jobs:
       # On failure, surface the tail of the build log as a check-run
       # annotation so the error is visible from the API/mobile without
       # opening the full log.
+      # shell: bash is required: in container jobs the default `run` shell can
+      # resolve to dash, which lacks `set -o pipefail` (exits 2 immediately).
       - name: Build .deb package
+        shell: bash
         run: |
           set -o pipefail
           if ! cargo deb -- --locked 2>&1 | tee /tmp/deb-build.log; then
-            tail -n 80 /tmp/deb-build.log | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g' | sed 's/^/::error title=deb build failed::/'
+            sed 's/\x1b\[[0-9;]*m//g' /tmp/deb-build.log | tail -c 3000 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g' | sed 's/^/::error title=deb build failed::/'
             exit 1
           fi
 
       - name: Verify package installs on Ubuntu 22.04
+        shell: bash
         run: |
           dpkg-deb --info target/debian/*.deb
           dpkg-deb --contents target/debian/*.deb
           apt-get install -y ./target/debian/*.deb
           # Confirm the installed binaries link against available libraries
-          ! ldd /usr/bin/cosmic-wallpaper | grep "not found"
-          ! ldd /usr/bin/cosmic-wallpaper-gui | grep "not found"
+          for bin in cosmic-wallpaper cosmic-wallpaper-gui; do
+            if ldd "/usr/bin/$bin" | grep "not found"; then
+              echo "::error::$bin has unresolved shared libraries"
+              exit 1
+            fi
+          done
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
@@ -100,7 +108,9 @@ jobs:
 
     steps:
       - name: Install prerequisite tools
-        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust libxkbcommon wayland wayland-protocols dbus ffmpeg
+        # ttf-dejavu: the lyric wrapping test shapes real text and needs at
+        # least one sans-serif font present in the container.
+        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust libxkbcommon wayland wayland-protocols dbus ffmpeg ttf-dejavu
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -113,12 +123,14 @@ jobs:
 
       # On failure, surface the tail of the test output as a check-run
       # annotation so the error is visible from the API/mobile without
-      # opening the full log.
+      # opening the full log. shell: bash because the container default can
+      # resolve to a shell without pipefail support.
       - name: Run tests
+        shell: bash
         run: |
           set -o pipefail
           if ! cargo test --all-targets --all-features 2>&1 | tee /tmp/test.log; then
-            tail -n 80 /tmp/test.log | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g' | sed 's/^/::error title=arch tests failed::/'
+            sed 's/\x1b\[[0-9;]*m//g' /tmp/test.log | tail -c 3000 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g' | sed 's/^/::error title=arch tests failed::/'
             exit 1
           fi
 

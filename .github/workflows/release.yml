@@ -122,10 +122,16 @@ jobs:
         run: cargo deb -- --locked
 
       - name: Verify package installs on Ubuntu 22.04
+        shell: bash
         run: |
           apt-get install -y ./target/debian/*.deb
-          ! ldd /usr/bin/cosmic-wallpaper | grep "not found"
-          ! ldd /usr/bin/cosmic-wallpaper-gui | grep "not found"
+          # Confirm the installed binaries link against available libraries
+          for bin in cosmic-wallpaper cosmic-wallpaper-gui; do
+            if ldd "/usr/bin/$bin" | grep "not found"; then
+              echo "::error::$bin has unresolved shared libraries"
+              exit 1
+            fi
+          done
 
       - name: Publish .deb to release
         uses: softprops/action-gh-release@v2
