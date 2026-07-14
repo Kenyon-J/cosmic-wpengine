@@ -1127,6 +1127,9 @@ mod tests {
     #[test]
     fn long_lyric_line_wraps_within_visible_span_not_full_monitor_width() {
         let mut font_system = FontSystem::new();
+        if font_system.db().is_empty() {
+            return;
+        }
         let width_f = 2560.0_f32;
         let anchor_x = 0.49 * width_f;
         let available = width_f - anchor_x; // left-aligned: space to the right edge
