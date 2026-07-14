@@ -1123,7 +1123,7 @@ mod tests {
     /// via `lyrics_wrap_width`) wraps the line instead.
     #[test]
     fn long_lyric_line_wraps_within_visible_span_not_full_monitor_width() {
-        let mut font_system = FontSystem::new();
+        let mut font_system = FontSystem::new_with_fonts(std::iter::empty());
         let width_f = 2560.0_f32;
         let anchor_x = 0.49 * width_f;
         let available = width_f - anchor_x; // left-aligned: space to the right edge
