@@ -27,6 +27,7 @@ struct SettingsApp {
     available_videos: Vec<String>,
     selected_file: Option<String>,
     editor_content: cosmic::widget::text_editor::Content,
+    initial_editor_text: String,
     new_theme_name: String,
     status_msg: String,
     autostart: bool,
@@ -49,6 +50,7 @@ impl SettingsApp {
             let path = config::Config::config_dir().join("config.toml");
             let content_str = std::fs::read_to_string(path).unwrap_or_default();
             self.editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
+            self.initial_editor_text = content_str;
         }
     }
 }
@@ -337,6 +339,7 @@ impl Application for SettingsApp {
                 available_videos: config::Config::available_videos(),
                 selected_file,
                 editor_content,
+                initial_editor_text: content_str,
                 autostart: autostart_path().exists(),
                 new_theme_name: String::new(),
                 status_msg: "Ready.".into(),
@@ -423,6 +426,7 @@ impl Application for SettingsApp {
                     let content_str = std::fs::read_to_string(path).unwrap_or_default();
                     self.editor_content =
                         cosmic::widget::text_editor::Content::with_text(&content_str);
+                    self.initial_editor_text = content_str;
                     self.status_msg = format!("Loaded {}", file);
                 } else {
                     self.status_msg = format!("Blocked unsafe file path: {}", file);
@@ -439,8 +443,9 @@ impl Application for SettingsApp {
                     }
                     let path = config::Config::config_dir().join(file);
                     let text = self.editor_content.text();
-                    match std::fs::write(&path, text) {
+                    match std::fs::write(&path, &text) {
                         Ok(_) => {
+                            self.initial_editor_text = text;
                             self.status_msg = format!("Saved {}", file);
                             // If we edited the base config, ensure our GUI state stays in sync
                             if file == "config.toml" {
@@ -533,6 +538,7 @@ amplitude = 1.5"#;
                             let content_str = std::fs::read_to_string(path).unwrap_or_default();
                             self.editor_content =
                                 cosmic::widget::text_editor::Content::with_text(&content_str);
+                            self.initial_editor_text = content_str;
                             self.status_msg = format!("Created {}", file_name);
                             self.new_theme_name.clear();
                         }
@@ -550,6 +556,7 @@ amplitude = 1.5"#;
                 self.editor_content = cosmic::widget::text_editor::Content::with_text(
                     "Fetching latest patch notes from GitHub...",
                 );
+                self.initial_editor_text = "Fetching latest patch notes from GitHub...".to_string();
                 self.status_msg = "Fetching patch notes...".into();
                 return Task::perform(fetch_patch_notes(), |notes| {
                     Message::PatchNotesLoaded(notes).into()
@@ -557,6 +564,7 @@ amplitude = 1.5"#;
             }
             Message::PatchNotesLoaded(notes) => {
                 self.editor_content = cosmic::widget::text_editor::Content::with_text(&notes);
+                self.initial_editor_text = notes;
                 self.status_msg = "Viewing Patch Notes. Select a file to return to editing.".into();
             }
             Message::ReportIssue => {
