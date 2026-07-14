@@ -17,6 +17,15 @@ pub struct Config {
     pub appearance: AppearanceConfig,
 }
 impl Config {
+    /// Clamps hand-editable values whose out-of-range settings would crash or
+    /// destabilise the engine rather than just look wrong: fps = 0 panics in
+    /// `Duration::from_secs_f64(1.0 / fps)`, and smoothing >= 1.0 flips the
+    /// band lerp factor negative, making the visualiser diverge to NaN.
+    pub fn sanitise(&mut self) {
+        self.fps = self.fps.max(1);
+        self.audio.smoothing = self.audio.smoothing.clamp(0.0, 0.99);
+    }
+
     pub fn load_or_default() -> Result<Self> {
         let path = Self::config_path();
 
@@ -27,8 +36,11 @@ impl Config {
         let _ = std::fs::create_dir_all(&videos_dir);
 
         match std::fs::read_to_string(&path) {
-            Ok(text) => match toml::from_str(&text) {
-                Ok(config) => Ok(config),
+            Ok(text) => match toml::from_str::<Config>(&text) {
+                Ok(mut config) => {
+                    config.sanitise();
+                    Ok(config)
+                }
                 Err(e) => {
                     tracing::error!(
                         "Syntax error in config.toml: {}. Falling back to default configuration!",
@@ -63,6 +75,18 @@ impl Config {
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Strict variant for live reloads: returns an error instead of replacing
+    /// the file with defaults. `load_or_default`'s rename-and-rewrite fallback
+    /// is right at startup (the app must come up with *something*), but from
+    /// the file watcher it meant a typo saved mid-edit - or an editor's
+    /// partial atomic write - could permanently wipe the user's settings.
+    fn load_strict() -> Result<Self> {
+        let text = std::fs::read_to_string(Self::config_path())?;
+        let mut config: Config = toml::from_str(&text)?;
+        config.sanitise();
+        Ok(config)
     }
 
     pub fn save(&self) -> Result<()> {
@@ -153,17 +177,29 @@ impl Config {
                     while notify_rx.try_recv().is_ok() {}
 
                     // Safely offload synchronous I/O parsing to the blocking thread pool
-                    if let Ok(Ok((config, theme))) = tokio::task::spawn_blocking(|| {
-                        let config = Self::load_or_default()?;
+                    match tokio::task::spawn_blocking(|| {
+                        let config = Self::load_strict()?;
                         let theme = ThemeLayout::load(&config.audio.style);
                         Ok::<_, anyhow::Error>((config, theme))
                     })
                     .await
                     {
-                        let _ = watch_tx.send(config.clone());
-                        let _ = tx
-                            .send(Event::ConfigUpdated(Box::new(config), Box::new(theme)))
-                            .await;
+                        Ok(Ok((config, theme))) => {
+                            let _ = watch_tx.send(config.clone());
+                            let _ = tx
+                                .send(Event::ConfigUpdated(Box::new(config), Box::new(theme)))
+                                .await;
+                        }
+                        Ok(Err(e)) => {
+                            tracing::warn!(
+                                "Config reload failed ({}); keeping the current settings. \
+                                 Fix config.toml and save again to apply.",
+                                e
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!("Config reload task failed: {}", e);
+                        }
                     }
                 }
             }

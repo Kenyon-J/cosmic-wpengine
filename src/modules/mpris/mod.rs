@@ -72,10 +72,15 @@ impl MetadataUpdate {
     /// True when the art URL points at local disk (file:// or a raw path),
     /// meaning it can be loaded in the fast stage without touching the network.
     fn has_local_art(&self) -> bool {
-        self.art_url
-            .as_deref()
-            .is_some_and(|u| !u.starts_with("http"))
+        self.art_url.as_deref().is_some_and(|u| !is_http_url(u))
     }
+}
+
+/// URL schemes are case-insensitive (RFC 3986), and some players report
+/// uppercase ones - a plain `starts_with("http")` would misroute those to the
+/// local-file path.
+fn is_http_url(url: &str) -> bool {
+    url.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("http"))
 }
 
 enum MprisUpdate {
@@ -601,7 +606,7 @@ impl MprisWatcher {
 
             let mut img = None;
             if let Some(url) = meta.art_url.as_deref() {
-                if url.starts_with("http") {
+                if is_http_url(url) {
                     img = Self::fetch_album_art(url).await.ok();
                 }
             }
@@ -732,7 +737,7 @@ impl MprisWatcher {
 
     async fn fetch_album_art(url_str: &str) -> Result<image::DynamicImage> {
         info!("Attempting to fetch album art from: {}", url_str);
-        if url_str.starts_with("http") {
+        if is_http_url(url_str) {
             let parsed_url = Url::parse(url_str)?;
             let host_str = parsed_url
                 .host_str()
@@ -913,7 +918,9 @@ impl MprisWatcher {
         // Restrict to common album art locations for desktop media players:
         // 1. /tmp/ (used by some players for temporary art)
         // 2. /run/user/ (used by some players for art storage)
-        // 3. User's HOME directory
+        // 3. ~/Music, ~/.cache and ~/.local/share (players' media libraries
+        //    and art caches) - deliberately NOT all of HOME, so untrusted
+        //    MPRIS metadata can't point us at ~/.ssh and friends.
         let safe_prefixes = [
             std::path::Path::new("/tmp"),
             std::path::Path::new("/run/user"),
@@ -929,14 +936,11 @@ impl MprisWatcher {
         if let Ok(home) = std::env::var("HOME") {
             let home_path = std::path::Path::new(&home);
 
-            if let Ok(real_music) = std::fs::canonicalize(home_path.join("Music")) {
-                if real_path.starts_with(real_music) {
-                    return Some(real_path);
-                }
-            }
-            if let Ok(real_cache) = std::fs::canonicalize(home_path.join(".cache")) {
-                if real_path.starts_with(real_cache) {
-                    return Some(real_path);
+            for subdir in ["Music", ".cache", ".local/share"] {
+                if let Ok(real_prefix) = std::fs::canonicalize(home_path.join(subdir)) {
+                    if real_path.starts_with(real_prefix) {
+                        return Some(real_path);
+                    }
                 }
             }
         }
@@ -1079,21 +1083,44 @@ fn run_event_watcher(
 fn is_safe_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ipv4) => {
+            let o = ipv4.octets();
+            // Ranges without stable std helpers (as of our MSRV):
+            let is_shared = o[0] == 100 && (o[1] & 0b1100_0000) == 64; // 100.64.0.0/10 (CGNAT)
+            let is_ietf_protocol = o[0] == 192 && o[1] == 0 && o[2] == 0; // 192.0.0.0/24
+            let is_benchmarking = o[0] == 198 && (o[1] & 0xfe) == 18; // 198.18.0.0/15
+            let is_reserved = (o[0] & 0xf0) == 240; // 240.0.0.0/4 (incl. broadcast)
+
             !ipv4.is_loopback()
                 && !ipv4.is_private()
                 && !ipv4.is_link_local()
                 && !ipv4.is_unspecified()
                 && !ipv4.is_broadcast()
-                && ipv4.octets()[0] != 0 // Block the entire 0.0.0.0/8 block
+                && !ipv4.is_multicast()
+                && !is_shared
+                && !is_ietf_protocol
+                && !is_benchmarking
+                && !is_reserved
+                && o[0] != 0 // Block the entire 0.0.0.0/8 block
         }
         IpAddr::V6(ipv6) => {
-            if let Some(mapped_v4) = ipv6.to_ipv4_mapped() {
+            // to_ipv4() also catches the deprecated IPv4-compatible form
+            // (::a.b.c.d), which to_ipv4_mapped() alone would let through.
+            if let Some(mapped_v4) = ipv6.to_ipv4_mapped().or_else(|| ipv6.to_ipv4()) {
                 return is_safe_ip(IpAddr::V4(mapped_v4));
             }
-            let is_unique_local = (ipv6.segments()[0] & 0xfe00) == 0xfc00;
-            let is_link_local = (ipv6.segments()[0] & 0xffc0) == 0xfe80;
+            let seg = ipv6.segments();
+            let is_unique_local = (seg[0] & 0xfe00) == 0xfc00;
+            let is_link_local = (seg[0] & 0xffc0) == 0xfe80;
+            // 64:ff9b::/32 - NAT64/DNS64 translation prefixes embed an IPv4
+            // address, letting a v6 literal smuggle a request to a v4 target.
+            let is_nat64 = seg[0] == 0x64 && seg[1] == 0xff9b;
 
-            !ipv6.is_loopback() && !ipv6.is_unspecified() && !is_unique_local && !is_link_local
+            !ipv6.is_loopback()
+                && !ipv6.is_unspecified()
+                && !ipv6.is_multicast()
+                && !is_unique_local
+                && !is_link_local
+                && !is_nat64
         }
     }
 }

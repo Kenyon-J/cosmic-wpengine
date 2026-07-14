@@ -46,20 +46,25 @@ fn run_test_resolve_safe_path() {
 
     let music_dir = home_path.join("Music");
     let cache_dir = home_path.join(".cache");
+    let share_dir = home_path.join(".local/share");
     let ssh_dir = home_path.join(".ssh");
 
     fs::create_dir_all(&music_dir).unwrap();
     fs::create_dir_all(&cache_dir).unwrap();
+    fs::create_dir_all(&share_dir).unwrap();
     fs::create_dir_all(&ssh_dir).unwrap();
 
     // Create test files to allow canonicalize to succeed
     let art1 = music_dir.join("cover.png");
     let art2 = cache_dir.join("art.jpg");
+    let art3 = share_dir.join("player/art.png");
     let rsa_key = ssh_dir.join("id_rsa");
     let doc = home_path.join("document.pdf");
 
+    fs::create_dir_all(art3.parent().unwrap()).unwrap();
     fs::write(&art1, "").unwrap();
     fs::write(&art2, "").unwrap();
+    fs::write(&art3, "").unwrap();
     fs::write(&rsa_key, "").unwrap();
     fs::write(&doc, "").unwrap();
 
@@ -92,6 +97,7 @@ fn run_test_resolve_safe_path() {
     }
     assert!(MprisWatcher::resolve_safe_path(&art1).is_some());
     assert!(MprisWatcher::resolve_safe_path(&art2).is_some());
+    assert!(MprisWatcher::resolve_safe_path(&art3).is_some());
 
     // Path traversal attempts
     let fake_passwd = home_path.join("passwd");
@@ -117,4 +123,64 @@ fn run_test_resolve_safe_path() {
     // The symlink is inside /tmp, but it points to an unsafe location.
     // It should be rejected.
     assert!(MprisWatcher::resolve_safe_path(&symlink_path).is_none());
+}
+
+/// SSRF guard for album-art URLs: every internal, translation, and
+/// special-purpose range must be rejected so untrusted MPRIS metadata can't
+/// make the engine probe the local host or network.
+#[test]
+fn test_is_safe_ip() {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    let blocked_v4 = [
+        Ipv4Addr::new(127, 0, 0, 1),       // loopback
+        Ipv4Addr::new(10, 0, 0, 1),        // private
+        Ipv4Addr::new(172, 16, 0, 1),      // private
+        Ipv4Addr::new(192, 168, 1, 1),     // private
+        Ipv4Addr::new(169, 254, 1, 1),     // link-local
+        Ipv4Addr::new(0, 0, 0, 0),         // unspecified
+        Ipv4Addr::new(0, 1, 2, 3),         // 0.0.0.0/8
+        Ipv4Addr::new(255, 255, 255, 255), // broadcast
+        Ipv4Addr::new(224, 0, 0, 1),       // multicast
+        Ipv4Addr::new(100, 64, 0, 1),      // shared / CGNAT
+        Ipv4Addr::new(100, 127, 255, 254), // shared / CGNAT upper edge
+        Ipv4Addr::new(192, 0, 0, 8),       // IETF protocol assignments
+        Ipv4Addr::new(198, 18, 0, 1),      // benchmarking
+        Ipv4Addr::new(198, 19, 255, 254),  // benchmarking upper edge
+        Ipv4Addr::new(240, 0, 0, 1),       // reserved
+    ];
+    for ip in blocked_v4 {
+        assert!(!is_safe_ip(IpAddr::V4(ip)), "{ip} should be blocked");
+    }
+
+    let allowed_v4 = [
+        Ipv4Addr::new(93, 184, 216, 34),
+        Ipv4Addr::new(100, 63, 0, 1),  // just below the CGNAT range
+        Ipv4Addr::new(100, 128, 0, 1), // just above the CGNAT range
+        Ipv4Addr::new(192, 0, 1, 1),   // adjacent to 192.0.0.0/24
+        Ipv4Addr::new(198, 17, 0, 1),  // just below benchmarking
+        Ipv4Addr::new(198, 20, 0, 1),  // just above benchmarking
+    ];
+    for ip in allowed_v4 {
+        assert!(is_safe_ip(IpAddr::V4(ip)), "{ip} should be allowed");
+    }
+
+    let blocked_v6: [Ipv6Addr; 8] = [
+        "::1".parse().unwrap(),              // loopback
+        "::".parse().unwrap(),               // unspecified
+        "fc00::1".parse().unwrap(),          // unique local
+        "fe80::1".parse().unwrap(),          // link local
+        "ff02::1".parse().unwrap(),          // multicast
+        "::ffff:127.0.0.1".parse().unwrap(), // v4-mapped loopback
+        "::10.0.0.1".parse().unwrap(),       // deprecated v4-compatible private
+        "64:ff9b::7f00:1".parse().unwrap(),  // NAT64-embedded 127.0.0.1
+    ];
+    for ip in blocked_v6 {
+        assert!(!is_safe_ip(IpAddr::V6(ip)), "{ip} should be blocked");
+    }
+
+    let allowed_v6: Ipv6Addr = "2606:2800:220:1:248:1893:25c8:1946".parse().unwrap();
+    assert!(is_safe_ip(IpAddr::V6(allowed_v6)));
+    let mapped_public: Ipv6Addr = "::ffff:93.184.216.34".parse().unwrap();
+    assert!(is_safe_ip(IpAddr::V6(mapped_public)));
 }

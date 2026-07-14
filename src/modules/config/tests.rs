@@ -351,3 +351,33 @@ fn test_theme_layout_load_monstercat_default_font() {
         assert_eq!(theme.font_family, Some("Inter".to_string()));
     });
 }
+
+/// Guards against hand-edited config values that would crash or destabilise
+/// the engine: fps = 0 panics building the frame Duration, and smoothing
+/// outside 0..1 flips the visualiser's lerp factor negative and diverges.
+#[test]
+fn test_sanitise_clamps_dangerous_values() {
+    let mut config = crate::modules::config::Config {
+        fps: 0,
+        ..Default::default()
+    };
+    config.audio.smoothing = 1.5;
+    config.sanitise();
+    assert_eq!(config.fps, 1);
+    assert!((config.audio.smoothing - 0.99).abs() < f32::EPSILON);
+
+    let mut config = crate::modules::config::Config::default();
+    config.audio.smoothing = -0.5;
+    config.sanitise();
+    assert_eq!(config.audio.smoothing, 0.0);
+
+    // In-range values pass through untouched.
+    let mut config = crate::modules::config::Config {
+        fps: 144,
+        ..Default::default()
+    };
+    config.audio.smoothing = 0.5;
+    config.sanitise();
+    assert_eq!(config.fps, 144);
+    assert_eq!(config.audio.smoothing, 0.5);
+}

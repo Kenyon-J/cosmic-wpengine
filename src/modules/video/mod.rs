@@ -205,8 +205,10 @@ impl VideoDecoder {
                                 std::thread::sleep(sleep_duration);
                             }
 
-                            // Dynamic FPS throttling to save CPU
-                            let target_fps = config_rx.borrow().fps as f64;
+                            // Dynamic FPS throttling to save CPU. .max(1) mirrors
+                            // Config::sanitise: fps = 0 would make frame_duration
+                            // infinite and silently drop every frame.
+                            let target_fps = config_rx.borrow().fps.max(1) as f64;
                             let frame_duration = 1.0 / target_fps;
 
                             // If this frame's target time is less than the duration from the last frame we sent, drop it!
@@ -368,8 +370,14 @@ impl VideoDecoder {
                 buffer.resize(frame_size, 0);
             }
             tokio::select! {
-                _ = cancel_rx.changed() => {
-                    if *cancel_rx.borrow() {
+                res = cancel_rx.changed() => {
+                    // Err means the cancel sender was dropped without signalling
+                    // (e.g. the MPRIS watcher exited). Treat it as a cancel: if we
+                    // looped instead, changed() would resolve instantly on every
+                    // iteration - spinning a core - and each resolution would
+                    // cancel read_exact() mid-frame, losing partial reads and
+                    // shearing the raw video stream out of frame alignment.
+                    if res.is_err() || *cancel_rx.borrow() {
                         info!("Cancelling video stream playback");
                         break;
                     }

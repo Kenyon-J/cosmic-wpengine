@@ -102,6 +102,40 @@ fn test_parse_lrc_sorts_out_of_order_timestamps() {
     assert_eq!(lines[2].text.as_ref(), "Third chronologically");
 }
 
+/// Tests the compressed LRC form where one line carries several timestamps
+/// ("[t1][t2]text") to repeat the same text - common in community files for
+/// choruses. Each timestamp must yield its own entry with the bare text, and
+/// none of the timestamps may leak into the rendered lyric.
+#[test]
+fn test_parse_lrc_multiple_timestamps_per_line() {
+    let lrc_data = "\
+        [00:10.00][01:10.00] Repeated chorus line\n\
+        [00:30.00] [00:50.00] Spaced repeated tags\n\
+        [ar:Artist][00:40.00] Metadata tag mixed with a timestamp\n\
+        [00:20.00] Ordinary line\
+    ";
+
+    let lines = parse_lrc(lrc_data);
+
+    assert_eq!(lines.len(), 6);
+
+    let expected = [
+        (10.0, "Repeated chorus line"),
+        (20.0, "Ordinary line"),
+        (30.0, "Spaced repeated tags"),
+        (40.0, "Metadata tag mixed with a timestamp"),
+        (50.0, "Spaced repeated tags"),
+        (70.0, "Repeated chorus line"),
+    ];
+    for (line, (time, text)) in lines.iter().zip(expected) {
+        assert!((line.start_time_secs - time).abs() < TOLERANCE);
+        assert_eq!(line.text.as_ref(), text);
+    }
+
+    // Repeated entries share one hash since they share the same text.
+    assert_eq!(lines[0].text_hash, lines[5].text_hash);
+}
+
 /// Tests edge cases of LRC syntax like missing colons, dots, reversed brackets, or extra bracket layers.
 /// This guarantees robust fallback mechanisms so the lyrics parser is as resilient as possible.
 #[test]

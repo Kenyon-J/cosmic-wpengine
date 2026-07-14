@@ -112,7 +112,13 @@ impl Renderer {
                 self.state.current_track = Some(*track);
                 self.update_theme_colors();
                 self.update_text_colors();
-                self.state.is_playing = true;
+                // is_playing is deliberately NOT set here: track metadata can
+                // change while the player is paused (playlist auto-advance,
+                // session restore), and since the playback status doesn't
+                // transition, no corrective Status event would follow - the
+                // clock would tick and the lyrics would scroll while the music
+                // is actually stopped. PlaybackResumed/PlaybackStopped are the
+                // only sources of playing state.
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;
                 self.state.begin_transition();

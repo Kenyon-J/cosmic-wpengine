@@ -52,24 +52,37 @@ fn parse_lrc(lrc: &str) -> Box<[LyricLine]> {
     let mut lines = Vec::new();
 
     for line in lrc.lines() {
-        let line = line.trim();
-        if let (Some(start), Some(end)) = (line.find('['), line.find(']')) {
-            if start < end {
-                let time_str = &line[start + 1..end];
-                let text = line[end + 1..].trim().to_string().into_boxed_str();
-                let text_hash = hash_str(&text);
-
-                let mut parts = time_str.split(':');
-                if let (Some(m), Some(s)) = (parts.next(), parts.next()) {
-                    if let (Ok(mins), Ok(secs)) = (m.parse::<f32>(), s.parse::<f32>()) {
-                        lines.push(LyricLine {
-                            start_time_secs: mins * 60.0 + secs,
-                            text,
-                            text_hash,
-                        });
-                    }
+        // Strip every leading [..] tag: the compressed LRC form puts several
+        // timestamps on one line ("[00:12.00][00:45.00]chorus") to repeat it,
+        // so each parsed timestamp gets its own entry. Tags that don't parse
+        // as times (metadata like "[ar:Artist]", malformed stamps) are
+        // consumed but produce no entry.
+        let mut rest = line.trim();
+        let mut times = Vec::new();
+        while let Some(stripped) = rest.strip_prefix('[') {
+            let Some(end) = stripped.find(']') else { break };
+            let tag = &stripped[..end];
+            let mut parts = tag.split(':');
+            if let (Some(m), Some(s)) = (parts.next(), parts.next()) {
+                if let (Ok(mins), Ok(secs)) = (m.parse::<f32>(), s.parse::<f32>()) {
+                    times.push(mins * 60.0 + secs);
                 }
             }
+            rest = stripped[end + 1..].trim_start();
+        }
+
+        if times.is_empty() {
+            continue;
+        }
+
+        let text: Box<str> = rest.trim().into();
+        let text_hash = hash_str(&text);
+        for start_time_secs in times {
+            lines.push(LyricLine {
+                start_time_secs,
+                text: text.clone(),
+                text_hash,
+            });
         }
     }
 

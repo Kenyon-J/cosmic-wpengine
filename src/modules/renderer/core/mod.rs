@@ -133,7 +133,9 @@ impl Renderer {
 
         loop {
             // --- Dynamic FPS ---
-            let target_fps = self.state.config.fps;
+            // .max(1) mirrors Config::sanitise: fps = 0 would panic below in
+            // Duration::from_secs_f64(inf).
+            let target_fps = self.state.config.fps.max(1);
 
             if self.current_fps != target_fps {
                 info!("Updating FPS from {} to {}", self.current_fps, target_fps);

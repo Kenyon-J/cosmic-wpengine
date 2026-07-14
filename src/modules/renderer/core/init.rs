@@ -5,7 +5,9 @@ impl Renderer {
         state: AppState,
         show_lyrics_tx: tokio::sync::watch::Sender<bool>,
     ) -> Result<Self> {
-        let fps = state.config.fps;
+        // .max(1) mirrors Config::sanitise: fps = 0 would panic in
+        // Duration::from_secs_f64(inf) below.
+        let fps = state.config.fps.max(1);
         let current_fps = fps;
 
         info!("Initialising wgpu self...");
