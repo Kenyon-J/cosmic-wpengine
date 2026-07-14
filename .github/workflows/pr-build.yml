@@ -41,6 +41,50 @@ jobs:
       - name: Build release
         run: cargo build --release
 
+  # Pop!_OS is Ubuntu-based and most COSMIC users run it, so build the .deb
+  # inside an Ubuntu 22.04 container to verify the package builds and installs
+  # against Pop!_OS 22.04-era libraries (FFmpeg 4.4, PipeWire 0.3.48, ...).
+  build-deb:
+    name: Build .deb on Ubuntu 22.04 (Pop!_OS base)
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y curl git build-essential clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev ffmpeg libssl-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev libpostproc-dev
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build .deb package
+        run: cargo deb -- --locked
+
+      - name: Verify package installs on Ubuntu 22.04
+        run: |
+          dpkg-deb --info target/debian/*.deb
+          dpkg-deb --contents target/debian/*.deb
+          apt-get install -y ./target/debian/*.deb
+          # Confirm the installed binaries link against available libraries
+          ! ldd /usr/bin/cosmic-wallpaper | grep "not found"
+          ! ldd /usr/bin/cosmic-wallpaper-gui | grep "not found"
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cosmic-wallpaper-deb
+          path: target/debian/*.deb
+
   build-arch:
     name: Build on Arch Linux
     runs-on: ubuntu-latest

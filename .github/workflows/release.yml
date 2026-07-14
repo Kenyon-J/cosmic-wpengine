@@ -82,3 +82,53 @@ jobs:
           files: dist/*
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+  # Build the .deb for Pop!_OS / Ubuntu inside an Ubuntu 22.04 container so
+  # the package's dependencies resolve against Pop!_OS 22.04-era libraries,
+  # then attach it to the same release.
+  build-and-release-deb:
+    name: Build and publish .deb (Ubuntu 22.04 / Pop!_OS)
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y curl git build-essential clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev ffmpeg libssl-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev libpostproc-dev
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION="$(grep -m1 '^version' Cargo.toml | sed -E 's/version = "(.*)"/\1/')"
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME (version $TAG_VERSION) does not match Cargo.toml version $CARGO_VERSION"
+            exit 1
+          fi
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build .deb package
+        run: cargo deb -- --locked
+
+      - name: Verify package installs on Ubuntu 22.04
+        run: |
+          apt-get install -y ./target/debian/*.deb
+          ! ldd /usr/bin/cosmic-wallpaper | grep "not found"
+          ! ldd /usr/bin/cosmic-wallpaper-gui | grep "not found"
+
+      - name: Publish .deb to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/debian/*.deb
+          fail_on_unmatched_files: true

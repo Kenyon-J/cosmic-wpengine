@@ -38,6 +38,29 @@ rustc-hash = "2.1.2"
 sha2 = "0.10"
 libc = "0.2"
 
+# Debian packaging for Pop!_OS / Ubuntu, consumed by `cargo deb`. Built in CI
+# inside an Ubuntu 22.04 container so the runtime dependencies resolve against
+# Pop!_OS-era library versions.
+[package.metadata.deb]
+maintainer = "kenyon-j <99kenyonj@gmail.com>"
+copyright = "2026 kenyon-j"
+license-file = ["LICENSE", "0"]
+extended-description = """\
+A Wayland-native live wallpaper engine optimized for the COSMIC desktop, \
+with audio visualization, video wallpapers, MPRIS album art and a GUI \
+settings application."""
+section = "x11"
+priority = "optional"
+depends = "$auto"
+assets = [
+    ["target/release/cosmic-wallpaper", "usr/bin/", "755"],
+    ["target/release/cosmic-wallpaper-gui", "usr/bin/", "755"],
+    ["io.github.kenyon_j.cosmic_wpengine.desktop", "usr/share/applications/", "644"],
+    ["io.github.kenyon_j.cosmic_wpengine.autostart.desktop", "etc/xdg/autostart/io.github.kenyon_j.cosmic_wpengine.desktop", "644"],
+    ["README.md", "usr/share/doc/cosmic-wallpaper/README.md", "644"],
+]
+conf-files = ["/etc/xdg/autostart/io.github.kenyon_j.cosmic_wpengine.desktop"]
+
 [profile.release]
 opt-level = 3
 lto = true
