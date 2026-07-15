@@ -89,3 +89,7 @@
 ## 20-06-2025- Optimize rendering hot path by hoisting display-invariant calculations
 **Learning:** Redundantly calculating values that are constant for the entire frame (like visualizer instance counts, lyric indices, or base UV transforms) inside a multi-monitor loop or inner text loop wastes significant CPU cycles.
 **Action:** Always identify and hoist display-invariant and frame-invariant constants outside the monitor and lyric iteration loops to minimize per-frame arithmetic and object instantiation.
+
+## 15-07-2026- Consolidate Hot Path Timestamps and Optimize SystemTime
+**Learning:** Calling `Instant::now()` multiple times per frame across different modules (Renderer, WaylandManager, Event handlers) is redundant. Furthermore, calling `SystemTime::now()` every frame to update "time of day" is wasteful as the value changes slowly.
+**Action:** Consolidate to a single `Instant::now()` at the start of the render loop and propagate it. Use frame deltas to advance wall-clock dependent state, syncing with `SystemTime` only periodically (e.g., once per second) to minimize syscall overhead while maintaining accuracy.

@@ -81,8 +81,8 @@ fn test_update_time() {
     // Modify time to out of bounds
     state.time_of_day = 2.0;
 
-    // Call update_time
-    state.update_time();
+    // Call update_time with a large delta to trigger a sync
+    state.update_time(1.0);
 
     // Check it's back in valid range
     assert!(state.time_of_day >= 0.0 && state.time_of_day <= 1.0);
