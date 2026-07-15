@@ -31,6 +31,10 @@ struct SettingsApp {
     status_msg: String,
     autostart: bool,
     update_state: UpdateState,
+    /// Monotonic counter pairing each slider change with its debounce timer;
+    /// a DebouncedSave only writes to disk if its generation is still the
+    /// newest (i.e. the slider settled for the full window).
+    save_generation: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,6 +54,24 @@ impl SettingsApp {
             let content_str = std::fs::read_to_string(path).unwrap_or_default();
             self.editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
         }
+    }
+
+    /// Debounces disk writes for slider-driven settings. libcosmic sliders
+    /// emit a value on every drag step; saving each one writes config.toml
+    /// dozens of times per drag and makes the engine's file watcher reload
+    /// per step. The in-memory config (which the slider renders from) is
+    /// updated immediately by the caller; the save fires only once no newer
+    /// change has arrived for the settle window.
+    fn schedule_debounced_save(&mut self) -> Task<cosmic::Action<Message>> {
+        self.save_generation = self.save_generation.wrapping_add(1);
+        let generation = self.save_generation;
+        Task::perform(
+            async move {
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                generation
+            },
+            |generation| Message::DebouncedSave(generation).into(),
+        )
     }
 }
 
@@ -281,6 +303,10 @@ enum Message {
     ApplyTheme,
     FpsChanged(f32),
     BlurOpacityChanged(f32),
+    /// Fired by the settle timer a slider change starts; the payload is the
+    /// generation at scheduling time, so only the most recent change's timer
+    /// actually writes config.toml.
+    DebouncedSave(u64),
     ToggleShowLyrics(bool),
     ToggleAutostart(bool),
     ToggleWeatherEnabled(bool),
@@ -335,6 +361,7 @@ impl Application for SettingsApp {
                 new_theme_name: String::new(),
                 status_msg: "Ready.".into(),
                 update_state: UpdateState::UpToDate,
+                save_generation: 0,
             },
             Task::perform(check_for_updates(), |version| {
                 Message::UpdateCheckDone(version).into()
@@ -473,13 +500,19 @@ impl Application for SettingsApp {
             }
             Message::FpsChanged(fps) => {
                 self.wp_config.fps = fps as u32;
-                let _ = self.wp_config.save(); // Instantly hot-reloads the engine!
-                self.refresh_editor();
+                return self.schedule_debounced_save();
             }
             Message::BlurOpacityChanged(opacity) => {
                 self.wp_config.appearance.blur_opacity = opacity;
-                let _ = self.wp_config.save();
-                self.refresh_editor();
+                return self.schedule_debounced_save();
+            }
+            Message::DebouncedSave(generation) => {
+                // A newer slider change re-armed the timer; let its own
+                // DebouncedSave do the (single) write.
+                if generation == self.save_generation {
+                    let _ = self.wp_config.save(); // Hot-reloads the engine via its file watcher
+                    self.refresh_editor();
+                }
             }
             Message::ToggleShowLyrics(state) => {
                 self.wp_config.audio.show_lyrics = state;
