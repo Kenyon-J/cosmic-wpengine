@@ -46,7 +46,10 @@ impl WeatherWatcher {
             // saturating_mul: a hand-edited, absurdly large interval must not
             // overflow the u64 (which panics in debug builds).
             let poll_interval = tokio::time::Duration::from_secs(
-                current_config.poll_interval_minutes.max(1).saturating_mul(60),
+                current_config
+                    .poll_interval_minutes
+                    .max(1)
+                    .saturating_mul(60),
             );
 
             if current_config.enabled && (force_fetch || last_fetch.elapsed() >= poll_interval) {
