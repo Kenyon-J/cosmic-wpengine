@@ -729,11 +729,11 @@ impl MprisWatcher {
     }
 
     fn decode_image_safely(bytes: impl AsRef<[u8]>) -> Result<image::DynamicImage> {
-        let mut reader = image::io::Reader::new(std::io::Cursor::new(bytes))
+        let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
             .with_guessed_format()
             .map_err(|e| anyhow::anyhow!("Failed to guess image format: {}", e))?;
 
-        let mut limits = image::io::Limits::default();
+        let mut limits = image::Limits::default();
         // Prevent OOM from maliciously crafted or ultra-high-res local album art.
         // Caps to 4K resolution (~67MB uncompressed RGB)
         limits.max_image_width = Some(4096);

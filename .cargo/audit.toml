@@ -6,13 +6,10 @@
 # atspi stack, or in build-time tooling. Recheck on every libcosmic bump; drop
 # entries as upstream resolves them.
 #
-# Deliberately NOT ignored (these are actionable from here and must clear
-# before this job is switched from `continue-on-error` to hard-fail — see the
-# V1 hardening plan, Phases 0 and 2):
-#   RUSTSEC-2026-0098/-0099/-0104  rustls-webpki  -> reqwest 0.12 bump (Phase 2)
-#   RUSTSEC-2026-0204              crossbeam-epoch -> image 0.25 bump (Phase 2)
-#   RUSTSEC-2026-0190             anyhow          -> `cargo update -p anyhow` (>=1.0.103)
-#   RUSTSEC-2026-0002             lru             -> lru 0.12 -> >=0.16.3 bump
+# The Phase 2 dependency bumps (reqwest 0.12, image 0.25, lru 0.16, anyhow
+# 1.0.103, crossbeam-epoch 0.9.20) cleared every actionable advisory; the CI
+# job is a hard gate now. Anything new that appears must be fixed or earn an
+# entry here with a rationale.
 
 [advisories]
 ignore = [
@@ -34,4 +31,6 @@ ignore = [
     # Unsound-but-not-reachable in our usage, transitive, no fix available.
     "RUSTSEC-2026-0186", # memmap2 unchecked pointer offset
     "RUSTSEC-2026-0097", # rand unsound only with a custom rng() logger (not our path)
+    # paste (proc-macro) unmaintained, via image 0.25 -> ravif -> rav1e.
+    "RUSTSEC-2024-0436",
 ]

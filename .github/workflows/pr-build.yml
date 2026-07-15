@@ -139,18 +139,12 @@ jobs:
       - name: Build release
         run: cargo build --release
 
-  # Fails the check (once hardened) on any RustSec advisory not in the
-  # .cargo/audit.toml ignore list. That ignore list holds only transitive,
-  # unfixable-from-here advisories; anything actionable stays reported.
-  #
-  # continue-on-error for now: four advisories are still open in our own
-  # dependency chain (rustls-webpki x3 via reqwest 0.11, crossbeam-epoch via
-  # image 0.24). They clear when reqwest -> 0.12 and image -> 0.25 land, after
-  # which this `continue-on-error` line is removed to make the audit a hard gate.
+  # Hard gate: fails on any RustSec advisory not in the .cargo/audit.toml
+  # ignore list. That ignore list holds only transitive, unfixable-from-here
+  # advisories (each with a rationale); anything actionable fails the job.
   audit:
     name: Security audit
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
