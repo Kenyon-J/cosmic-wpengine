@@ -53,50 +53,13 @@ impl Renderer {
 
         let mut outputs = Vec::new();
         for (info, surface) in outputs_info.into_iter().zip(surfaces) {
-            let caps: wgpu::SurfaceCapabilities = surface.get_capabilities(&adapter);
-            let format = caps
-                .formats
-                .iter()
-                .copied()
-                .find(|f: &wgpu::TextureFormat| f.is_srgb())
-                .unwrap_or(caps.formats[0]);
-
-            let alpha_mode = if caps
-                .alpha_modes
-                .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
-            {
-                wgpu::CompositeAlphaMode::PreMultiplied
-            } else if caps
-                .alpha_modes
-                .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
-            {
-                wgpu::CompositeAlphaMode::PostMultiplied
-            } else {
-                caps.alpha_modes[0]
-            };
-
-            let present_mode = if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
-                wgpu::PresentMode::Mailbox
-            } else if caps.present_modes.contains(&wgpu::PresentMode::FifoRelaxed) {
-                wgpu::PresentMode::FifoRelaxed
-            } else {
-                caps.present_modes[0]
-            };
-
-            let config = wgpu::SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format,
-                width: info.width,
-                height: info.height,
-                present_mode,
-                alpha_mode,
-                view_formats: vec![],
-                desired_maximum_frame_latency: 1, // Enforce Double Buffering to save ~33MB+ VRAM per monitor
-                color_space: wgpu::SurfaceColorSpace::Auto,
-            };
-            surface.configure(&device, &config);
-
-            outputs.push(GpuOutput { surface, config });
+            outputs.push(configure_surface(
+                surface,
+                &adapter,
+                &device,
+                info.width,
+                info.height,
+            ));
         }
 
         let config_format = outputs[0].config.format;

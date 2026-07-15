@@ -23,6 +23,64 @@ pub struct GpuOutput {
     pub config: wgpu::SurfaceConfiguration,
 }
 
+/// Single home for surface format/alpha/present-mode selection and the
+/// initial configure, shared by first-time init (`init.rs`) and the
+/// monitor-hotplug rebuild path above. These two blocks were previously
+/// duplicated and had already drifted (only one clamped width/height to 1,
+/// which wgpu requires - a disabled/zero-sized output would panic the other).
+pub(crate) fn configure_surface(
+    surface: wgpu::Surface<'static>,
+    adapter: &wgpu::Adapter,
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+) -> GpuOutput {
+    let caps: wgpu::SurfaceCapabilities = surface.get_capabilities(adapter);
+    let format = caps
+        .formats
+        .iter()
+        .copied()
+        .find(|f: &wgpu::TextureFormat| f.is_srgb())
+        .unwrap_or(caps.formats[0]);
+
+    let alpha_mode = if caps
+        .alpha_modes
+        .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+    {
+        wgpu::CompositeAlphaMode::PreMultiplied
+    } else if caps
+        .alpha_modes
+        .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
+    {
+        wgpu::CompositeAlphaMode::PostMultiplied
+    } else {
+        caps.alpha_modes[0]
+    };
+
+    let present_mode = if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
+        wgpu::PresentMode::Mailbox
+    } else if caps.present_modes.contains(&wgpu::PresentMode::FifoRelaxed) {
+        wgpu::PresentMode::FifoRelaxed
+    } else {
+        caps.present_modes[0]
+    };
+
+    let config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format,
+        width: width.max(1),
+        height: height.max(1),
+        present_mode,
+        alpha_mode,
+        view_formats: vec![],
+        desired_maximum_frame_latency: 1, // Enforce double buffering to save ~33MB+ VRAM per monitor
+        color_space: wgpu::SurfaceColorSpace::Auto,
+    };
+    surface.configure(device, &config);
+
+    GpuOutput { surface, config }
+}
+
 pub struct Renderer {
     pub(crate) instance: wgpu::Instance,
     pub(crate) adapter: wgpu::Adapter,
@@ -183,50 +241,13 @@ impl Renderer {
                     let surface = unsafe { self.instance.create_surface_unsafe(target) }
                         .map_err(|e| anyhow::anyhow!("Failed to recreate surface: {}", e))?;
 
-                    let caps = surface.get_capabilities(&self.adapter);
-                    let format = caps
-                        .formats
-                        .iter()
-                        .copied()
-                        .find(|f: &wgpu::TextureFormat| f.is_srgb())
-                        .unwrap_or(caps.formats[0]);
-
-                    let alpha_mode = if caps
-                        .alpha_modes
-                        .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
-                    {
-                        wgpu::CompositeAlphaMode::PreMultiplied
-                    } else if caps
-                        .alpha_modes
-                        .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
-                    {
-                        wgpu::CompositeAlphaMode::PostMultiplied
-                    } else {
-                        caps.alpha_modes[0]
-                    };
-
-                    let present_mode = if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
-                        wgpu::PresentMode::Mailbox
-                    } else if caps.present_modes.contains(&wgpu::PresentMode::FifoRelaxed) {
-                        wgpu::PresentMode::FifoRelaxed
-                    } else {
-                        caps.present_modes[0]
-                    };
-
-                    let config = wgpu::SurfaceConfiguration {
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                        format,
-                        width: info.width.max(1),
-                        height: info.height.max(1),
-                        present_mode,
-                        alpha_mode,
-                        view_formats: vec![],
-                        desired_maximum_frame_latency: 1,
-                        color_space: wgpu::SurfaceColorSpace::Auto,
-                    };
-                    surface.configure(&self.device, &config);
-
-                    self.outputs.push(GpuOutput { surface, config });
+                    self.outputs.push(configure_surface(
+                        surface,
+                        &self.adapter,
+                        &self.device,
+                        info.width,
+                        info.height,
+                    ));
                 }
 
                 if let Some(out) = self.outputs.first() {
