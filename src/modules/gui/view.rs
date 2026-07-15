@@ -168,7 +168,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
                 app.wp_config.fps as f32,
                 super::Message::FpsChanged,
             )
-            .step(1.0),
+            .step(1.0_f32),
             "Higher framerates are smoother but use more system resources.",
             cosmic::iced::widget::tooltip::Position::Top,
         ))
@@ -190,7 +190,7 @@ pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::M
                 app.wp_config.appearance.blur_opacity,
                 super::Message::BlurOpacityChanged,
             )
-            .step(0.05),
+            .step(0.05_f32),
             "Controls the strength of the background blur (only applies to Frosted Glass mode).",
             cosmic::iced::widget::tooltip::Position::Top,
         ))
