@@ -27,6 +27,8 @@ struct SettingsApp {
     available_videos: Vec<String>,
     selected_file: Option<String>,
     editor_content: cosmic::widget::text_editor::Content,
+    editor_initial_content: String,
+    editor_is_dirty: bool,
     new_theme_name: String,
     status_msg: String,
     autostart: bool,
@@ -49,6 +51,8 @@ impl SettingsApp {
             let path = config::Config::config_dir().join("config.toml");
             let content_str = std::fs::read_to_string(path).unwrap_or_default();
             self.editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
+            self.editor_initial_content = content_str;
+            self.editor_is_dirty = false;
         }
     }
 }
@@ -327,6 +331,7 @@ impl Application for SettingsApp {
         let path = config::Config::config_dir().join("config.toml");
         let content_str = std::fs::read_to_string(path).unwrap_or_default();
         let editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
+        let editor_initial_content = content_str;
 
         (
             SettingsApp {
@@ -337,6 +342,8 @@ impl Application for SettingsApp {
                 available_videos: config::Config::available_videos(),
                 selected_file,
                 editor_content,
+                editor_initial_content,
+                editor_is_dirty: false,
                 autostart: autostart_path().exists(),
                 new_theme_name: String::new(),
                 status_msg: "Ready.".into(),
@@ -423,6 +430,8 @@ impl Application for SettingsApp {
                     let content_str = std::fs::read_to_string(path).unwrap_or_default();
                     self.editor_content =
                         cosmic::widget::text_editor::Content::with_text(&content_str);
+                    self.editor_initial_content = content_str;
+                    self.editor_is_dirty = false;
                     self.status_msg = format!("Loaded {}", file);
                 } else {
                     self.status_msg = format!("Blocked unsafe file path: {}", file);
@@ -430,6 +439,7 @@ impl Application for SettingsApp {
             }
             Message::EditorAction(action) => {
                 self.editor_content.perform(action);
+                self.editor_is_dirty = self.editor_content.text() != self.editor_initial_content;
             }
             Message::SaveFile => {
                 if let Some(file) = &self.selected_file {
@@ -439,8 +449,10 @@ impl Application for SettingsApp {
                     }
                     let path = config::Config::config_dir().join(file);
                     let text = self.editor_content.text();
-                    match std::fs::write(&path, text) {
+                    match std::fs::write(&path, &text) {
                         Ok(_) => {
+                            self.editor_initial_content = text;
+                            self.editor_is_dirty = false;
                             self.status_msg = format!("Saved {}", file);
                             // If we edited the base config, ensure our GUI state stays in sync
                             if file == "config.toml" {

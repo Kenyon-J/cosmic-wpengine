@@ -27,3 +27,7 @@
 ## 2025-01-28 - Easily Access System Directories
 **Learning:** For settings pages where users frequently edit local configuration, scripts, or theme files natively in a text editor built into the app, providing a way to actually view and manipulate those files in their system file manager makes file management much more intuitive and user-friendly. Users may want to drag and drop assets, or rename and delete files without using the terminal.
 **Action:** When creating a GUI app that exposes file modification functions on a specific directory, such as `~/.config/app_name/`, include a button that opens that folder in the system file manager using `xdg-open`.
+
+## 2025-01-28 - Performant Dirty State Tracking for Text Editors
+**Learning:** In `cosmic::iced` applications with built-in text editors, tracking a "dirty" state to conditionally enable the "Save" button is a great UX improvement. However, to prevent severe performance regressions, you must NEVER call `editor_content.text()` inside the `view` function, as it allocates a new String containing the entire document on every single UI frame.
+**Action:** Instead, compute and store an `is_dirty: bool` in the application state during text modification messages (e.g., `Message::EditorAction`), and only read this pre-calculated boolean in the `view` function.
