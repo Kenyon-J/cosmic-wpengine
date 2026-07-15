@@ -1187,7 +1187,7 @@ dependencies = [
 
 [[package]]
 name = "cosmic-wallpaper"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "cosmic-text 0.18.2 (registry+https://github.com/rust-lang/crates.io-index)",
