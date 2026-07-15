@@ -37,6 +37,9 @@ ffmpeg-next = "8.1.0"
 rustc-hash = "2.1.2"
 sha2 = "0.10"
 libc = "0.2"
+# Verifies the minisign signature on release SHA256SUMS before the updater
+# trusts any hash in it. Pure-Rust, verification-only.
+minisign-verify = "0.2"
 
 # Debian packaging for Pop!_OS / Ubuntu, consumed by `cargo deb`. Built in CI
 # inside an Ubuntu 24.04 container so the runtime dependencies resolve against
@@ -78,6 +81,9 @@ path = "src/modules/gui/mod.rs"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+# Signing side of the updater tests: generates a throwaway keypair and signs
+# test data so minisign-verify's acceptance/rejection paths are both covered.
+minisign = "0.7"
 
 [lib]
 path = "src/lib.rs"

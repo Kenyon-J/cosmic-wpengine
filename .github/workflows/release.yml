@@ -76,6 +76,32 @@ jobs:
 
           ( cd "$DIST" && sha256sum -- * > SHA256SUMS.txt )
 
+      # The in-app updater only trusts hashes from a SHA256SUMS.txt whose
+      # minisign signature verifies against the public key embedded in
+      # src/modules/gui/updater.rs. The secret key exists ONLY in the
+      # MINISIGN_SECRET_KEY repository secret (generated 2026-07,
+      # passwordless so CI can sign non-interactively) - never in the tree.
+      # A missing secret hard-fails the release: publishing an unsigned
+      # release would brick self-updates for every user on a signed build.
+      # rsign2 is a pure-Rust minisign implementation (same author).
+      - name: Sign SHA256SUMS.txt
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$MINISIGN_SECRET_KEY" ]; then
+            echo "::error::MINISIGN_SECRET_KEY secret is not set; refusing to publish an unsigned release"
+            exit 1
+          fi
+          cargo install rsign2 --locked
+          KEYFILE="$RUNNER_TEMP/minisign.key"
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$KEYFILE"
+          rsign sign -W -s "$KEYFILE" \
+            -x dist/SHA256SUMS.txt.minisig \
+            -t "cosmic-wpengine $GITHUB_REF_NAME" \
+            dist/SHA256SUMS.txt
+          rm -f "$KEYFILE"
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:

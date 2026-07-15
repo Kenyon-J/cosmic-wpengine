@@ -3,11 +3,47 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-const RELEASE_LATEST_DOWNLOAD_BASE: &str =
-    "https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download";
+const RELEASE_DOWNLOAD_BASE: &str = "https://github.com/Kenyon-J/cosmic-wpengine/releases/download";
 const ENGINE_ASSET: &str = "cosmic-wallpaper-x86_64-linux-gnu";
 const GUI_ASSET: &str = "cosmic-wallpaper-gui-x86_64-linux-gnu";
 const MAX_BINARY_SIZE: usize = 200 * 1024 * 1024; // 200 MB safety cap
+
+/// Minisign public key verifying every release's SHA256SUMS.txt. The matching
+/// secret key exists only in the repository's Actions secrets
+/// (MINISIGN_SECRET_KEY) - it is deliberately not in the tree, so a
+/// compromised GitHub account or CI run can rewrite release assets but cannot
+/// produce a signature this updater will accept unless the signing secret
+/// also leaks.
+const MINISIGN_PUBLIC_KEY: &str = "RWTuwhv3rLFRkAR/0Jr+VAgT1YN+Y+Tu76AUUI3m9sVYOlEAztfseXnS";
+
+/// All release asset downloads are pinned to the tag the user approved in the
+/// update dialog. Fetching `releases/latest/...` instead would be a TOCTOU:
+/// "latest" can move between the version check and the install, silently
+/// swapping which binaries get executed.
+fn tagged_download_url(tag: &str, asset: &str) -> String {
+    format!("{RELEASE_DOWNLOAD_BASE}/{tag}/{asset}")
+}
+
+/// Verifies `sums_text` against a detached minisign signature (`minisig_text`,
+/// the full .minisig file contents) using the given base64 public key.
+/// Factored out of `perform_update` so tests can exercise it with their own
+/// throwaway keypair; production always passes `MINISIGN_PUBLIC_KEY`.
+fn verify_sums_signature(
+    pk_base64: &str,
+    sums_text: &str,
+    minisig_text: &str,
+) -> Result<(), String> {
+    let pk = minisign_verify::PublicKey::from_base64(pk_base64)
+        .map_err(|e| format!("Invalid embedded minisign public key: {e}"))?;
+    let sig = minisign_verify::Signature::decode(minisig_text)
+        .map_err(|e| format!("Malformed SHA256SUMS.txt.minisig: {e}"))?;
+    pk.verify(sums_text.as_bytes(), &sig, false).map_err(|e| {
+        format!(
+            "SHA256SUMS.txt signature verification FAILED ({e}). \
+             Refusing to update: the release may have been tampered with."
+        )
+    })
+}
 
 /// Package-managed installs (pacman, apt, ...) live under /usr and must be
 /// updated via the system package manager: overwriting them here would
@@ -32,10 +68,11 @@ fn parse_sha256sums(text: &str) -> HashMap<String, String> {
 
 async fn download_and_verify(
     client: &reqwest::Client,
+    tag: &str,
     asset_name: &str,
     expected_sha256: &str,
 ) -> Result<Vec<u8>, String> {
-    let url = format!("{RELEASE_LATEST_DOWNLOAD_BASE}/{asset_name}");
+    let url = tagged_download_url(tag, asset_name);
     let mut resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {} downloading {asset_name}", resp.status()));
@@ -153,13 +190,27 @@ pub async fn perform_update(client: reqwest::Client, target_tag: String) -> Resu
     let engine_path = install_dir.join("cosmic-wallpaper");
 
     let sums_text = client
-        .get(format!("{RELEASE_LATEST_DOWNLOAD_BASE}/SHA256SUMS.txt"))
+        .get(tagged_download_url(&target_tag, "SHA256SUMS.txt"))
         .send()
         .await
         .map_err(|e| e.to_string())?
         .text()
         .await
         .map_err(|e| e.to_string())?;
+
+    // The hashes only authenticate the binaries against SHA256SUMS.txt; the
+    // minisign signature authenticates SHA256SUMS.txt itself. Verify it
+    // before trusting a single hash in the file.
+    let sig_text = client
+        .get(tagged_download_url(&target_tag, "SHA256SUMS.txt.minisig"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+    verify_sums_signature(MINISIGN_PUBLIC_KEY, &sums_text, &sig_text)?;
+
     let sums = parse_sha256sums(&sums_text);
 
     let engine_hash = sums
@@ -171,8 +222,9 @@ pub async fn perform_update(client: reqwest::Client, target_tag: String) -> Resu
         .ok_or_else(|| "SHA256SUMS.txt is missing the GUI binary entry".to_string())?
         .clone();
 
-    let engine_bytes = download_and_verify(&client, ENGINE_ASSET, &engine_hash).await?;
-    let gui_bytes = download_and_verify(&client, GUI_ASSET, &gui_hash).await?;
+    let engine_bytes =
+        download_and_verify(&client, &target_tag, ENGINE_ASSET, &engine_hash).await?;
+    let gui_bytes = download_and_verify(&client, &target_tag, GUI_ASSET, &gui_hash).await?;
 
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         let old_engine_pid = find_running_engine_pid(&engine_path);
@@ -189,6 +241,58 @@ pub async fn perform_update(client: reqwest::Client, target_tag: String) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_tagged_download_url_pins_to_tag() {
+        assert_eq!(
+            tagged_download_url("v1.0.0", "SHA256SUMS.txt"),
+            "https://github.com/Kenyon-J/cosmic-wpengine/releases/download/v1.0.0/SHA256SUMS.txt"
+        );
+    }
+
+    /// Round-trips a signature through the same verification code
+    /// `perform_update` runs: a SHA256SUMS body signed by a (test-local,
+    /// never committed) keypair must verify, and any post-signing tampering
+    /// with the body must be rejected.
+    #[test]
+    fn test_minisign_signature_roundtrip_and_tamper_rejection() {
+        let keypair = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let sums_text = "abc123  cosmic-wallpaper-x86_64-linux-gnu\n";
+
+        let sig_box = minisign::sign(
+            None,
+            &keypair.sk,
+            std::io::Cursor::new(sums_text.as_bytes()),
+            Some("cosmic-wpengine test signature"),
+            None,
+        )
+        .unwrap();
+        let sig_text = sig_box.into_string();
+        let pk_base64 = keypair.pk.to_base64();
+
+        verify_sums_signature(&pk_base64, sums_text, &sig_text)
+            .expect("genuine signature must verify");
+
+        let tampered = "evil99  cosmic-wallpaper-x86_64-linux-gnu\n";
+        assert!(
+            verify_sums_signature(&pk_base64, tampered, &sig_text).is_err(),
+            "tampered SHA256SUMS body must be rejected"
+        );
+
+        let other_keypair = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        assert!(
+            verify_sums_signature(&other_keypair.pk.to_base64(), sums_text, &sig_text).is_err(),
+            "signature from a different key must be rejected"
+        );
+    }
+
+    /// The embedded production public key must stay parseable — a typo here
+    /// would brick every future self-update at the verification step.
+    #[test]
+    fn test_embedded_public_key_parses() {
+        minisign_verify::PublicKey::from_base64(MINISIGN_PUBLIC_KEY)
+            .expect("embedded MINISIGN_PUBLIC_KEY must be valid base64 minisign key");
+    }
 
     #[test]
     fn test_parse_sha256sums_valid() {
