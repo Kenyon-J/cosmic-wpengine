@@ -238,6 +238,10 @@ impl Renderer {
 
                 // Moving average for a local bass energy threshold (~1 second tracker)
                 self.bass_moving_average = self.bass_moving_average * 0.95 + current_bass * 0.05;
+                // Optimization: Prevent subnormal float degradation CPU penalties by clamping to zero
+                if self.bass_moving_average.abs() < 1e-5 {
+                    self.bass_moving_average = 0.0;
+                }
 
                 // Trigger a beat if the bass spikes significantly above the recent average
                 if current_bass > self.bass_moving_average * 1.3
@@ -266,6 +270,10 @@ impl Renderer {
 
                 self.treble_moving_average =
                     self.treble_moving_average * 0.90 + current_treble * 0.10;
+                // Optimization: Prevent subnormal float degradation CPU penalties by clamping to zero
+                if self.treble_moving_average.abs() < 1e-5 {
+                    self.treble_moving_average = 0.0;
+                }
 
                 if current_treble > self.treble_moving_average * 1.2
                     && current_treble > 0.002
@@ -305,6 +313,10 @@ impl Renderer {
                         *current += diff * 0.8;
                     } else {
                         *current += diff * inv_smoothing;
+                    }
+                    // Optimization: Prevent subnormal float degradation CPU penalties by clamping to zero
+                    if current.abs() < 1e-5 {
+                        *current = 0.0;
                     }
                     total_energy += *current;
                 }
@@ -351,6 +363,10 @@ impl Renderer {
                     }
 
                     *current += (peak - *current) * inv_smoothing;
+                    // Optimization: Prevent subnormal float degradation CPU penalties by clamping to zero
+                    if current.abs() < 1e-5 {
+                        *current = 0.0;
+                    }
                 }
                 self.audio_max_energy = max_energy;
             }
