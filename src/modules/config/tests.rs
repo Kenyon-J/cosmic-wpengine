@@ -353,8 +353,9 @@ fn test_theme_layout_load_monstercat_default_font() {
 }
 
 /// Guards against hand-edited config values that would crash or destabilise
-/// the engine: fps = 0 panics building the frame Duration, and smoothing
-/// outside 0..1 flips the visualiser's lerp factor negative and diverges.
+/// the engine: fps = 0 panics building the frame Duration, smoothing
+/// outside 0..1 flips the visualiser's lerp factor negative and diverges,
+/// and bands outside 1..=1024 breaks the GPU bands buffer's size validation.
 #[test]
 fn test_sanitise_clamps_dangerous_values() {
     let mut config = crate::modules::config::Config {
@@ -362,14 +363,18 @@ fn test_sanitise_clamps_dangerous_values() {
         ..Default::default()
     };
     config.audio.smoothing = 1.5;
+    config.audio.bands = 0;
     config.sanitise();
     assert_eq!(config.fps, 1);
     assert!((config.audio.smoothing - 0.99).abs() < f32::EPSILON);
+    assert_eq!(config.audio.bands, 1);
 
     let mut config = crate::modules::config::Config::default();
     config.audio.smoothing = -0.5;
+    config.audio.bands = usize::MAX;
     config.sanitise();
     assert_eq!(config.audio.smoothing, 0.0);
+    assert_eq!(config.audio.bands, 1024);
 
     // In-range values pass through untouched.
     let mut config = crate::modules::config::Config {

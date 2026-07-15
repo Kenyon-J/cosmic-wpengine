@@ -379,13 +379,19 @@ impl Application for SettingsApp {
                         self.wp_config.appearance.transparent_background = false;
                         self.wp_config.appearance.album_art_background = false;
                         self.wp_config.appearance.album_color_background = true;
+                        // Clear the video path like every other non-Video arm:
+                        // the view derives the current mode video-first, so a
+                        // leftover path kept the UI (and engine) stuck on Video.
+                        self.wp_config.appearance.video_background_path = None;
                     }
                     BackgroundMode::Video => {
                         self.wp_config.appearance.disable_blur = false;
                         self.wp_config.appearance.transparent_background = false;
                         self.wp_config.appearance.album_art_background = false;
                         self.wp_config.appearance.album_color_background = false;
-                        self.wp_config.appearance.video_background_path = None;
+                        // Keep an already-selected video; only default to the
+                        // first one when none is set (re-picking "Video" in the
+                        // dropdown must not reset the user's choice).
                         if self.wp_config.appearance.video_background_path.is_none() {
                             if let Some(first_video) = config::Config::available_videos().first() {
                                 self.wp_config.appearance.video_background_path =

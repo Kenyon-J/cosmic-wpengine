@@ -19,11 +19,16 @@ pub struct Config {
 impl Config {
     /// Clamps hand-editable values whose out-of-range settings would crash or
     /// destabilise the engine rather than just look wrong: fps = 0 panics in
-    /// `Duration::from_secs_f64(1.0 / fps)`, and smoothing >= 1.0 flips the
-    /// band lerp factor negative, making the visualiser diverge to NaN.
+    /// `Duration::from_secs_f64(1.0 / fps)`, smoothing >= 1.0 flips the
+    /// band lerp factor negative, making the visualiser diverge to NaN, and
+    /// bands = 0 creates a zero-size GPU bands buffer that fails the bind
+    /// group's minimum-size validation (while absurdly large values blow past
+    /// wgpu's storage binding limits). 1024 is the FFT's bin count - more
+    /// bands than bins adds nothing.
     pub fn sanitise(&mut self) {
         self.fps = self.fps.max(1);
         self.audio.smoothing = self.audio.smoothing.clamp(0.0, 0.99);
+        self.audio.bands = self.audio.bands.clamp(1, 1024);
     }
 
     pub fn load_or_default() -> Result<Self> {

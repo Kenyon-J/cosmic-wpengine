@@ -29,6 +29,11 @@ pub struct Renderer {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
     pub(crate) outputs: Vec<GpuOutput>,
+    /// Render-target format shared by the shader pipelines. Tracked separately
+    /// from `outputs` because config reloads can arrive while every monitor is
+    /// disconnected (`outputs` empty), and the visualiser reload still needs a
+    /// format to rebuild against.
+    pub(crate) surface_format: wgpu::TextureFormat,
     pub(crate) font_system: FontSystem,
     pub(crate) swash_cache: SwashCache,
     pub(crate) text_renderer: TextRenderer,
@@ -222,6 +227,10 @@ impl Renderer {
                     surface.configure(&self.device, &config);
 
                     self.outputs.push(GpuOutput { surface, config });
+                }
+
+                if let Some(out) = self.outputs.first() {
+                    self.surface_format = out.config.format;
                 }
             }
 

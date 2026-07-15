@@ -32,7 +32,10 @@ impl Renderer {
                 }
 
                 // Always reload the shader pipeline so live WGSL edits apply instantly!
-                let format = self.outputs[0].config.format;
+                // self.surface_format, not self.outputs[0]: outputs can be empty
+                // while every monitor is disconnected, and indexing it here
+                // crashed the engine on any config reload during that window.
+                let format = self.surface_format;
                 self.visualiser_pass
                     .reload(
                         &self.device,

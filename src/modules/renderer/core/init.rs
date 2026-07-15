@@ -180,6 +180,7 @@ impl Renderer {
             device,
             queue,
             outputs,
+            surface_format: config_format,
             font_system,
             swash_cache,
             text_renderer,
