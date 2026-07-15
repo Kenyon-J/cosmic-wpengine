@@ -1,5 +1,5 @@
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
-use super::types::ArtUniforms;
+use super::types::{AmbUniforms, ArtUniforms, VisUniforms};
 use crate::modules::colour::{lerp_colour, time_to_sky_colour};
 use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
 use crate::modules::event::WeatherCondition;
@@ -168,11 +168,11 @@ pub(crate) fn draw_frame(
         let gravity = renderer.weather_gravity;
 
         let compute_uniforms = [delta, wind_x, gravity, 0.0f32];
-        let compute_bytes =
-            unsafe { std::slice::from_raw_parts(compute_uniforms.as_ptr() as *const u8, 16) };
-        renderer
-            .queue
-            .write_buffer(&renderer.weather_compute_uniform_buffer, 0, compute_bytes);
+        renderer.queue.write_buffer(
+            &renderer.weather_compute_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&compute_uniforms),
+        );
 
         let mut compute_encoder =
             renderer
@@ -199,15 +199,11 @@ pub(crate) fn draw_frame(
     }
 
     if has_audio {
-        let bands_bytes = unsafe {
-            std::slice::from_raw_parts(
-                audio_data.as_ptr() as *const u8,
-                audio_data.len() * std::mem::size_of::<f32>(),
-            )
-        };
-        renderer
-            .queue
-            .write_buffer(&renderer.visualiser_pass.bands_buffer, 0, bands_bytes);
+        renderer.queue.write_buffer(
+            &renderer.visualiser_pass.bands_buffer,
+            0,
+            bytemuck::cast_slice(audio_data),
+        );
     }
 
     // Optimization: Pre-calculate common render values out of the monitor loop
@@ -429,22 +425,6 @@ pub(crate) fn draw_frame(
 
         // 1. Process visualizer uniforms
         if has_audio && last_uniform_res != Some(current_res) {
-            #[repr(C, align(16))]
-            struct VisUniforms {
-                res: [f32; 2],
-                bands: u32,
-                pulse: f32,
-                top: [f32; 4],
-                bottom: [f32; 4],
-                pos_size_rot: [f32; 4],
-                amplitude: f32,
-                shape: u32,
-                time: f32,
-                align: u32,
-                is_waveform: u32,
-                _padding: [u32; 3],
-            }
-
             let vis_uniforms = VisUniforms {
                 res: screen_res_f,
                 bands: renderer.state.config.audio.bands as u32,
@@ -459,15 +439,11 @@ pub(crate) fn draw_frame(
                 is_waveform: is_waveform_u32,
                 _padding: [0; 3],
             };
-            let vis_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    &vis_uniforms as *const _ as *const u8,
-                    std::mem::size_of::<VisUniforms>(),
-                )
-            };
-            renderer
-                .queue
-                .write_buffer(&renderer.visualiser_pass.uniform_buffer, 0, vis_bytes);
+            renderer.queue.write_buffer(
+                &renderer.visualiser_pass.uniform_buffer,
+                0,
+                bytemuck::bytes_of(&vis_uniforms),
+            );
         }
 
         // 2. Process album art uniforms
@@ -497,15 +473,11 @@ pub(crate) fn draw_frame(
                     screen_aspect,
                     _padding: 0,
                 };
-                let bg_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &bg_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<ArtUniforms>(),
-                    )
-                };
-                renderer
-                    .queue
-                    .write_buffer(&renderer.album_art_bg_uniform_buffer, 0, bg_bytes);
+                renderer.queue.write_buffer(
+                    &renderer.album_art_bg_uniform_buffer,
+                    0,
+                    bytemuck::bytes_of(&bg_uniforms),
+                );
 
                 // Optimization: Use pre-calculated constants to minimize arithmetic in the monitor loop
                 let fg_scale_x = screen_aspect * fg_k1;
@@ -533,15 +505,11 @@ pub(crate) fn draw_frame(
                     screen_aspect,
                     _padding: 0,
                 };
-                let fg_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &fg_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<ArtUniforms>(),
-                    )
-                };
-                renderer
-                    .queue
-                    .write_buffer(&renderer.album_art_fg_uniform_buffer, 0, fg_bytes);
+                renderer.queue.write_buffer(
+                    &renderer.album_art_fg_uniform_buffer,
+                    0,
+                    bytemuck::bytes_of(&fg_uniforms),
+                );
             }
         }
 
@@ -565,27 +533,13 @@ pub(crate) fn draw_frame(
                     screen_aspect,
                     _padding: 0,
                 };
-                let cbg_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &custom_bg_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<ArtUniforms>(),
-                    )
-                };
-                renderer
-                    .queue
-                    .write_buffer(&renderer.custom_bg_uniform_buffer, 0, cbg_bytes);
+                renderer.queue.write_buffer(
+                    &renderer.custom_bg_uniform_buffer,
+                    0,
+                    bytemuck::bytes_of(&custom_bg_uniforms),
+                );
             } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
                 // 3. Process ambient uniforms
-                #[repr(C, align(16))]
-                struct AmbUniforms {
-                    res: [f32; 2],
-                    time: f32,
-                    weather: u32,
-                    sky: [f32; 4],
-                    bg_alpha: f32,
-                    // Padding to match std140 layout alignment rules for vec4/arrays
-                    _padding: [f32; 3],
-                }
                 let amb_uniforms = AmbUniforms {
                     res: screen_res_f,
                     time: elapsed,
@@ -594,15 +548,11 @@ pub(crate) fn draw_frame(
                     bg_alpha: custom_bg_alpha, // Can reuse the same bg_alpha logic
                     _padding: [0.0; 3],
                 };
-                let amb_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        &amb_uniforms as *const _ as *const u8,
-                        std::mem::size_of::<AmbUniforms>(),
-                    )
-                };
-                renderer
-                    .queue
-                    .write_buffer(&renderer.ambient_uniform_buffer, 0, amb_bytes);
+                renderer.queue.write_buffer(
+                    &renderer.ambient_uniform_buffer,
+                    0,
+                    bytemuck::bytes_of(&amb_uniforms),
+                );
             }
         }
 
@@ -876,18 +826,8 @@ pub(crate) fn draw_frame(
                 height_f,
             );
 
-            let vertices_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    renderer.text_renderer.cpu_vertices.as_ptr() as *const u8,
-                    renderer.text_renderer.cpu_vertices.len() * std::mem::size_of::<TextVertex>(),
-                )
-            };
-            let indices_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    renderer.text_renderer.cpu_indices.as_ptr() as *const u8,
-                    renderer.text_renderer.cpu_indices.len() * std::mem::size_of::<u32>(),
-                )
-            };
+            let vertices_bytes: &[u8] = bytemuck::cast_slice(&renderer.text_renderer.cpu_vertices);
+            let indices_bytes: &[u8] = bytemuck::cast_slice(&renderer.text_renderer.cpu_indices);
 
             if renderer.text_renderer.vertex_capacity < renderer.text_renderer.cpu_vertices.len() {
                 renderer.text_renderer.vertex_capacity = renderer

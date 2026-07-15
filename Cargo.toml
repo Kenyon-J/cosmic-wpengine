@@ -35,6 +35,9 @@ mimalloc = "0.1"
 lru = "0.16"
 ffmpeg-next = "8.1.0"
 rustc-hash = "2.1.2"
+# Already in the lockfile via wgpu/softbuffer; taken as a direct dep so GPU
+# uniform/vertex uploads can use checked casts instead of from_raw_parts.
+bytemuck = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 libc = "0.2"
 # Verifies the minisign signature on release SHA256SUMS before the updater
