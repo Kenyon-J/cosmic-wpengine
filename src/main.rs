@@ -29,18 +29,19 @@ async fn main() -> Result<()> {
             let (show_lyrics_tx, show_lyrics_rx) =
                 tokio::sync::watch::channel(config.audio.show_lyrics);
 
+            let (config_watch_tx, config_watch_rx) = tokio::sync::watch::channel(config.clone());
+
             let mpris_tx = event_tx.clone();
             let mpris_vis_rx = is_visible_rx.clone();
             let mpris_lyrics_rx = show_lyrics_rx.clone();
+            let mpris_config_rx = config_watch_rx.clone();
             tokio::task::spawn_local(async move {
-                MprisWatcher::run(mpris_tx, mpris_vis_rx, mpris_lyrics_rx).await
+                MprisWatcher::run(mpris_tx, mpris_vis_rx, mpris_lyrics_rx, mpris_config_rx).await
             });
 
             let audio_tx = event_tx.clone();
             let audio_vis_rx = is_visible_rx.clone();
             tokio::spawn(async move { AudioCapture::run(audio_tx, audio_vis_rx).await });
-
-            let (config_watch_tx, config_watch_rx) = tokio::sync::watch::channel(config.clone());
 
             let weather_tx = event_tx.clone();
             let weather_config_rx = config_watch_rx.clone();

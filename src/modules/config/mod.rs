@@ -29,6 +29,21 @@ impl Config {
         self.fps = self.fps.max(1);
         self.audio.smoothing = self.audio.smoothing.clamp(0.0, 0.99);
         self.audio.bands = self.audio.bands.clamp(1, 1024);
+
+        // The canvas proxy URL is handed to reqwest verbatim; drop anything
+        // that isn't a parseable http(s) URL rather than failing at fetch
+        // time (canvas quietly stays disabled, matching the unset default).
+        if let Some(proxy) = &self.audio.canvas_proxy_url {
+            let valid =
+                url::Url::parse(proxy).is_ok_and(|u| u.scheme() == "http" || u.scheme() == "https");
+            if !valid {
+                tracing::warn!(
+                    "audio.canvas_proxy_url {:?} is not a valid http(s) URL; ignoring it",
+                    proxy
+                );
+                self.audio.canvas_proxy_url = None;
+            }
+        }
     }
 
     pub fn load_or_default() -> Result<Self> {
@@ -230,6 +245,7 @@ impl Default for Config {
                 bands: 64,
                 smoothing: 0.7,
                 show_lyrics: true,
+                canvas_proxy_url: None,
             },
             appearance: AppearanceConfig::default(),
         }

@@ -125,62 +125,23 @@ fn run_test_resolve_safe_path() {
     assert!(MprisWatcher::resolve_safe_path(&symlink_path).is_none());
 }
 
-/// SSRF guard for album-art URLs: every internal, translation, and
-/// special-purpose range must be rejected so untrusted MPRIS metadata can't
-/// make the engine probe the local host or network.
+// `is_safe_ip` and its tests live in `modules::utils` now that both the
+// album-art fetcher and the canvas video decoder share it.
+
+/// Canvas fetching is opt-in: with no configured proxy URL the fetch must
+/// short-circuit to `None` before any network I/O. (The pre-hardening code
+/// defaulted to `http://localhost:3000`, which any local process could bind.)
 #[test]
-fn test_is_safe_ip() {
-    use std::net::{Ipv4Addr, Ipv6Addr};
-
-    let blocked_v4 = [
-        Ipv4Addr::new(127, 0, 0, 1),       // loopback
-        Ipv4Addr::new(10, 0, 0, 1),        // private
-        Ipv4Addr::new(172, 16, 0, 1),      // private
-        Ipv4Addr::new(192, 168, 1, 1),     // private
-        Ipv4Addr::new(169, 254, 1, 1),     // link-local
-        Ipv4Addr::new(0, 0, 0, 0),         // unspecified
-        Ipv4Addr::new(0, 1, 2, 3),         // 0.0.0.0/8
-        Ipv4Addr::new(255, 255, 255, 255), // broadcast
-        Ipv4Addr::new(224, 0, 0, 1),       // multicast
-        Ipv4Addr::new(100, 64, 0, 1),      // shared / CGNAT
-        Ipv4Addr::new(100, 127, 255, 254), // shared / CGNAT upper edge
-        Ipv4Addr::new(192, 0, 0, 8),       // IETF protocol assignments
-        Ipv4Addr::new(198, 18, 0, 1),      // benchmarking
-        Ipv4Addr::new(198, 19, 255, 254),  // benchmarking upper edge
-        Ipv4Addr::new(240, 0, 0, 1),       // reserved
-    ];
-    for ip in blocked_v4 {
-        assert!(!is_safe_ip(IpAddr::V4(ip)), "{ip} should be blocked");
-    }
-
-    let allowed_v4 = [
-        Ipv4Addr::new(93, 184, 216, 34),
-        Ipv4Addr::new(100, 63, 0, 1),  // just below the CGNAT range
-        Ipv4Addr::new(100, 128, 0, 1), // just above the CGNAT range
-        Ipv4Addr::new(192, 0, 1, 1),   // adjacent to 192.0.0.0/24
-        Ipv4Addr::new(198, 17, 0, 1),  // just below benchmarking
-        Ipv4Addr::new(198, 20, 0, 1),  // just above benchmarking
-    ];
-    for ip in allowed_v4 {
-        assert!(is_safe_ip(IpAddr::V4(ip)), "{ip} should be allowed");
-    }
-
-    let blocked_v6: [Ipv6Addr; 8] = [
-        "::1".parse().unwrap(),              // loopback
-        "::".parse().unwrap(),               // unspecified
-        "fc00::1".parse().unwrap(),          // unique local
-        "fe80::1".parse().unwrap(),          // link local
-        "ff02::1".parse().unwrap(),          // multicast
-        "::ffff:127.0.0.1".parse().unwrap(), // v4-mapped loopback
-        "::10.0.0.1".parse().unwrap(),       // deprecated v4-compatible private
-        "64:ff9b::7f00:1".parse().unwrap(),  // NAT64-embedded 127.0.0.1
-    ];
-    for ip in blocked_v6 {
-        assert!(!is_safe_ip(IpAddr::V6(ip)), "{ip} should be blocked");
-    }
-
-    let allowed_v6: Ipv6Addr = "2606:2800:220:1:248:1893:25c8:1946".parse().unwrap();
-    assert!(is_safe_ip(IpAddr::V6(allowed_v6)));
-    let mapped_public: Ipv6Addr = "::ffff:93.184.216.34".parse().unwrap();
-    assert!(is_safe_ip(IpAddr::V6(mapped_public)));
+fn test_canvas_fetch_skipped_without_configured_proxy() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let client = reqwest::Client::new();
+    let result = rt.block_on(MprisWatcher::fetch_spotify_canvas(
+        "4uLU6hMCjMI75M1A2tKUQC",
+        None,
+        &client,
+    ));
+    assert_eq!(result, None);
 }

@@ -301,6 +301,42 @@ impl VideoDecoder {
             return Ok(());
         }
 
+        // SSRF guard: resolve the host ourselves and require every resolved
+        // address to be publicly routable before handing the URL to ffmpeg.
+        // The URL originates from the (unauthenticated) canvas proxy, so it
+        // must not be able to point ffmpeg at localhost or the local network.
+        //
+        // Known tradeoff, accepted for V1: ffmpeg re-resolves the hostname
+        // itself, so unlike `fetch_album_art` (which pins the vetted IP via
+        // `ClientBuilder::resolve`) this check can be raced by a DNS rebind
+        // between our lookup and ffmpeg's. Requiring *all* addresses to be
+        // safe (not just one) at least closes the mixed-record variant. A
+        // full pin needs `-headers Host:` + TLS SNI plumbing; deferred.
+        let Some(host) = parsed_url.host_str() else {
+            warn!("Security violation: video URL has no host: {}", url);
+            return Ok(());
+        };
+        let port = parsed_url.port_or_known_default().unwrap_or(443);
+        let resolved: Vec<std::net::SocketAddr> = match tokio::net::lookup_host((host, port)).await
+        {
+            Ok(addrs) => addrs.collect(),
+            Err(e) => {
+                warn!("Could not resolve video URL host '{}': {}", host, e);
+                return Ok(());
+            }
+        };
+        if resolved.is_empty()
+            || !resolved
+                .iter()
+                .all(|addr| crate::modules::utils::is_safe_ip(addr.ip()))
+        {
+            warn!(
+                "Security violation: video URL host '{}' resolves to a non-public address (SSRF protection)",
+                host
+            );
+            return Ok(());
+        }
+
         let safe_url = parsed_url.to_string();
 
         // Runtime check to verify FFmpeg is available before trying to decode

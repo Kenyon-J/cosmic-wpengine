@@ -386,3 +386,45 @@ fn test_sanitise_clamps_dangerous_values() {
     assert_eq!(config.fps, 144);
     assert_eq!(config.audio.smoothing, 0.5);
 }
+
+/// `canvas_proxy_url` is the opt-in switch for canvas video fetching (a
+/// hardcoded localhost default was an SSRF hand-off any local process could
+/// exploit), so its parse default must be `None` and a configured value must
+/// survive the TOML round trip.
+#[test]
+fn test_canvas_proxy_url_toml_roundtrip() {
+    let absent: crate::modules::config::Config = toml::from_str("").unwrap();
+    assert_eq!(absent.audio.canvas_proxy_url, None);
+
+    let present: crate::modules::config::Config =
+        toml::from_str("[audio]\ncanvas_proxy_url = \"http://192.0.2.10:3000/api/canvas\"\n")
+            .unwrap();
+    assert_eq!(
+        present.audio.canvas_proxy_url.as_deref(),
+        Some("http://192.0.2.10:3000/api/canvas")
+    );
+}
+
+/// A canvas proxy value that reqwest couldn't use (not a URL, or a non-http
+/// scheme) is dropped by sanitise() so canvas stays disabled instead of
+/// failing on every track change; valid http(s) URLs pass through.
+#[test]
+fn test_sanitise_drops_invalid_canvas_proxy_url() {
+    let mut config = crate::modules::config::Config::default();
+    config.audio.canvas_proxy_url = Some("not a url".to_string());
+    config.sanitise();
+    assert_eq!(config.audio.canvas_proxy_url, None);
+
+    let mut config = crate::modules::config::Config::default();
+    config.audio.canvas_proxy_url = Some("file:///etc/passwd".to_string());
+    config.sanitise();
+    assert_eq!(config.audio.canvas_proxy_url, None);
+
+    let mut config = crate::modules::config::Config::default();
+    config.audio.canvas_proxy_url = Some("https://canvas.example/api".to_string());
+    config.sanitise();
+    assert_eq!(
+        config.audio.canvas_proxy_url.as_deref(),
+        Some("https://canvas.example/api")
+    );
+}

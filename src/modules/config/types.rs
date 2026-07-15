@@ -49,6 +49,13 @@ pub struct AudioConfig {
     pub bands: usize,
     pub smoothing: f32,
     pub show_lyrics: bool,
+    /// Base URL of a Spotify canvas proxy API (e.g. a local
+    /// `spotify-canvas-api` instance). Canvas video backgrounds are fetched
+    /// only when this is set: any local process can bind a well-known
+    /// localhost port, so a hardcoded default would let an unprivileged
+    /// process feed the engine attacker-controlled video URLs. Opt-in only.
+    #[serde(default)]
+    pub canvas_proxy_url: Option<String>,
 }
 
 impl Default for AudioConfig {
@@ -58,6 +65,7 @@ impl Default for AudioConfig {
             bands: 64,
             smoothing: 0.7,
             show_lyrics: true,
+            canvas_proxy_url: None,
         }
     }
 }

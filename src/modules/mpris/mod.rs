@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::net::IpAddr;
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 use url::Url;
@@ -8,6 +7,7 @@ use super::{
     colour::extract_palette,
     event::{Event, LyricLine, TrackInfo},
     lrclib,
+    utils::is_safe_ip,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,6 +146,7 @@ impl MprisWatcher {
         tx: Sender<Event>,
         mut visible_rx: tokio::sync::watch::Receiver<bool>,
         mut show_lyrics_rx: tokio::sync::watch::Receiver<bool>,
+        config_rx: tokio::sync::watch::Receiver<crate::modules::config::Config>,
     ) -> Result<()> {
         info!("MPRIS watcher started");
 
@@ -499,8 +500,17 @@ impl MprisWatcher {
                     if needs.any() {
                         let client = http_client.clone();
                         let assets_tx = assets_update_tx.clone();
+                        // Snapshot the proxy URL at fetch time so a config
+                        // reload takes effect on the next track change.
+                        let canvas_proxy = config_rx.borrow().audio.canvas_proxy_url.clone();
                         tokio::spawn(async move {
-                            let assets = Self::fetch_remote_assets(meta, needs, &client).await;
+                            let assets = Self::fetch_remote_assets(
+                                meta,
+                                needs,
+                                canvas_proxy.as_deref(),
+                                &client,
+                            )
+                            .await;
                             let _ = assets_tx.send(MprisUpdate::Assets(Box::new(assets))).await;
                         });
                     }
@@ -597,6 +607,7 @@ impl MprisWatcher {
     async fn fetch_remote_assets(
         meta: MetadataUpdate,
         needs: RemoteNeeds,
+        canvas_proxy_url: Option<&str>,
         client: &reqwest::Client,
     ) -> FetchedAssets {
         let art_future = async {
@@ -660,7 +671,7 @@ impl MprisWatcher {
                 return None;
             }
             match meta.spotify_track_id() {
-                Some(id) => Some(Self::fetch_spotify_canvas(id, client).await),
+                Some(id) => Some(Self::fetch_spotify_canvas(id, canvas_proxy_url, client).await),
                 None => None,
             }
         };
@@ -948,12 +959,19 @@ impl MprisWatcher {
         None
     }
 
-    async fn fetch_spotify_canvas(track_id: &str, client: &reqwest::Client) -> Option<String> {
+    async fn fetch_spotify_canvas(
+        track_id: &str,
+        proxy_url: Option<&str>,
+        client: &reqwest::Client,
+    ) -> Option<String> {
         // Note: The official Spotify Web API does NOT expose Canvas URLs.
         // To get them, the community routes requests through API proxies that
         // handle the internal gRPC/Protobuf token auth (e.g. 'spotify-canvas-api').
-        // Replace this URL with your local instance or a trusted public proxy API!
-        let proxy_url = "http://localhost:3000/api/canvas";
+        // The proxy is configured via `audio.canvas_proxy_url` and canvas is
+        // disabled when unset: defaulting to a well-known localhost port would
+        // let any local process impersonate the proxy and feed the engine
+        // attacker-controlled video URLs.
+        let proxy_url = proxy_url?;
 
         if let Ok(mut resp) = client
             .get(proxy_url)
@@ -1076,51 +1094,6 @@ fn run_event_watcher(
                 ));
             }
             _ => {}
-        }
-    }
-}
-
-fn is_safe_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ipv4) => {
-            let o = ipv4.octets();
-            // Ranges without stable std helpers (as of our MSRV):
-            let is_shared = o[0] == 100 && (o[1] & 0b1100_0000) == 64; // 100.64.0.0/10 (CGNAT)
-            let is_ietf_protocol = o[0] == 192 && o[1] == 0 && o[2] == 0; // 192.0.0.0/24
-            let is_benchmarking = o[0] == 198 && (o[1] & 0xfe) == 18; // 198.18.0.0/15
-            let is_reserved = (o[0] & 0xf0) == 240; // 240.0.0.0/4 (incl. broadcast)
-
-            !ipv4.is_loopback()
-                && !ipv4.is_private()
-                && !ipv4.is_link_local()
-                && !ipv4.is_unspecified()
-                && !ipv4.is_broadcast()
-                && !ipv4.is_multicast()
-                && !is_shared
-                && !is_ietf_protocol
-                && !is_benchmarking
-                && !is_reserved
-                && o[0] != 0 // Block the entire 0.0.0.0/8 block
-        }
-        IpAddr::V6(ipv6) => {
-            // to_ipv4() also catches the deprecated IPv4-compatible form
-            // (::a.b.c.d), which to_ipv4_mapped() alone would let through.
-            if let Some(mapped_v4) = ipv6.to_ipv4_mapped().or_else(|| ipv6.to_ipv4()) {
-                return is_safe_ip(IpAddr::V4(mapped_v4));
-            }
-            let seg = ipv6.segments();
-            let is_unique_local = (seg[0] & 0xfe00) == 0xfc00;
-            let is_link_local = (seg[0] & 0xffc0) == 0xfe80;
-            // 64:ff9b::/32 - NAT64/DNS64 translation prefixes embed an IPv4
-            // address, letting a v6 literal smuggle a request to a v4 target.
-            let is_nat64 = seg[0] == 0x64 && seg[1] == 0xff9b;
-
-            !ipv6.is_loopback()
-                && !ipv6.is_unspecified()
-                && !ipv6.is_multicast()
-                && !is_unique_local
-                && !is_link_local
-                && !is_nat64
         }
     }
 }
