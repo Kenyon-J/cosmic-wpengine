@@ -178,15 +178,13 @@ async fn fetch_patch_notes() -> String {
     };
 
     match client.get(url).send().await {
-        Ok(mut resp) if resp.status().is_success() => {
-            let mut bytes = Vec::new();
+        Ok(resp) if resp.status().is_success() => {
             const MAX_JSON_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
-            while let Ok(Some(chunk)) = resp.chunk().await {
-                if bytes.len() + chunk.len() > MAX_JSON_SIZE {
-                    return "Failed to fetch patch notes: payload too large".to_string();
-                }
-                bytes.extend_from_slice(&chunk);
-            }
+            let bytes =
+                match cosmic_wallpaper::modules::utils::read_capped(resp, MAX_JSON_SIZE).await {
+                    Ok(b) => b,
+                    Err(e) => return format!("Failed to fetch patch notes: {}", e),
+                };
             match serde_json::from_slice::<GitHubRelease>(&bytes) {
                 Ok(release) => format!(
                     "COSMIC Wallpaper Engine {}\n\n{}",
@@ -205,15 +203,11 @@ async fn check_for_updates() -> Option<String> {
 
     let client = get_http_client().ok()?;
 
-    let mut resp = client.get(url).send().await.ok()?;
-    let mut bytes = Vec::new();
+    let resp = client.get(url).send().await.ok()?;
     const MAX_JSON_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
-    while let Ok(Some(chunk)) = resp.chunk().await {
-        if bytes.len() + chunk.len() > MAX_JSON_SIZE {
-            return None;
-        }
-        bytes.extend_from_slice(&chunk);
-    }
+    let bytes = cosmic_wallpaper::modules::utils::read_capped(resp, MAX_JSON_SIZE)
+        .await
+        .ok()?;
     let release: GitHubRelease = serde_json::from_slice(&bytes).ok()?;
     let latest_version = release.tag_name.trim_start_matches('v');
     let current_version = env!("CARGO_PKG_VERSION");

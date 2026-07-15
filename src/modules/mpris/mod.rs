@@ -776,21 +776,13 @@ impl MprisWatcher {
                 .resolve(host_str, safe_addr)
                 .build()?;
 
-            let mut response = safe_client.get(url_str).send().await.map_err(|e| {
+            let response = safe_client.get(url_str).send().await.map_err(|e| {
                 warn!("HTTP request failed for art: {}", e);
                 e
             })?;
 
-            let mut bytes = Vec::new();
             const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
-            while let Some(chunk) = response.chunk().await? {
-                if bytes.len() + chunk.len() > MAX_IMAGE_SIZE {
-                    return Err(anyhow::anyhow!(
-                        "Image size exceeds 10MB limit (OOM protection)"
-                    ));
-                }
-                bytes.extend_from_slice(&chunk);
-            }
+            let bytes = crate::modules::utils::read_capped(response, MAX_IMAGE_SIZE).await?;
 
             // Optimization: Image decoding is a synchronous, CPU-intensive task.
             // Offloading this to spawn_blocking prevents it from stalling the main async executor.
@@ -880,7 +872,7 @@ impl MprisWatcher {
             format!("{} {}", artist, album)
         };
 
-        let mut response = client
+        let response = client
             .get("https://itunes.apple.com/search")
             .query(&[
                 ("term", search_str.as_str()),
@@ -890,14 +882,8 @@ impl MprisWatcher {
             .send()
             .await?;
 
-        let mut bytes = Vec::new();
         const MAX_JSON_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
-        while let Some(chunk) = response.chunk().await? {
-            if bytes.len() + chunk.len() > MAX_JSON_SIZE {
-                return Err(anyhow::anyhow!("JSON payload exceeds limit"));
-            }
-            bytes.extend_from_slice(&chunk);
-        }
+        let bytes = crate::modules::utils::read_capped(response, MAX_JSON_SIZE).await?;
         let resp: ITunesResponse = serde_json::from_slice(&bytes)?;
 
         if let Some(first) = resp.results.first() {
@@ -973,20 +959,16 @@ impl MprisWatcher {
         // attacker-controlled video URLs.
         let proxy_url = proxy_url?;
 
-        if let Ok(mut resp) = client
+        if let Ok(resp) = client
             .get(proxy_url)
             .query(&[("track_id", track_id)])
             .send()
             .await
         {
-            let mut bytes = Vec::new();
             const MAX_JSON_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
-            while let Ok(Some(chunk)) = resp.chunk().await {
-                if bytes.len() + chunk.len() > MAX_JSON_SIZE {
-                    return None;
-                }
-                bytes.extend_from_slice(&chunk);
-            }
+            let bytes = crate::modules::utils::read_capped(resp, MAX_JSON_SIZE)
+                .await
+                .ok()?;
             if let Ok(canvas) = serde_json::from_slice::<CanvasResponse>(&bytes) {
                 return canvas.url;
             }

@@ -100,7 +100,7 @@ impl WeatherWatcher {
         config: &WeatherConfig,
         client: &reqwest::Client,
     ) -> Result<WeatherData> {
-        let mut resp = client
+        let resp = client
             .get("https://api.open-meteo.com/v1/forecast")
             .query(&[
                 ("latitude", config.latitude.to_string().as_str()),
@@ -110,14 +110,8 @@ impl WeatherWatcher {
             .send()
             .await?;
 
-        let mut bytes = Vec::new();
         const MAX_JSON_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
-        while let Some(chunk) = resp.chunk().await? {
-            if bytes.len() + chunk.len() > MAX_JSON_SIZE {
-                return Err(anyhow::anyhow!("Weather JSON payload exceeds 10MB limit"));
-            }
-            bytes.extend_from_slice(&chunk);
-        }
+        let bytes = crate::modules::utils::read_capped(resp, MAX_JSON_SIZE).await?;
 
         let response: OpenMeteoResponse = serde_json::from_slice(&bytes)?;
 

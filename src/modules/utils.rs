@@ -12,6 +12,25 @@ pub fn resolve_binary(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// Reads a reqwest response body into memory, capping total size. Returns an
+/// error past the cap — the shared OOM guard for every untrusted/remote
+/// payload the engine and GUI download (JSON APIs, album art, release
+/// binaries). Callers adapt the `Result` to their local error shape
+/// (`.ok()?`, `map_err`, ...) rather than duplicating the loop.
+pub async fn read_capped(mut resp: reqwest::Response, max_bytes: usize) -> anyhow::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = resp.chunk().await? {
+        if bytes.len() + chunk.len() > max_bytes {
+            anyhow::bail!(
+                "response body exceeds the {} MB limit (OOM protection)",
+                max_bytes / 1024 / 1024
+            );
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
 /// SSRF guard shared by every code path that turns an untrusted URL into an
 /// outbound request (album-art fetches in `mpris`, the canvas video decoder in
 /// `video`): rejects addresses in internal, translation, and special-purpose

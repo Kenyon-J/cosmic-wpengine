@@ -73,21 +73,14 @@ async fn download_and_verify(
     expected_sha256: &str,
 ) -> Result<Vec<u8>, String> {
     let url = tagged_download_url(tag, asset_name);
-    let mut resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {} downloading {asset_name}", resp.status()));
     }
 
-    let mut bytes = Vec::new();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
-        if bytes.len() + chunk.len() > MAX_BINARY_SIZE {
-            return Err(format!(
-                "{asset_name} exceeds the {} MB size limit",
-                MAX_BINARY_SIZE / 1024 / 1024
-            ));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
+    let bytes = cosmic_wallpaper::modules::utils::read_capped(resp, MAX_BINARY_SIZE)
+        .await
+        .map_err(|e| format!("downloading {asset_name}: {e}"))?;
 
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
