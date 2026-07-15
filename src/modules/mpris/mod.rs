@@ -1034,10 +1034,32 @@ fn run_event_watcher(
         return;
     };
 
+    // KNOWN LIMITATION (accepted for 1.0): the iteration below can only
+    // re-check `is_current()` when the blocking `events` iterator yields,
+    // and mpris 2.x offers no way to interrupt or bound that wait - its
+    // internal loop blocks on the connection until a matching signal
+    // arrives (`Player::dbus_timeout_ms` covers method calls only, and the
+    // raw connection/fd isn't exposed to select against). A superseded
+    // watcher can therefore outlive its usefulness, parked here with its
+    // dedicated D-Bus connection.
+    //
+    // The damage is bounded, which is why this is documented rather than
+    // rewritten around `ProgressTracker` polling: every watcher connection
+    // subscribes to org.freedesktop.DBus NameOwnerChanged for the whole
+    // session bus, so a stale watcher wakes - and exits via the generation
+    // check - as soon as its player emits anything, its player quits, or
+    // ANY name appears/disappears on the session bus (apps launching or
+    // closing). Only a completely idle bus keeps one parked indefinitely,
+    // and at most one stale watcher exists per superseded player.
     for event in events {
         // The selection thread moved on to a different player (or none at all)
         // since this watcher was spawned - stop forwarding stale updates.
         if !is_current() {
+            tracing::debug!(
+                "Event watcher for {} (generation {}) superseded; thread exiting",
+                bus_name,
+                my_generation
+            );
             return;
         }
 
@@ -1067,6 +1089,11 @@ fn run_event_watcher(
                     update_tx.blocking_send(MprisUpdate::Status(mpris::PlaybackStatus::Stopped));
                 // The player left the bus; the selection thread will pick a
                 // successor (or report silence) on its next scan.
+                tracing::debug!(
+                    "Event watcher for {} (generation {}) saw player shut down; thread exiting",
+                    bus_name,
+                    my_generation
+                );
                 return;
             }
             // Instant seek correction instead of waiting on the next drift-correction tick.
@@ -1078,6 +1105,14 @@ fn run_event_watcher(
             _ => {}
         }
     }
+
+    // Player stopped responding (events iterator drained): same recovery
+    // path as a shutdown - the selection thread's next scan takes over.
+    tracing::debug!(
+        "Event watcher for {} (generation {}) ran out of events; thread exiting",
+        bus_name,
+        my_generation
+    );
 }
 
 #[cfg(test)]
