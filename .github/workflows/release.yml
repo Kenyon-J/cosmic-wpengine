@@ -107,6 +107,9 @@ jobs:
         with:
           files: dist/*
           fail_on_unmatched_files: true
+          # Curated notes for the tagged release; update this file as part of
+          # each release's prep. The auto-generated commit list is appended.
+          body_path: docs/RELEASE_NOTES.md
           generate_release_notes: true
 
   # Build the .deb for Pop!_OS / Ubuntu inside an Ubuntu 24.04 container so
