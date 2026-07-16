@@ -93,8 +93,8 @@ fn test_fallback_to_xdg_config_home() {
             assert_eq!(
                 rt.block_on(config.resolved_background()),
                 Some(ResolvedBackground::Image(
-                img_path.to_string_lossy().to_string()
-            ))
+                    img_path.to_string_lossy().to_string()
+                ))
             );
         },
     );
@@ -311,8 +311,7 @@ fn test_resolves_gradient_source() {
     let config_home = temp_dir.path().join("config_home");
     let cosmic_dir = setup_mock_cosmic_dir(&config_home);
 
-    let ron_content =
-        "Color(Gradient((colors: [(0.0, 0.0, 0.0), (1.0, 1.0, 1.0)], radius: 90.0)))";
+    let ron_content = "Color(Gradient((colors: [(0.0, 0.0, 0.0), (1.0, 1.0, 1.0)], radius: 90.0)))";
     std::fs::write(cosmic_dir.join("bg.ron"), ron_content).unwrap();
 
     let config = AppearanceConfig::default();

@@ -115,10 +115,7 @@ pub(crate) fn gradient_image(
     if colors.is_empty() {
         return solid_colour_image([0.0; 3]);
     }
-    let stops: Vec<[f32; 3]> = colors
-        .iter()
-        .map(|c| c.map(srgb_to_linear))
-        .collect();
+    let stops: Vec<[f32; 3]> = colors.iter().map(|c| c.map(srgb_to_linear)).collect();
     let last = stops.len() - 1;
 
     let angle = angle_deg.to_radians();
