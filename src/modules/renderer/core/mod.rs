@@ -16,7 +16,7 @@ pub const GLYPH_CACHE_WIDTH: u32 = 2048;
 pub const GLYPH_CACHE_HEIGHT: u32 = 2048;
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer};
 
-use crate::modules::config::{TemperatureUnit, ThemeLayout};
+use crate::modules::config::{ResolvedBackground, TemperatureUnit, ThemeLayout};
 use crate::modules::event::WeatherCondition;
 pub struct GpuOutput {
     pub surface: wgpu::Surface<'static>,
@@ -121,7 +121,7 @@ pub struct Renderer {
     pub(crate) custom_bg_uniform_buffer: wgpu::Buffer,
     pub(crate) custom_bg_bind_group: Option<wgpu::BindGroup>,
     pub(crate) current_custom_bg_texture: Option<wgpu::Texture>,
-    pub(crate) current_bg_path: Option<String>,
+    pub(crate) current_bg: Option<ResolvedBackground>,
     pub(crate) current_custom_bg_size: Option<(u32, u32)>,
     pub(crate) _particle_buffer: wgpu::Buffer,
     pub(crate) weather_compute_uniform_buffer: wgpu::Buffer,

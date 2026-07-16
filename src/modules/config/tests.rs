@@ -65,8 +65,8 @@ fn test_custom_background_path_returns_early() {
     with_env_lock(None, None, || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         assert_eq!(
-            rt.block_on(config.resolved_background_path()),
-            Some("/my/custom/path.jpg".to_string())
+            rt.block_on(config.resolved_background()),
+            Some(ResolvedBackground::Image("/my/custom/path.jpg".to_string()))
         );
     });
 }
@@ -91,8 +91,10 @@ fn test_fallback_to_xdg_config_home() {
         || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             assert_eq!(
-                rt.block_on(config.resolved_background_path()),
-                Some(img_path.to_string_lossy().to_string())
+                rt.block_on(config.resolved_background()),
+                Some(ResolvedBackground::Image(
+                img_path.to_string_lossy().to_string()
+            ))
             );
         },
     );
@@ -117,8 +119,10 @@ fn test_fallback_to_home_dir() {
     with_env_lock(None, Some(home_dir.to_str().unwrap()), || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         assert_eq!(
-            rt.block_on(config.resolved_background_path()),
-            Some(img_path.to_string_lossy().to_string())
+            rt.block_on(config.resolved_background()),
+            Some(ResolvedBackground::Image(
+                img_path.to_string_lossy().to_string()
+            ))
         );
     });
 }
@@ -154,8 +158,10 @@ fn test_parses_cosmic_ron_format_and_verifies_existence() {
     with_env_lock(Some(config_home.to_str().unwrap()), None, || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         assert_eq!(
-            rt.block_on(config.resolved_background_path()),
-            Some(existing_img.to_string_lossy().to_string())
+            rt.block_on(config.resolved_background()),
+            Some(ResolvedBackground::Image(
+                existing_img.to_string_lossy().to_string()
+            ))
         );
     });
 }
@@ -191,8 +197,10 @@ fn test_falls_back_to_older_config_if_newer_is_invalid() {
         // It should skip the newer RON (since its image is missing)
         // and pick the older RON (whose image exists).
         assert_eq!(
-            rt.block_on(config.resolved_background_path()),
-            Some(valid_img.to_string_lossy().to_string())
+            rt.block_on(config.resolved_background()),
+            Some(ResolvedBackground::Image(
+                valid_img.to_string_lossy().to_string()
+            ))
         );
     });
 }
@@ -226,8 +234,10 @@ fn test_selects_most_recently_modified_config() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         // It should pick the path from the newer RON file.
         assert_eq!(
-            rt.block_on(config.resolved_background_path()),
-            Some(newer_img.to_string_lossy().to_string())
+            rt.block_on(config.resolved_background()),
+            Some(ResolvedBackground::Image(
+                newer_img.to_string_lossy().to_string()
+            ))
         );
     });
 }
@@ -239,7 +249,7 @@ fn test_both_env_vars_missing() {
     // and should return None.
     with_env_lock(None, None, || {
         let rt = tokio::runtime::Runtime::new().unwrap();
-        assert_eq!(rt.block_on(config.resolved_background_path()), None);
+        assert_eq!(rt.block_on(config.resolved_background()), None);
     });
 }
 
@@ -253,7 +263,7 @@ fn test_cosmic_bg_dir_missing() {
 
     with_env_lock(Some(config_home.to_str().unwrap()), None, || {
         let rt = tokio::runtime::Runtime::new().unwrap();
-        assert_eq!(rt.block_on(config.resolved_background_path()), None);
+        assert_eq!(rt.block_on(config.resolved_background()), None);
     });
 }
 
@@ -268,7 +278,96 @@ fn test_cosmic_bg_dir_empty() {
 
     with_env_lock(Some(config_home.to_str().unwrap()), None, || {
         let rt = tokio::runtime::Runtime::new().unwrap();
-        assert_eq!(rt.block_on(config.resolved_background_path()), None);
+        assert_eq!(rt.block_on(config.resolved_background()), None);
+    });
+}
+
+/// A solid-colour wallpaper has no image file; it must resolve to the colour
+/// itself so the frosted-glass mode can synthesise a matching background
+/// instead of silently falling back to the ambient sky.
+#[test]
+fn test_resolves_single_colour_source() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_home = temp_dir.path().join("config_home");
+    let cosmic_dir = setup_mock_cosmic_dir(&config_home);
+
+    let ron_content = "Color(Single((0.5, 0.25, 0.125)))";
+    std::fs::write(cosmic_dir.join("bg.ron"), ron_content).unwrap();
+
+    let config = AppearanceConfig::default();
+
+    with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        assert_eq!(
+            rt.block_on(config.resolved_background()),
+            Some(ResolvedBackground::Colour([0.5, 0.25, 0.125]))
+        );
+    });
+}
+
+#[test]
+fn test_resolves_gradient_source() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_home = temp_dir.path().join("config_home");
+    let cosmic_dir = setup_mock_cosmic_dir(&config_home);
+
+    let ron_content =
+        "Color(Gradient((colors: [(0.0, 0.0, 0.0), (1.0, 1.0, 1.0)], radius: 90.0)))";
+    std::fs::write(cosmic_dir.join("bg.ron"), ron_content).unwrap();
+
+    let config = AppearanceConfig::default();
+
+    with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        assert_eq!(
+            rt.block_on(config.resolved_background()),
+            Some(ResolvedBackground::Gradient {
+                colors: vec![[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
+                angle_deg: 90.0
+            })
+        );
+    });
+}
+
+/// Real cosmic-bg config files wrap the source in a per-output `Entry`
+/// struct with extra fields; the resolver must dig the source out of it.
+#[test]
+fn test_resolves_source_inside_entry_struct() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_home = temp_dir.path().join("config_home");
+    let cosmic_dir = setup_mock_cosmic_dir(&config_home);
+
+    let ron_content = "(output: \"all\", source: Color(Single((0.1, 0.2, 0.3))), \
+         filter_by_theme: true, rotation_frequency: 300)";
+    std::fs::write(cosmic_dir.join("all"), ron_content).unwrap();
+
+    let config = AppearanceConfig::default();
+
+    with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        assert_eq!(
+            rt.block_on(config.resolved_background()),
+            Some(ResolvedBackground::Colour([0.1, 0.2, 0.3]))
+        );
+    });
+}
+
+/// An empty gradient stop list is unusable; the resolver should skip it
+/// rather than hand the renderer nothing to interpolate.
+#[test]
+fn test_skips_empty_gradient() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_home = temp_dir.path().join("config_home");
+    let cosmic_dir = setup_mock_cosmic_dir(&config_home);
+
+    let ron_content = "Color(Gradient((colors: [], radius: 0.0)))";
+    std::fs::write(cosmic_dir.join("bg.ron"), ron_content).unwrap();
+
+    let config = AppearanceConfig::default();
+
+    with_env_lock(Some(config_home.to_str().unwrap()), None, || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        assert_eq!(rt.block_on(config.resolved_background()), None);
     });
 }
 
@@ -286,7 +385,7 @@ fn test_invalid_ron_format() {
 
     with_env_lock(Some(config_home.to_str().unwrap()), None, || {
         let rt = tokio::runtime::Runtime::new().unwrap();
-        assert_eq!(rt.block_on(config.resolved_background_path()), None);
+        assert_eq!(rt.block_on(config.resolved_background()), None);
     });
 }
 
@@ -308,8 +407,10 @@ fn test_fallback_to_home_dir_with_xdg_config_home_unset() {
     with_env_lock(None, Some(home_dir.to_str().unwrap()), || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         assert_eq!(
-            rt.block_on(config.resolved_background_path()),
-            Some(img_path.to_string_lossy().to_string())
+            rt.block_on(config.resolved_background()),
+            Some(ResolvedBackground::Image(
+                img_path.to_string_lossy().to_string()
+            ))
         );
     });
 }
@@ -323,7 +424,7 @@ fn test_fallback_with_both_env_vars_missing() {
         // With both vars missing, HOME is not set, so it should fall back to an empty string,
         // producing `.config/...` relatively, which will probably fail to read.
         // This tests that we handle this missing case without panicking.
-        assert_eq!(rt.block_on(config.resolved_background_path()), None);
+        assert_eq!(rt.block_on(config.resolved_background()), None);
     });
 }
 

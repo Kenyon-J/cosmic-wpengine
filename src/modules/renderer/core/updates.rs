@@ -245,6 +245,29 @@ impl Renderer {
         );
     }
 
+    /// Loads whatever background the COSMIC desktop is configured with:
+    /// images come off disk, while colour/gradient wallpapers have no file
+    /// (cosmic-bg paints them directly) so we synthesise a matching texture.
+    pub fn load_resolved_background(&mut self, bg: Option<&ResolvedBackground>) {
+        match bg {
+            None => self.load_custom_background(None),
+            Some(ResolvedBackground::Image(path)) => self.load_custom_background(Some(path)),
+            Some(ResolvedBackground::Colour(colour)) => {
+                info!("Loading solid-colour desktop background");
+                let img = super::super::utils::solid_colour_image(*colour);
+                self.load_custom_background_from_image(&img);
+            }
+            Some(ResolvedBackground::Gradient { colors, angle_deg }) => {
+                info!(
+                    "Loading gradient desktop background ({} stops)",
+                    colors.len()
+                );
+                let img = super::super::utils::gradient_image(colors, *angle_deg, 1920, 1080);
+                self.load_custom_background_from_image(&img);
+            }
+        }
+    }
+
     pub fn load_custom_background(&mut self, path: Option<&str>) {
         let Some(path) = path else {
             self.custom_bg_bind_group = None;

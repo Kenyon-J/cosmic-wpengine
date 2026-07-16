@@ -68,6 +68,97 @@ pub(crate) fn build_waveform_bin_ranges(band_count: usize) -> Vec<(usize, usize)
         .collect()
 }
 
+/// Encodes one 0-1 colour channel (cosmic-bg config values are sRGB-encoded)
+/// as a texture byte for our Rgba8UnormSrgb custom-background texture.
+fn srgb_byte(c: f32) -> u8 {
+    (c.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// A tiny uniform texture standing in for a solid-colour desktop wallpaper;
+/// the frosted-glass shader's cover-crop of a uniform image is identical at
+/// any resolution, so 16x16 is plenty.
+pub(crate) fn solid_colour_image(colour: [f32; 3]) -> image::RgbaImage {
+    let pixel = image::Rgba([
+        srgb_byte(colour[0]),
+        srgb_byte(colour[1]),
+        srgb_byte(colour[2]),
+        255,
+    ]);
+    image::RgbaImage::from_pixel(16, 16, pixel)
+}
+
+/// Renders a cosmic-bg gradient wallpaper: evenly spaced stops interpolated
+/// in linear RGB along an axis `angle_deg` clockwise from bottom-to-top,
+/// matching cosmic-bg's 0/90/180/270 orientations.
+pub(crate) fn gradient_image(
+    colors: &[[f32; 3]],
+    angle_deg: f32,
+    width: u32,
+    height: u32,
+) -> image::RgbaImage {
+    if colors.is_empty() {
+        return solid_colour_image([0.0; 3]);
+    }
+    let stops: Vec<[f32; 3]> = colors
+        .iter()
+        .map(|c| c.map(srgb_to_linear))
+        .collect();
+    let last = stops.len() - 1;
+
+    let angle = angle_deg.to_radians();
+    let (dx, dy) = (angle.sin(), -angle.cos());
+    let (w, h) = (width as f32, height as f32);
+    // Normalize the pixel's projection onto the gradient axis against the
+    // projected extent of the whole rectangle, so the first and last stops
+    // always land exactly on opposite corners/edges.
+    let corners = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)];
+    let (mut proj_min, mut proj_max) = (f32::INFINITY, f32::NEG_INFINITY);
+    for (cx, cy) in corners {
+        let p = cx * dx + cy * dy;
+        proj_min = proj_min.min(p);
+        proj_max = proj_max.max(p);
+    }
+    let inv_range = if proj_max > proj_min {
+        1.0 / (proj_max - proj_min)
+    } else {
+        0.0
+    };
+
+    image::RgbaImage::from_fn(width, height, |x, y| {
+        let t = ((x as f32 * dx + y as f32 * dy) - proj_min) * inv_range;
+        let linear = if last == 0 {
+            stops[0]
+        } else {
+            let pos = t.clamp(0.0, 1.0) * last as f32;
+            let i = (pos as usize).min(last - 1);
+            let frac = pos - i as f32;
+            std::array::from_fn(|k| stops[i][k] + (stops[i + 1][k] - stops[i][k]) * frac)
+        };
+        image::Rgba([
+            srgb_byte(linear_to_srgb(linear[0])),
+            srgb_byte(linear_to_srgb(linear[1])),
+            srgb_byte(linear_to_srgb(linear[2])),
+            255,
+        ])
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,6 +174,41 @@ mod tests {
             assert!(hi <= 1024);
             assert!(weight > 0.0);
         }
+    }
+
+    #[test]
+    fn test_solid_colour_image_encodes_srgb_bytes() {
+        let img = solid_colour_image([1.0, 0.5, 0.0]);
+        assert_eq!(img.get_pixel(0, 0), &image::Rgba([255, 128, 0, 255]));
+        assert_eq!(img.get_pixel(15, 15), &image::Rgba([255, 128, 0, 255]));
+    }
+
+    /// Angle 0 puts the first stop at the bottom edge fading upward, and 90
+    /// puts it at the left edge fading rightward — matching how cosmic-bg
+    /// renders its 0/90/180/270 gradient orientations.
+    #[test]
+    fn test_gradient_image_orientations() {
+        let black_to_white = [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]];
+
+        // Edge pixels sit one pixel inside the projected extent, so the
+        // extreme stops are only approached (as in cosmic-bg's own math).
+        let up = gradient_image(&black_to_white, 0.0, 64, 64);
+        assert!(up.get_pixel(32, 63)[0] < 50, "first stop at the bottom");
+        assert!(up.get_pixel(32, 0)[0] == 255, "last stop at the top");
+
+        let right = gradient_image(&black_to_white, 90.0, 64, 64);
+        assert!(right.get_pixel(0, 32)[0] < 50, "first stop on the left");
+        assert!(right.get_pixel(63, 32)[0] > 250, "last stop on the right");
+    }
+
+    #[test]
+    fn test_gradient_image_single_stop_and_empty() {
+        let single = gradient_image(&[[1.0, 0.0, 0.0]], 45.0, 8, 8);
+        assert_eq!(single.get_pixel(4, 4), &image::Rgba([255, 0, 0, 255]));
+
+        // Defensive: an empty stop list must not panic.
+        let empty = gradient_image(&[], 0.0, 8, 8);
+        assert_eq!(empty.get_pixel(0, 0)[3], 255);
     }
 
     #[test]

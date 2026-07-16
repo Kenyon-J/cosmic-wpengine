@@ -6,10 +6,10 @@ impl Renderer {
             Event::ConfigUpdated(config, theme_layout) => {
                 let _ = self.show_lyrics_tx.send(config.audio.show_lyrics);
 
-                let new_bg = config.appearance.resolved_background_path().await;
-                if new_bg != self.current_bg_path {
-                    self.load_custom_background(new_bg.as_deref());
-                    self.current_bg_path = new_bg.clone();
+                let new_bg = config.appearance.resolved_background().await;
+                if new_bg != self.current_bg {
+                    self.load_resolved_background(new_bg.as_ref());
+                    self.current_bg = new_bg;
                 }
 
                 if config.audio.bands != self.state.config.audio.bands {

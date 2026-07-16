@@ -23,6 +23,9 @@ palette = "0.7"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
+# Parses cosmic-bg's RON config entries (already in the lockfile via libcosmic)
+# so colour/gradient wallpapers resolve instead of only Path(...) sources.
+ron = "0.12"
 toml = "0.8"
 notify = "6"
 anyhow = "1"

@@ -166,7 +166,7 @@ impl Renderer {
             custom_bg_uniform_buffer,
             custom_bg_bind_group: None,
             current_custom_bg_texture: None,
-            current_bg_path: None,
+            current_bg: None,
             current_custom_bg_size: None,
             _particle_buffer: particle_buffer,
             weather_compute_uniform_buffer,
@@ -224,14 +224,9 @@ impl Renderer {
             last_occluded: None,
         };
 
-        let path = renderer
-            .state
-            .config
-            .appearance
-            .resolved_background_path()
-            .await;
-        renderer.current_bg_path = path.clone();
-        renderer.load_custom_background(path.as_deref());
+        let bg = renderer.state.config.appearance.resolved_background().await;
+        renderer.load_resolved_background(bg.as_ref());
+        renderer.current_bg = bg;
         renderer.update_theme_colors();
         renderer.update_weather_state();
 
