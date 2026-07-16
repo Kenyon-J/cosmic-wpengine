@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
             let tray = WallpaperTray::new(shutdown_tx);
             ksni::TrayService::new(tray).spawn();
 
-            let wayland_manager = WaylandManager::new()?;
+            let mut wayland_manager = WaylandManager::new()?;
 
             let mut renderer: Renderer =
                 Renderer::new(&wayland_manager, state, show_lyrics_tx).await?;
@@ -72,13 +72,22 @@ async fn main() -> Result<()> {
             info!("All subsystems started. Entering render loop.");
 
             tokio::select! {
-                res = renderer.run(event_rx, wayland_manager, is_visible_tx) => {
+                res = renderer.run(event_rx, &mut wayland_manager, is_visible_tx) => {
                     res?;
                 }
                 _ = shutdown_rx.recv() => {
                     info!("Shutdown signal received. Initiating graceful exit...");
                 }
             }
+
+            // Teardown order is load-bearing: the renderer's wgpu surfaces hold
+            // raw pointers into wayland_manager's wl_surfaces/wl_display, and
+            // Vulkan touches them when a surface is destroyed. Dropping the
+            // connection first made every graceful exit segfault inside
+            // libvulkan_radeon AFTER "Exited cleanly" was logged (the nightly
+            // logout coredumps). The manager must outlive the renderer.
+            drop(renderer);
+            drop(wayland_manager);
 
             info!("Exited cleanly.");
 

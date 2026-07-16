@@ -189,7 +189,7 @@ impl Renderer {
     pub async fn run(
         &mut self,
         mut event_rx: Receiver<Event>,
-        mut wayland_manager: WaylandManager,
+        wayland_manager: &mut WaylandManager,
         is_visible_tx: tokio::sync::watch::Sender<bool>,
     ) -> Result<()> {
         let mut last_frame = Instant::now();
@@ -474,7 +474,7 @@ impl Renderer {
                 || last_present.elapsed() >= STATIC_SCENE_HEARTBEAT;
 
             if needs_draw && wayland_manager.any_monitor_ready() {
-                super::draw::draw_frame(self, &mut wayland_manager, delta)?;
+                super::draw::draw_frame(self, wayland_manager, delta)?;
                 last_present = Instant::now();
                 has_presented = true;
             }
