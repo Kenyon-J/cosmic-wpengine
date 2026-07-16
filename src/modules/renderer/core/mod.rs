@@ -23,6 +23,12 @@ pub struct GpuOutput {
     pub config: wgpu::SurfaceConfiguration,
 }
 
+/// While the scene is static, redraws pause and this heartbeat keeps the
+/// screen fresh instead: slow drifts (the time-of-day sky colour) still
+/// appear, and any missed invalidation self-heals within a second rather
+/// than leaving a permanently stale frame.
+const STATIC_SCENE_HEARTBEAT: Duration = Duration::from_secs(1);
+
 /// Single home for surface format/alpha/present-mode selection and the
 /// initial configure, shared by first-time init (`init.rs`) and the
 /// monitor-hotplug rebuild path above. These two blocks were previously
@@ -189,6 +195,17 @@ impl Renderer {
         let mut last_frame = Instant::now();
         let mut last_config_serial = wayland_manager.app_data.configuration_serial;
 
+        // Static-scene redraw pausing: when nothing on screen is in motion,
+        // encoding and presenting an identical frame at target fps only
+        // costs battery. Track when we last presented (for the heartbeat),
+        // whether anything has been presented at all (never gate the very
+        // first frame), and the previous animation state (to draw one final
+        // "settle" frame when motion stops, so decayed-out elements don't
+        // linger until the heartbeat).
+        let mut last_present = Instant::now();
+        let mut has_presented = false;
+        let mut was_animating = true;
+
         let mut interval = tokio::time::interval(self.frame_duration);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -210,10 +227,18 @@ impl Renderer {
 
             interval.tick().await;
 
+            // One-shot reasons this frame's content differs from the last
+            // presented one; continuous motion is covered by
+            // scene_is_animating() at the draw gate below.
+            let mut scene_dirty = false;
+
             let occluded = wayland_manager.is_occluded();
             if self.last_occluded != Some(occluded) {
                 let _ = is_visible_tx.send(!occluded);
                 self.last_occluded = Some(occluded);
+                // Coming back into view needs a fresh frame no matter how
+                // long the scene has been static.
+                scene_dirty = true;
             }
 
             wayland_manager.dispatch_events()?;
@@ -253,6 +278,8 @@ impl Renderer {
                 if let Some(out) = self.outputs.first() {
                     self.surface_format = out.config.format;
                 }
+
+                scene_dirty = true;
             }
 
             for (i, win) in wayland_manager.app_data.windows.iter().enumerate() {
@@ -268,6 +295,7 @@ impl Renderer {
                         );
                         gpu_out.config.width = target_width.max(1);
                         gpu_out.config.height = target_height.max(1);
+                        scene_dirty = true;
                     }
                 }
             }
@@ -282,6 +310,13 @@ impl Renderer {
                         transparent_changed = true;
                     }
                 }
+                // Every event can change what's on screen (new track, new
+                // video frame, weather, config...) EXCEPT audio buffers:
+                // those arrive continuously - silence included - and their
+                // visual effect is already captured by the energy terms in
+                // scene_is_animating(). Blanket-marking them dirty would
+                // keep redrawing a silent, motionless scene forever.
+                scene_dirty |= !matches!(event, Event::AudioFrame { .. });
                 self.handle_event(event).await;
             }
 
@@ -410,6 +445,7 @@ impl Renderer {
                     self.lyric_scroll_offset += self.current_lyric_idx as f32 - current_idx as f32;
                     self.current_lyric_idx = current_idx;
                 }
+                scene_dirty = true;
             }
 
             // Smoothly interpolate the scroll offset back to 0
@@ -418,8 +454,29 @@ impl Renderer {
                 self.lyric_scroll_offset = 0.0;
             }
 
-            if wayland_manager.any_monitor_ready() {
+            let scene_animating = self.scene_is_animating();
+            // The frame where motion just stopped still needs to be drawn:
+            // the previous present happened while elements (bars, lyric
+            // scroll) were mid-decay, so without this "settle" frame their
+            // residue would linger on screen until the heartbeat.
+            let settle_frame = was_animating && !scene_animating;
+            if settle_frame {
+                tracing::debug!("Scene settled; pausing redraws (1s heartbeat)");
+            } else if scene_animating && !was_animating {
+                tracing::debug!("Scene active again; resuming per-frame redraws");
+            }
+            was_animating = scene_animating;
+
+            let needs_draw = scene_dirty
+                || scene_animating
+                || settle_frame
+                || !has_presented
+                || last_present.elapsed() >= STATIC_SCENE_HEARTBEAT;
+
+            if needs_draw && wayland_manager.any_monitor_ready() {
                 super::draw::draw_frame(self, &mut wayland_manager, delta)?;
+                last_present = Instant::now();
+                has_presented = true;
             }
 
             // Tell wgpu to process internal garbage collection.
@@ -427,5 +484,52 @@ impl Renderer {
             // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
             let _ = self.device.poll(wgpu::PollType::Poll);
         }
+    }
+
+    /// True while any on-screen element is in motion and therefore needs
+    /// per-frame redraws. When this is false (and nothing marked the scene
+    /// dirty), the render loop skips encode/present entirely - the dominant
+    /// idle cost of a wallpaper that would otherwise repaint an identical
+    /// frame at target fps.
+    ///
+    /// Every term must reach an exact resting value, not an asymptote:
+    /// the pulses/spring/scroll fields are flushed to 0.0 when they drop
+    /// below 1e-5 (also protecting against subnormals), the transition and
+    /// fade values clamp to their endpoints, and the audio energies decay
+    /// geometrically through the 0.001 threshold that also gates whether
+    /// the visualiser is drawn at all.
+    fn scene_is_animating(&self) -> bool {
+        // Visualiser bars/waveform moving, or beat/treble flashes decaying.
+        let audio_active = self.audio_max_energy > 0.001
+            || self.state.audio_energy > 0.001
+            || self.beat_pulse != 0.0
+            || self.treble_pulse != 0.0;
+
+        // Lyric scroll interpolation or spring bounce still settling.
+        let lyrics_moving = self.lyric_scroll_offset != 0.0
+            || self.lyric_bounce_value != 0.0
+            || self.lyric_bounce_velocity != 0.0;
+
+        // Track/art crossfade, transparency fade, or the art grace-period
+        // fade-out (pending_art_deadline drives art_fade in the loop above).
+        let target_fade = if self.state.config.appearance.transparent_background {
+            1.0
+        } else {
+            0.0
+        };
+        let fading = self.state.transition_progress < 1.0
+            || self.state.transparent_fade != target_fade
+            || self.pending_art_deadline.is_some();
+
+        // Weather particle physics runs a compute pass every frame.
+        let weather_active = self.is_weather_active && self.active_particles > 0;
+
+        // The procedural sky shader animates with time (cloud drift, rain
+        // streaks). It can be on screen whenever no custom background
+        // texture exists; conservatively treat that as always-animating
+        // rather than replicating draw_frame's exact layering rules here.
+        let ambient_possible = self.custom_bg_bind_group.is_none();
+
+        audio_active || lyrics_moving || fading || weather_active || ambient_possible
     }
 }
