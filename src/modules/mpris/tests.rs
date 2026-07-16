@@ -109,6 +109,21 @@ fn run_test_resolve_safe_path() {
     assert!(MprisWatcher::resolve_safe_path(&rsa_key).is_none());
     assert!(MprisWatcher::resolve_safe_path(&doc).is_none());
 
+    // Firefox MPRIS artwork dirs are allowed (stock and XDG layouts), but the
+    // rest of the profile - where cookies and logins live - stays blocked.
+    let ff_art = home_path.join(".mozilla/firefox/firefox-mpris/2368_49.png");
+    let ff_xdg_art = home_path.join(".config/mozilla/firefox/firefox-mpris/1_1.png");
+    let ff_cookies = home_path.join(".mozilla/firefox/profile.default/cookies.sqlite");
+    fs::create_dir_all(ff_art.parent().unwrap()).unwrap();
+    fs::create_dir_all(ff_xdg_art.parent().unwrap()).unwrap();
+    fs::create_dir_all(ff_cookies.parent().unwrap()).unwrap();
+    fs::write(&ff_art, "").unwrap();
+    fs::write(&ff_xdg_art, "").unwrap();
+    fs::write(&ff_cookies, "").unwrap();
+    assert!(MprisWatcher::resolve_safe_path(&ff_art).is_some());
+    assert!(MprisWatcher::resolve_safe_path(&ff_xdg_art).is_some());
+    assert!(MprisWatcher::resolve_safe_path(&ff_cookies).is_none());
+
     // Relative paths
     assert!(MprisWatcher::resolve_safe_path(Path::new("art.png")).is_none());
     assert!(MprisWatcher::resolve_safe_path(Path::new("./art.png")).is_none());

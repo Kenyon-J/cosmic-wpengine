@@ -216,20 +216,30 @@ impl MprisWatcher {
                     .find_all()
                     .ok()
                     .and_then(|players| {
-                        let mut playing: Vec<mpris::Player> = players
-                            .into_iter()
-                            .filter(|p| {
-                                p.get_playback_status()
-                                    .unwrap_or(mpris::PlaybackStatus::Stopped)
-                                    == mpris::PlaybackStatus::Playing
-                            })
-                            .collect();
-                        if let Some(bus) = &watched_bus {
-                            if let Some(idx) = playing.iter().position(|p| p.bus_name() == bus) {
-                                return Some(playing.swap_remove(idx));
+                        // While nothing else is playing, a paused watched
+                        // player keeps the watch: falling through to
+                        // find_active() here used to hand the watch to
+                        // whatever other paused player D-Bus listed first
+                        // (e.g. a background YouTube tab), announcing its
+                        // track and then flapping back - the main source of
+                        // "wrong/vanishing song" reports.
+                        let mut first_playing = None;
+                        let mut paused_watched = None;
+                        for p in players {
+                            let status = p
+                                .get_playback_status()
+                                .unwrap_or(mpris::PlaybackStatus::Stopped);
+                            let is_watched = watched_bus.as_deref() == Some(p.bus_name());
+                            if status == mpris::PlaybackStatus::Playing {
+                                if is_watched {
+                                    return Some(p);
+                                }
+                                first_playing.get_or_insert(p);
+                            } else if is_watched {
+                                paused_watched = Some(p);
                             }
                         }
-                        playing.into_iter().next()
+                        first_playing.or(paused_watched)
                     })
                     .or_else(|| f.find_active().ok());
 
@@ -309,7 +319,13 @@ impl MprisWatcher {
         let mut is_playing = false;
         let mut is_timed_out = false;
         let mut paused_since: Option<tokio::time::Instant> = None;
-        let timeout_duration = tokio::time::Duration::from_secs(15);
+        // How long a pause lasts before the scene resets to no-media. 15s
+        // proved far too twitchy in practice: any short pause (a call, an ad,
+        // switching rooms) wiped the track and forced a full re-announce and
+        // asset refetch on resume, which users read as the song fetch being
+        // unreliable. Two minutes still returns the wallpaper to ambient when
+        // listening actually stops.
+        let timeout_duration = tokio::time::Duration::from_secs(120);
         let mut last_metadata: Option<MetadataUpdate> = None;
         let mut last_processed_metadata: Option<MetadataUpdate> = None;
 
@@ -933,7 +949,19 @@ impl MprisWatcher {
         if let Ok(home) = std::env::var("HOME") {
             let home_path = std::path::Path::new(&home);
 
-            for subdir in ["Music", ".cache", ".local/share"] {
+            // The firefox-mpris directories are where Firefox exports the
+            // artwork for whatever is playing in a tab: ~/.mozilla for stock
+            // builds, ~/.config/mozilla for XDG-enabled builds (Arch), and
+            // the .var path for the Flatpak. Only the art subdirectory is
+            // allowed, not the whole profile (which holds cookies/logins).
+            for subdir in [
+                "Music",
+                ".cache",
+                ".local/share",
+                ".mozilla/firefox/firefox-mpris",
+                ".config/mozilla/firefox/firefox-mpris",
+                ".var/app/org.mozilla.firefox/.mozilla/firefox/firefox-mpris",
+            ] {
                 if let Ok(real_prefix) = std::fs::canonicalize(home_path.join(subdir)) {
                     if real_path.starts_with(real_prefix) {
                         return Some(real_path);
