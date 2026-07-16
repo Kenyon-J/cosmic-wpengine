@@ -32,8 +32,12 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 ksni = "0.2"
-cosmic = { package = "libcosmic", git = "https://github.com/pop-os/libcosmic.git" }
-iced = { git = "https://github.com/pop-os/libcosmic.git", package = "iced", features = ["highlighter"] }
+# Pinned to the rev the release was built and tested against: libcosmic has
+# no stable releases and tracking master breaks builds without warning (the
+# COSMIC 1.3 bump removed the no-arg row()/column() helpers, for example).
+# Bump deliberately, rebuild, and re-run the GUI when moving this.
+cosmic = { package = "libcosmic", git = "https://github.com/pop-os/libcosmic.git", rev = "6359a9465b8fe4c3b0ada0cd2b87cddf644ca732" }
+iced = { git = "https://github.com/pop-os/libcosmic.git", package = "iced", rev = "6359a9465b8fe4c3b0ada0cd2b87cddf644ca732", features = ["highlighter"] }
 mimalloc = "0.1"
 lru = "0.16"
 ffmpeg-next = "8.1.0"
