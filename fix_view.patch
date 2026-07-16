@@ -1,0 +1,33 @@
+--- src/modules/gui/view.rs
++++ src/modules/gui/view.rs
+@@ -216,14 +216,23 @@
+-        if app.selected_file.is_some() && app.is_dirty {
+-            cosmic::iced::widget::tooltip(
+-                btn.on_press(super::Message::SaveFile),
+-                "Save changes to the current file.",
+-                cosmic::iced::widget::tooltip::Position::Top,
+-            )
+-            .into()
++        if app.selected_file.is_some() {
++            if app.is_dirty {
++                cosmic::iced::widget::tooltip(
++                    btn.on_press(super::Message::SaveFile),
++                    "Save changes to the current file.",
++                    cosmic::iced::widget::tooltip::Position::Top,
++                )
++                .into()
++            } else {
++                cosmic::iced::widget::tooltip(
++                    btn,
++                    "No unsaved changes.",
++                    cosmic::iced::widget::tooltip::Position::Top,
++                )
++                .into()
++            }
+         } else {
+             cosmic::iced::widget::tooltip(
+                 btn,
+-                "No unsaved changes.",
++                "Select a file to enable saving.",
+                 cosmic::iced::widget::tooltip::Position::Top,
+             )

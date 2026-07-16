@@ -460,12 +460,8 @@ impl Application for SettingsApp {
                 }
             }
             Message::EditorAction(action) => {
-                self.editor_content.perform(action.clone());
-                if let cosmic::widget::text_editor::Action::Edit(_) = action {
-                    if let cosmic::widget::text_editor::Action::Edit(_) = action {
-                        self.is_dirty = true;
-                    }
-                }
+                self.editor_content.perform(action);
+                self.is_dirty = true;
             }
             Message::SaveFile => {
                 if let Some(file) = &self.selected_file {
