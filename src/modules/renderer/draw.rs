@@ -369,20 +369,20 @@ pub(crate) fn draw_frame(
     let track_info_align = map_align(&renderer.theme.track_info.align);
     let weather_align = map_align(&renderer.theme.weather.align);
 
-    // Cloned (rather than borrowed from renderer.state) so `attrs` has no
-    // lifetime tied to `renderer`: push_text_buffer() below needs `&mut
-    // renderer` and `&attrs` in the same call, which the borrow checker
-    // would otherwise reject.
-    let font_family_owned = renderer
+    // Optimization: Borrow directly from the config and theme without cloning.
+    // Since we are borrowing from renderer.state and renderer.theme, and
+    // push_text_buffer/prepare_text_buffer only borrow the disjoint fields
+    // renderer.text_buffer_cache, renderer.font_system, and renderer.text_buffers mutably,
+    // the Rust borrow checker permits this without any overhead, completely avoiding
+    // heap allocation and cloning a String on the rendering hot path.
+    let font_family = renderer
         .state
         .config
         .appearance
         .font_family
-        .clone()
-        .or_else(|| renderer.theme.font_family.clone());
-    let family = font_family_owned
         .as_deref()
-        .map_or(Family::SansSerif, Family::Name);
+        .or(renderer.theme.font_family.as_deref());
+    let family = font_family.map_or(Family::SansSerif, Family::Name);
     let attrs = Attrs::new().family(family);
 
     // Prevent unbound memory growth for weather/ambient setups left running for days.
