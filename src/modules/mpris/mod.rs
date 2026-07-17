@@ -552,7 +552,7 @@ impl MprisWatcher {
         video_cache: &mut lru::LruCache<String, Option<String>, rustc_hash::FxBuildHasher>,
         fetch_lyrics: bool,
     ) -> (TrackInfo, RemoteNeeds) {
-        let cached_palette = palette_cache.get(&meta.palette_cache_key()).cloned();
+        let mut cached_palette = palette_cache.get(&meta.palette_cache_key()).cloned();
 
         let (lyrics, needs_lyrics) = if !fetch_lyrics {
             (None, false)
@@ -574,8 +574,9 @@ impl MprisWatcher {
             match Self::fetch_album_art(meta.art_url.as_deref().unwrap_or_default()).await {
                 Ok(img) => {
                     info!("Successfully loaded and decoded local album art!");
-                    let (art, palette) = Self::process_art(img, cached_palette.clone()).await;
-                    if cached_palette.is_none() {
+                    let palette_was_cached = cached_palette.is_some();
+                    let (art, palette) = Self::process_art(img, cached_palette.take()).await;
+                    if !palette_was_cached {
                         if let Some(p) = &palette {
                             palette_cache.put(meta.palette_cache_key(), p.clone());
                         }
@@ -622,10 +623,13 @@ impl MprisWatcher {
     /// update channel, which caches it and drops it if it arrived stale.
     async fn fetch_remote_assets(
         meta: MetadataUpdate,
-        needs: RemoteNeeds,
+        mut needs: RemoteNeeds,
         canvas_proxy_url: Option<&str>,
         client: &reqwest::Client,
     ) -> FetchedAssets {
+        let palette_was_cached = needs.cached_palette.is_some();
+        let cached_palette = needs.cached_palette.take();
+
         let art_future = async {
             if !needs.art {
                 return None;
@@ -664,7 +668,7 @@ impl MprisWatcher {
 
             match img {
                 Some(img) => {
-                    let (art, palette) = Self::process_art(img, needs.cached_palette.clone()).await;
+                    let (art, palette) = Self::process_art(img, cached_palette).await;
                     art.zip(palette)
                 }
                 None => None,
@@ -695,7 +699,7 @@ impl MprisWatcher {
         let (art, lyrics, video_url) = tokio::join!(art_future, lyrics_future, video_future);
 
         FetchedAssets {
-            palette_was_cached: needs.cached_palette.is_some(),
+            palette_was_cached,
             meta,
             art,
             lyrics,
