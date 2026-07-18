@@ -1,8 +1,18 @@
-use cosmic::iced::widget::{pick_list, slider, Column, Row};
+use cosmic::iced::widget::{slider, Column, Row};
 use cosmic::iced::Length;
-use cosmic::widget::{button, settings, text, text_input};
+use cosmic::widget::{button, dropdown, settings, text, text_input};
 
 use super::{BackgroundMode, Message, Page, SettingsApp, UpdateState};
+
+/// Labels for the background-style dropdown, index-aligned with
+/// [`BackgroundMode::ALL`].
+const BG_MODE_LABELS: [&str; 5] = [
+    "Frosted Glass (Blur)",
+    "Fully Transparent",
+    "Album Art Background",
+    "Album Colour",
+    "Video Background",
+];
 
 pub(crate) fn view_app(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let page = app
@@ -66,10 +76,10 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         .add(
             settings::item::builder("Background style")
                 .description("What fills the desktop behind the overlays.")
-                .control(pick_list(
-                    &BackgroundMode::ALL[..],
-                    Some(mode),
-                    Message::BackgroundModeSelected,
+                .control(dropdown(
+                    &BG_MODE_LABELS[..],
+                    BackgroundMode::ALL.iter().position(|m| *m == mode),
+                    |idx| Message::BackgroundModeSelected(BackgroundMode::ALL[idx]),
                 )),
         )
         .into()];
@@ -120,16 +130,17 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 // --------------------------------------------------------- Live Wallpapers
 
 fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
-    let video_picker = pick_list(
-        app.available_videos.clone(),
-        app.wp_config.appearance.video_background_path.clone(),
-        Message::VideoSelected,
-    )
-    .placeholder(if app.available_videos.is_empty() {
-        "No videos in your library yet"
+    let video_picker: cosmic::Element<'_, Message> = if app.available_videos.is_empty() {
+        text::body("No videos in your library yet").into()
     } else {
-        "Select a video..."
-    });
+        let selected = app
+            .wp_config
+            .appearance
+            .video_background_path
+            .as_ref()
+            .and_then(|path| app.available_videos.iter().position(|v| v == path));
+        dropdown(&app.available_videos[..], selected, Message::VideoSelected).into()
+    };
 
     let sections = vec![settings::section()
         .title("Library")
@@ -156,12 +167,15 @@ fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 // ------------------------------------------------------------------ Themes
 
 fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
-    let theme_picker = pick_list(
-        app.available_themes.clone(),
-        app.selected_theme.clone(),
+    let selected_theme = app
+        .selected_theme
+        .as_ref()
+        .and_then(|t| app.available_themes.iter().position(|name| name == t));
+    let theme_picker = dropdown(
+        &app.available_themes[..],
+        selected_theme,
         Message::ThemeSelected,
-    )
-    .placeholder("Select a theme...");
+    );
 
     let sections = vec![
         settings::section()
@@ -215,12 +229,14 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 // ------------------------------------------------------------- Now Playing
 
 fn now_playing(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    // "System Default" sits at index 0, so a missing font_family maps there.
     let current_font = app
         .wp_config
         .appearance
         .font_family
-        .clone()
-        .unwrap_or_else(|| "System Default".to_string());
+        .as_ref()
+        .and_then(|f| app.available_fonts.iter().position(|name| name == f))
+        .unwrap_or(0);
 
     let sections = vec![
         settings::section()
@@ -241,10 +257,10 @@ fn now_playing(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                     .description("Synced lyrics for the current track, when available.")
                     .toggler(app.wp_config.audio.show_lyrics, Message::ToggleShowLyrics),
             )
-            .add(settings::item::builder("Font family").control(pick_list(
-                app.available_fonts.clone(),
+            .add(settings::item::builder("Font family").control(dropdown(
+                &app.available_fonts[..],
                 Some(current_font),
-                Message::FontFamilySelected,
+                Message::FontSelected,
             )))
             .into(),
     ];
@@ -308,8 +324,8 @@ const TEMPERATURE_UNITS: [&str; 2] = ["Celsius", "Fahrenheit"];
 
 fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let current_unit = match app.wp_config.weather.temperature_unit {
-        cosmic_wallpaper::modules::config::TemperatureUnit::Celsius => "Celsius",
-        cosmic_wallpaper::modules::config::TemperatureUnit::Fahrenheit => "Fahrenheit",
+        cosmic_wallpaper::modules::config::TemperatureUnit::Celsius => 0,
+        cosmic_wallpaper::modules::config::TemperatureUnit::Fahrenheit => 1,
     };
 
     let sections = vec![settings::section()
@@ -327,10 +343,10 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                     Message::ToggleHideWeatherEffects,
                 ),
         )
-        .add(settings::item::builder("Units").control(pick_list(
+        .add(settings::item::builder("Units").control(dropdown(
             &TEMPERATURE_UNITS[..],
             Some(current_unit),
-            |unit| Message::TemperatureUnitSelected(unit.to_string()),
+            |idx| Message::TemperatureUnitSelected(TEMPERATURE_UNITS[idx].to_string()),
         )))
         .into()];
 

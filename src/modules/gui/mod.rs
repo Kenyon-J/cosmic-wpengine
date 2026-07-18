@@ -319,10 +319,14 @@ impl std::fmt::Display for BackgroundMode {
 #[derive(Debug, Clone)]
 enum Message {
     BackgroundModeSelected(BackgroundMode),
-    FontFamilySelected(String),
+    /// Index into `available_fonts` (cosmic dropdowns report selections by
+    /// index; the string is resolved in `update`).
+    FontSelected(usize),
     ToggleShowAlbumArt(bool),
-    ThemeSelected(String),
-    VideoSelected(String),
+    /// Index into `available_themes`.
+    ThemeSelected(usize),
+    /// Index into `available_videos`.
+    VideoSelected(usize),
     ApplyTheme,
     FpsChanged(f32),
     BlurOpacityChanged(f32),
@@ -499,24 +503,25 @@ impl Application for SettingsApp {
                 }
                 let _ = self.wp_config.save();
             }
-            Message::FontFamilySelected(family) => {
-                if family == "System Default" {
-                    self.wp_config.appearance.font_family = None;
-                } else {
-                    self.wp_config.appearance.font_family = Some(family);
+            Message::FontSelected(idx) => {
+                if let Some(family) = self.available_fonts.get(idx) {
+                    self.wp_config.appearance.font_family =
+                        (family != "System Default").then(|| family.clone());
+                    let _ = self.wp_config.save();
                 }
-                let _ = self.wp_config.save();
             }
             Message::ToggleShowAlbumArt(state) => {
                 self.wp_config.appearance.show_album_art = state;
                 let _ = self.wp_config.save();
             }
-            Message::VideoSelected(video) => {
-                self.wp_config.appearance.video_background_path = Some(video);
-                let _ = self.wp_config.save();
+            Message::VideoSelected(idx) => {
+                if let Some(video) = self.available_videos.get(idx) {
+                    self.wp_config.appearance.video_background_path = Some(video.clone());
+                    let _ = self.wp_config.save();
+                }
             }
-            Message::ThemeSelected(theme) => {
-                self.selected_theme = Some(theme);
+            Message::ThemeSelected(idx) => {
+                self.selected_theme = self.available_themes.get(idx).cloned();
             }
             Message::ApplyTheme => {
                 if let Some(theme) = &self.selected_theme {

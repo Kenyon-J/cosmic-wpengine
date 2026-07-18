@@ -70,6 +70,14 @@ Pure restructure plus a few free wins; no drag-and-drop yet.
       writes config + the engine live-reloads (no input automation available
       on Wayland to do this hands-off)
 
+Feedback round 1 (2026-07-18): sidebar felt laggy → was the unoptimized
+debug build, plus per-render `Vec<String>` clones feeding iced pick_lists;
+pick_list overlay menus also rendered translucent on the frosted system
+theme. Fixed by converting all five pick_lists to `cosmic::widget::dropdown`
+(opaque themed menus, borrowed `Cow` selections — no per-frame clones;
+selection messages are now index-based: `FontSelected`/`ThemeSelected`/
+`VideoSelected(usize)`), and testing against the release build.
+
 ### Phase 2 — Live Wallpapers library
 
 - [ ] Grid of tiles with Active state (`cosmic::widget::flex_row` or grid)
