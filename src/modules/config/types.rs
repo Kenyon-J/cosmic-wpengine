@@ -84,6 +84,14 @@ pub struct AppearanceConfig {
     pub font_family: Option<String>,
     pub custom_background_path: Option<String>,
     pub video_background_path: Option<String>,
+    /// When the playing track has a Spotify Canvas loop, show it instead of
+    /// the configured background.
+    #[serde(default = "default_true")]
+    pub prefer_canvas: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppearanceConfig {
@@ -98,6 +106,7 @@ impl Default for AppearanceConfig {
             font_family: None,
             custom_background_path: None,
             video_background_path: None,
+            prefer_canvas: true,
         }
     }
 }

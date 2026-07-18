@@ -194,7 +194,11 @@ impl Renderer {
             }
 
             Event::CanvasVideoFrame(frame) => {
-                self.update_canvas_video_frame(&frame);
+                // Instant gate: a decoder spawned before the setting was
+                // turned off may still be streaming frames.
+                if self.state.config.appearance.prefer_canvas {
+                    self.update_canvas_video_frame(&frame);
+                }
             }
 
             Event::PlayerShutDown => {

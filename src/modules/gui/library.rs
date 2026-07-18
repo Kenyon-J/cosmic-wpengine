@@ -1,0 +1,189 @@
+//! Video library support for the Live Wallpapers page: scanning the videos
+//! folder, extracting cached thumbnails with ffmpeg, and importing files
+//! dropped onto the window.
+
+use std::borrow::Cow;
+use std::path::{Path, PathBuf};
+
+use cosmic_wallpaper::modules::config::Config;
+use ffmpeg_next as ffmpeg;
+
+pub(crate) const VIDEO_EXTENSIONS: [&str; 5] = ["mp4", "webm", "mkv", "mov", "avi"];
+
+/// Thumbnails are rendered at tile size; decoding is capped at this width.
+const THUMB_WIDTH: u32 = 320;
+
+#[derive(Debug, Clone)]
+pub(crate) struct VideoEntry {
+    /// File name inside the videos folder - the value stored in
+    /// `appearance.video_background_path`.
+    pub file_name: String,
+    /// "m:ss", when the container reports a duration.
+    pub duration: Option<String>,
+    /// Cached first-frame PNG, when extraction succeeded.
+    pub thumbnail: Option<PathBuf>,
+}
+
+pub(crate) fn videos_dir() -> PathBuf {
+    Config::config_dir().join("videos")
+}
+
+fn thumbs_dir() -> PathBuf {
+    videos_dir().join(".thumbs")
+}
+
+pub(crate) fn is_video_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| VIDEO_EXTENSIONS.iter().any(|v| ext.eq_ignore_ascii_case(v)))
+}
+
+/// Scans the library, extracting any missing thumbnails. Blocking (ffmpeg
+/// decode) - run under `spawn_blocking`.
+pub(crate) fn scan() -> Vec<VideoEntry> {
+    let _ = std::fs::create_dir_all(thumbs_dir());
+    let _ = ffmpeg::init();
+
+    Config::available_videos()
+        .into_iter()
+        .filter_map(|file_name| {
+            let path = videos_dir().join(&file_name);
+            if !is_video_file(&path) {
+                return None;
+            }
+            let thumb_path = thumbs_dir().join(format!("{file_name}.png"));
+            let duration = match probe_and_thumbnail(&path, &thumb_path) {
+                Ok(duration) => duration,
+                Err(e) => {
+                    tracing::warn!("Failed to read video {}: {}", file_name, e);
+                    None
+                }
+            };
+            Some(VideoEntry {
+                file_name,
+                duration,
+                thumbnail: thumb_path.exists().then_some(thumb_path),
+            })
+        })
+        .collect()
+}
+
+/// Reads the container duration and, when no cached thumbnail exists yet,
+/// decodes the first video frame into one.
+fn probe_and_thumbnail(path: &Path, thumb_path: &Path) -> Result<Option<String>, ffmpeg::Error> {
+    let mut ictx = ffmpeg::format::input(path)?;
+
+    let duration = match ictx.duration() {
+        d if d > 0 => {
+            let secs = d / i64::from(ffmpeg::ffi::AV_TIME_BASE);
+            Some(format!("{}:{:02}", secs / 60, secs % 60))
+        }
+        _ => None,
+    };
+
+    if thumb_path.exists() {
+        return Ok(duration);
+    }
+
+    let input = ictx
+        .streams()
+        .best(ffmpeg::media::Type::Video)
+        .ok_or(ffmpeg::Error::StreamNotFound)?;
+    let stream_index = input.index();
+
+    let context_decoder = ffmpeg::codec::context::Context::from_parameters(input.parameters())?;
+    let mut decoder = context_decoder.decoder().video()?;
+
+    let (src_w, src_h) = (decoder.width(), decoder.height());
+    if src_w == 0 || src_h == 0 {
+        return Ok(duration);
+    }
+    let dst_w = src_w.min(THUMB_WIDTH);
+    let dst_h = ((u64::from(src_h) * u64::from(dst_w) / u64::from(src_w)) as u32).max(1);
+
+    let mut scaler = ffmpeg::software::scaling::Context::get(
+        decoder.format(),
+        src_w,
+        src_h,
+        ffmpeg::format::Pixel::RGBA,
+        dst_w,
+        dst_h,
+        ffmpeg::software::scaling::Flags::BILINEAR,
+    )?;
+
+    let mut decoded = ffmpeg::frame::Video::empty();
+    for (stream, packet) in ictx.packets() {
+        if stream.index() != stream_index {
+            continue;
+        }
+        decoder.send_packet(&packet)?;
+        if decoder.receive_frame(&mut decoded).is_ok() {
+            let mut rgba = ffmpeg::frame::Video::empty();
+            scaler.run(&decoded, &mut rgba)?;
+
+            // The scaler may pad rows; copy row by row at the packed width.
+            let stride = rgba.stride(0);
+            let row_len = (dst_w * 4) as usize;
+            let mut pixels = Vec::with_capacity(row_len * dst_h as usize);
+            for row in 0..dst_h as usize {
+                let start = row * stride;
+                pixels.extend_from_slice(&rgba.data(0)[start..start + row_len]);
+            }
+
+            if let Some(img) = image::RgbaImage::from_raw(dst_w, dst_h, pixels) {
+                if let Err(e) = img.save(thumb_path) {
+                    tracing::warn!("Failed to save thumbnail: {}", e);
+                }
+            }
+            break;
+        }
+    }
+
+    Ok(duration)
+}
+
+/// Copies dropped video files into the library. Blocking - run under
+/// `spawn_blocking`. Returns (imported, skipped) counts.
+pub(crate) fn import(paths: Vec<PathBuf>) -> (usize, usize) {
+    let dir = videos_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let mut imported = 0;
+    let mut skipped = 0;
+    for path in paths {
+        let Some(name) = path.file_name() else {
+            skipped += 1;
+            continue;
+        };
+        if is_video_file(&path) && std::fs::copy(&path, dir.join(name)).is_ok() {
+            imported += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+    (imported, skipped)
+}
+
+/// A `text/uri-list` drag-and-drop payload, decoded to local file paths.
+#[derive(Debug, Clone)]
+pub(crate) struct DroppedFiles(pub Vec<PathBuf>);
+
+impl TryFrom<(Vec<u8>, String)> for DroppedFiles {
+    type Error = std::string::FromUtf8Error;
+
+    fn try_from((data, _mime): (Vec<u8>, String)) -> Result<Self, Self::Error> {
+        let text = String::from_utf8(data)?;
+        Ok(Self(
+            text.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .filter_map(|line| url::Url::parse(line).ok()?.to_file_path().ok())
+                .collect(),
+        ))
+    }
+}
+
+impl cosmic::iced::clipboard::mime::AllowedMimeTypes for DroppedFiles {
+    fn allowed() -> Cow<'static, [String]> {
+        Cow::Owned(vec!["text/uri-list".to_string()])
+    }
+}

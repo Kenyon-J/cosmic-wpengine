@@ -1,3 +1,4 @@
+mod library;
 #[cfg(test)]
 mod tests;
 mod updater;
@@ -26,7 +27,11 @@ struct SettingsApp {
     wp_config: config::Config,
     available_fonts: Vec<String>,
     available_themes: Vec<String>,
-    available_videos: Vec<String>,
+    /// Scanned video library with thumbnails/durations; loaded async at
+    /// startup and after imports.
+    library: Vec<library::VideoEntry>,
+    /// True while a drag hovers the Live Wallpapers drop zone.
+    drop_hover: bool,
     selected_theme: Option<String>,
     new_theme_name: String,
     status_msg: String,
@@ -96,6 +101,19 @@ impl SettingsApp {
             |generation| Message::DebouncedSave(generation).into(),
         )
     }
+}
+
+/// Rescans the video library (thumbnail extraction included) off the UI
+/// thread.
+fn scan_library_task() -> Task<cosmic::Action<Message>> {
+    Task::perform(
+        async {
+            tokio::task::spawn_blocking(library::scan)
+                .await
+                .unwrap_or_default()
+        },
+        |entries| Message::LibraryLoaded(entries).into(),
+    )
 }
 
 fn autostart_path() -> std::path::PathBuf {
@@ -325,8 +343,19 @@ enum Message {
     ToggleShowAlbumArt(bool),
     /// Index into `available_themes`.
     ThemeSelected(usize),
-    /// Index into `available_videos`.
+    /// Index into `library`.
     VideoSelected(usize),
+    ToggleWatchCanvas(bool),
+    LibraryLoaded(Vec<library::VideoEntry>),
+    /// Files dropped on the Live Wallpapers page (None when the payload
+    /// could not be decoded).
+    FilesDropped(Option<library::DroppedFiles>),
+    DndEntered,
+    DndLeft,
+    ImportDone {
+        imported: usize,
+        skipped: usize,
+    },
     ApplyTheme,
     FpsChanged(f32),
     BlurOpacityChanged(f32),
@@ -425,7 +454,8 @@ impl Application for SettingsApp {
                 wp_config,
                 available_fonts,
                 available_themes,
-                available_videos: config::Config::available_videos(),
+                library: Vec::new(),
+                drop_hover: false,
                 selected_theme,
                 autostart: autostart_path().exists(),
                 new_theme_name: String::new(),
@@ -434,9 +464,12 @@ impl Application for SettingsApp {
                 patch_notes: None,
                 save_generation: 0,
             },
-            Task::perform(check_for_updates(), |version| {
-                Message::UpdateCheckDone(version).into()
-            }),
+            Task::batch([
+                Task::perform(check_for_updates(), |version| {
+                    Message::UpdateCheckDone(version).into()
+                }),
+                scan_library_task(),
+            ]),
         )
     }
 
@@ -515,10 +548,52 @@ impl Application for SettingsApp {
                 let _ = self.wp_config.save();
             }
             Message::VideoSelected(idx) => {
-                if let Some(video) = self.available_videos.get(idx) {
-                    self.wp_config.appearance.video_background_path = Some(video.clone());
+                if let Some(entry) = self.library.get(idx) {
+                    self.wp_config.appearance.video_background_path = Some(entry.file_name.clone());
                     let _ = self.wp_config.save();
                 }
+            }
+            Message::ToggleWatchCanvas(state) => {
+                self.wp_config.appearance.prefer_canvas = state;
+                let _ = self.wp_config.save();
+            }
+            Message::LibraryLoaded(entries) => {
+                self.library = entries;
+            }
+            Message::DndEntered => {
+                self.drop_hover = true;
+            }
+            Message::DndLeft => {
+                self.drop_hover = false;
+            }
+            Message::FilesDropped(files) => {
+                self.drop_hover = false;
+                let paths = files.map(|f| f.0).unwrap_or_default();
+                if paths.is_empty() {
+                    self.status_msg = "Nothing usable was dropped - MP4 or WebM files.".into();
+                } else {
+                    self.status_msg = format!(
+                        "Importing {} file{}...",
+                        paths.len(),
+                        if paths.len() == 1 { "" } else { "s" }
+                    );
+                    return Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || library::import(paths))
+                                .await
+                                .unwrap_or((0, 0))
+                        },
+                        |(imported, skipped)| Message::ImportDone { imported, skipped }.into(),
+                    );
+                }
+            }
+            Message::ImportDone { imported, skipped } => {
+                self.status_msg = match (imported, skipped) {
+                    (0, _) => "No videos imported - only MP4, WebM, MKV, MOV and AVI files.".into(),
+                    (n, 0) => format!("Imported {n} video{}.", if n == 1 { "" } else { "s" }),
+                    (n, s) => format!("Imported {n}, skipped {s} (not video files)."),
+                };
+                return scan_library_task();
             }
             Message::ThemeSelected(idx) => {
                 self.selected_theme = self.available_themes.get(idx).cloned();

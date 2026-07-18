@@ -78,14 +78,29 @@ theme. Fixed by converting all five pick_lists to `cosmic::widget::dropdown`
 selection messages are now index-based: `FontSelected`/`ThemeSelected`/
 `VideoSelected(usize)`), and testing against the release build.
 
-### Phase 2 — Live Wallpapers library
+### Phase 2 — Live Wallpapers library (CODE COMPLETE, verifying)
 
-- [ ] Grid of tiles with Active state (`cosmic::widget::flex_row` or grid)
-- [ ] Drag-and-drop import: `FileDropped` → copy into
-      `~/.config/cosmic-wallpaper/videos`, refresh list
-- [ ] Thumbnails: first-frame extraction via existing ffmpeg dep at import,
-      cached in `videos/.thumbs/`; duration label from same probe
-- [ ] "Prefer Spotify Canvas" toggle (new config field, engine-side wiring)
+- [x] Grid of tiles (3-across chunked rows), Active tile highlighted with
+      `theme::Button::Suggested`; click = `VideoSelected(idx)` → sets
+      `video_background_path` (mode derivation is video-first, so this also
+      switches the style)
+- [x] Drag-and-drop import via `cosmic::widget::dnd_destination::
+      dnd_destination_for_data::<DroppedFiles>` (`text/uri-list` payload
+      type in `gui/library.rs`, parsed with the `url` crate) — NOT iced's
+      `FileDropped` window event, which doesn't fire under the Wayland sctk
+      backend; copies into the videos dir, then rescans
+- [x] Thumbnails: `gui/library.rs::scan()` (spawn_blocking at startup and
+      after imports) probes duration and decodes the first frame with
+      ffmpeg-next into `videos/.thumbs/<name>.png` at 320px wide
+- [x] "Prefer Spotify Canvas" toggle: `appearance.prefer_canvas`
+      (serde-default true) gates `spawn_canvas_decoder` at both mpris call
+      sites + an instant gate on `Event::CanvasVideoFrame` in the renderer
+- [x] Verified: startup scan extracted a correct thumbnail for a generated
+      test clip (`videos/test-clip.mp4`, safe to delete); engine + GUI
+      release builds installed and running
+- [ ] Joshua to verify: drag a video from Files onto the page (hover
+      highlight + import), tile click switches the wallpaper, canvas toggle
+      with Spotify playing
 
 ### Phase 3 — Wallpaper page polish + colour picker
 

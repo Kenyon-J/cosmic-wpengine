@@ -130,36 +130,127 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 // --------------------------------------------------------- Live Wallpapers
 
 fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
-    let video_picker: cosmic::Element<'_, Message> = if app.available_videos.is_empty() {
-        text::body("No videos in your library yet").into()
+    // Drop zone: accepts text/uri-list drags from the file manager.
+    let drop_label = if app.drop_hover {
+        "Release to add to your library"
     } else {
-        let selected = app
-            .wp_config
-            .appearance
-            .video_background_path
-            .as_ref()
-            .and_then(|path| app.available_videos.iter().position(|v| v == path));
-        dropdown(&app.available_videos[..], selected, Message::VideoSelected).into()
+        "Drop video files here to add them (MP4, WebM)"
     };
+    let drop_zone: cosmic::Element<'_, Message> =
+        cosmic::widget::dnd_destination::dnd_destination_for_data(
+            cosmic::widget::container(text::body(drop_label))
+                .width(Length::Fill)
+                .padding(28)
+                .align_x(cosmic::iced::alignment::Horizontal::Center)
+                .class(if app.drop_hover {
+                    cosmic::theme::Container::Primary
+                } else {
+                    cosmic::theme::Container::Secondary
+                }),
+            |data: Option<super::library::DroppedFiles>, _action| Message::FilesDropped(data),
+        )
+        .on_enter(|_, _, _| Message::DndEntered)
+        .on_leave(|| Message::DndLeft)
+        .into();
 
-    let sections = vec![settings::section()
-        .title("Library")
-        .add(
-            settings::item::builder("Active video")
-                .description("Selecting a video also switches the wallpaper style to it.")
-                .control(video_picker),
-        )
-        .add(
-            settings::item::builder("Library folder")
-                .description("MP4 and WebM files placed here appear in the list above.")
-                .control(button::standard("Open Folder").on_press(Message::OpenVideosFolder)),
-        )
-        .into()];
+    // Tile grid, three across.
+    let active_video = app.wp_config.appearance.video_background_path.as_deref();
+    let mut grid = Column::new().spacing(12).width(Length::Fill);
+    for (row_idx, chunk) in app.library.chunks(3).enumerate() {
+        let mut row = Row::new().spacing(12).width(Length::Fill);
+        for (col_idx, entry) in chunk.iter().enumerate() {
+            let idx = row_idx * 3 + col_idx;
+            let is_active = active_video == Some(entry.file_name.as_str());
+
+            let thumb: cosmic::Element<'_, Message> = match &entry.thumbnail {
+                Some(path) => cosmic::widget::image(cosmic::widget::image::Handle::from_path(path))
+                    .content_fit(cosmic::iced::ContentFit::Cover)
+                    .width(Length::Fill)
+                    .height(Length::Fixed(96.0))
+                    .into(),
+                None => cosmic::widget::container(text::title3("▶"))
+                    .width(Length::Fill)
+                    .height(Length::Fixed(96.0))
+                    .align_x(cosmic::iced::alignment::Horizontal::Center)
+                    .align_y(cosmic::iced::alignment::Vertical::Center)
+                    .into(),
+            };
+
+            let mut meta = Row::new()
+                .spacing(6)
+                .push(text::caption(entry.file_name.as_str()).width(Length::Fill));
+            if is_active {
+                meta = meta.push(text::caption("Active"));
+            }
+            if let Some(duration) = &entry.duration {
+                meta = meta.push(text::caption(duration.as_str()));
+            }
+
+            let tile = button::custom(
+                Column::new()
+                    .push(thumb)
+                    .push(meta)
+                    .spacing(6)
+                    .width(Length::Fill),
+            )
+            .class(if is_active {
+                cosmic::theme::Button::Suggested
+            } else {
+                cosmic::theme::Button::Image
+            })
+            .padding(6)
+            .width(Length::Fill)
+            .on_press(Message::VideoSelected(idx));
+
+            row = row.push(tile);
+        }
+        // Pad the last row so tiles keep equal widths.
+        for _ in chunk.len()..3 {
+            row = row.push(
+                cosmic::widget::container(text::body(""))
+                    .width(Length::Fill)
+                    .height(Length::Fixed(0.0)),
+            );
+        }
+        grid = grid.push(row);
+    }
+
+    let mut library_section = settings::section().title("Library").add(drop_zone);
+    if app.library.is_empty() {
+        library_section = library_section.add(settings::item(
+            "No videos yet",
+            text::body("Drop files above, or use Open Folder to add them by hand"),
+        ));
+    } else {
+        library_section = library_section.add(grid);
+    }
+
+    let sections = vec![
+        library_section.into(),
+        settings::section()
+            .title("Playback")
+            .add(
+                settings::item::builder("Prefer Spotify Canvas")
+                    .description(
+                        "When the playing track has a Canvas loop, show it instead of your wallpaper.",
+                    )
+                    .toggler(
+                        app.wp_config.appearance.prefer_canvas,
+                        Message::ToggleWatchCanvas,
+                    ),
+            )
+            .add(
+                settings::item::builder("Library folder")
+                    .description("Videos live in ~/.config/cosmic-wallpaper/videos.")
+                    .control(button::standard("Open Folder").on_press(Message::OpenVideosFolder)),
+            )
+            .into(),
+    ];
 
     page(
         app,
         "Live Wallpapers",
-        "Looping videos that play as your background.",
+        "Looping videos that play as your background. Click a tile to set it.",
         sections,
     )
 }

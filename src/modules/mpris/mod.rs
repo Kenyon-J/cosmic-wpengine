@@ -449,7 +449,9 @@ impl MprisWatcher {
                             }
                             let video_url = assets.video_url.flatten();
                             if let Some(url) = &video_url {
-                                spawn_canvas_decoder(&tx, &mut video_cancel_tx, url);
+                                if config_rx.borrow().appearance.prefer_canvas {
+                                    spawn_canvas_decoder(&tx, &mut video_cancel_tx, url);
+                                }
                             }
                             let _ = tx
                                 .send(Event::TrackAssetsLoaded(Box::new(TrackInfo {
@@ -507,7 +509,9 @@ impl MprisWatcher {
                         let _ = cancel.send(true);
                     }
                     if let Some(url) = track_info.video_url.as_deref() {
-                        spawn_canvas_decoder(&tx, &mut video_cancel_tx, url);
+                        if config_rx.borrow().appearance.prefer_canvas {
+                            spawn_canvas_decoder(&tx, &mut video_cancel_tx, url);
+                        }
                     }
 
                     let _ = tx.send(Event::TrackChanged(Box::new(track_info))).await;
