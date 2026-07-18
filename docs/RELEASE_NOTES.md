@@ -1,50 +1,44 @@
-# cosmic-wallpaper 1.1.0
+# cosmic-wallpaper 1.2.0
 
-The frosted glass and settings release.
+The Themes Release. Your desktop is now the theme editor's preview.
 
-## Frosted glass, rebuilt
+## Build themes by dragging sliders
 
-- The *Frosted Glass* background now uses the same dual-Kawase blur as
-  COSMIC's own frosted windows, with the Blur Amount slider mapped onto the
-  compositor's real strength curve. The old single-pass blur's grain at high
-  strengths is gone — and because the blur is rendered once and cached
-  instead of recomputed every frame, the steady-state GPU cost dropped too.
-- Text over the wallpaper now picks its colour from what is actually behind
-  it (the wallpaper, dimmed by the glass) instead of the album palette, so
-  lyrics stay readable on bright wallpapers.
-- Prefer a fixed colour? There's now a **text colour picker**: Wallpaper →
-  Text → Custom.
+- **Live theme editor** — Settings → Layout Themes. Pick an element (album
+  art, track info, lyrics, visualiser, weather, effects) and adjust its
+  position, size, shape, alignment and motion with native controls. Every
+  change saves the theme's TOML instantly and the engine reloads it live,
+  so you watch your actual desktop rearrange as you drag. Each control is
+  labelled with its TOML key — themes built by slider and themes written by
+  hand are the same files.
+- **Text sizing** — lyrics, track info and weather each gain a `size`
+  scale, adjustable in the editor. Long-requested, long hardcoded.
+- **Fine tuning** — every slider is paired with a stepper for exact
+  single-increment nudges (also on blur amount, visualiser bands,
+  smoothing and the frame-rate limit).
 
-## A redesigned Settings app
+## Themes are for sharing
 
-- One long page became seven sidebar pages in the COSMIC System Settings
-  style: Wallpaper, Live Wallpapers, Layout Themes, Now Playing, Visualiser,
-  Weather, General. Options appear only when the style they belong to is
-  selected.
-- Background styles are now visual cards previewing your actual wallpaper,
-  and Frosted Glass has a live preview that responds to the blur slider.
-- **Live Wallpapers library**: drag video files from your file manager
-  straight into the window to import them; the library shows first-frame
-  thumbnails and durations, and clicking a tile sets it as your background.
-- New in the GUI: visualiser bands and smoothing, weather units, location
-  and update interval, a *Prefer Spotify Canvas* toggle, and a shortcut to
-  the videos folder.
-- The inline TOML editor is retired — *Open Folder* plus the engine's live
-  reload covers hand-editing, without a second editor to maintain.
+- **Import** — drop a theme's `.toml` onto the Layout Themes page; it's
+  validated and added to your library.
+- **Gallery** — the repository now has a [themes/](../themes/) directory
+  with ready-made layouts (*centre-stage*, *minimal*) — contributions
+  welcome, every file is parse-checked in CI.
+- **Docs** — [THEMES.md](THEMES.md) documents every key, range and
+  default; *Create Theme* now writes a fully-commented starter file
+  instead of a bare stub.
 
-## Fixes
+## Engine control from Settings
 
-- Switching from a video background back to any other style no longer
-  leaves the last video frame stuck on screen.
-- Dropdown menus in Settings are opaque again on frosted/transparent system
-  themes.
-- Turning *Prefer Spotify Canvas* off stops Canvas loops immediately,
-  mid-track.
+- Settings → General shows whether the engine is running, with Start and
+  Stop buttons — no more hunting for the tray after quitting it.
+- Fixed: the *Start on login* toggle managed a different autostart file
+  than the one the package installs, so it displayed the wrong state — and
+  enabling it could have started two engines at login. It now manages the
+  canonical entry with an absolute path.
 
 ## Install
 
-Pop!_OS / Ubuntu 24.04: `sudo apt install ./cosmic-wallpaper_*.deb` — the
-package includes both binaries and a session autostart entry. Other distros:
-use the prebuilt binaries and verify them against the signed `SHA256SUMS.txt`.
-Upgrading from 1.0.0: the in-app updater (Settings → General) verifies and
-installs it for you.
+Pop!_OS / Ubuntu 24.04: `sudo apt install ./cosmic-wallpaper_*.deb`. Other
+distros: use the prebuilt binaries and verify them against the signed
+`SHA256SUMS.txt`. Upgrading: Settings → General offers the update in-app.
