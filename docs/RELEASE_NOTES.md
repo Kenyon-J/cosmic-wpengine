@@ -1,42 +1,50 @@
-# cosmic-wallpaper 1.0.0
+# cosmic-wallpaper 1.1.0
 
-First stable release. 🎉
+The frosted glass and settings release.
 
-## Highlights
+## Frosted glass, rebuilt
 
-- **COSMIC 1.3 frosted glass**: the settings app now frosts with the
-  system-wide frosted-glass style, and the engine's own *Frosted Glass*
-  background mode renders solid-colour and gradient desktop wallpapers —
-  previously only image wallpapers showed through.
-- **Clean exits**: fixed a segfault that fired on every graceful shutdown
-  (tray *Quit Engine*, and every logout). The Wayland connection was torn
-  down before the GPU surfaces that referenced it.
-- **MPRIS reliability**: Firefox album art is no longer rejected by the
-  art-path allowlist; a paused player keeps the watch instead of losing it
-  to a background tab; and a short pause no longer wipes the scene (the
-  inactivity reset went from 15 seconds to 2 minutes).
+- The *Frosted Glass* background now uses the same dual-Kawase blur as
+  COSMIC's own frosted windows, with the Blur Amount slider mapped onto the
+  compositor's real strength curve. The old single-pass blur's grain at high
+  strengths is gone — and because the blur is rendered once and cached
+  instead of recomputed every frame, the steady-state GPU cost dropped too.
+- Text over the wallpaper now picks its colour from what is actually behind
+  it (the wallpaper, dimmed by the glass) instead of the album palette, so
+  lyrics stay readable on bright wallpapers.
+- Prefer a fixed colour? There's now a **text colour picker**: Wallpaper →
+  Text → Custom.
 
-## Hardening (the V1 security plan)
+## A redesigned Settings app
 
-- Releases are now signed: `SHA256SUMS.txt` carries a minisign signature,
-  and the in-app updater verifies it against a key embedded in the binary
-  before trusting any hash. Updater downloads are pinned to the approved
-  release tag.
-- SSRF validation on the Spotify Canvas video path; the canvas proxy is
-  opt-in via `audio.canvas_proxy_url` (no more hardcoded localhost default).
-- All remote downloads are size-capped; GPU uniform uploads use checked
-  `bytemuck` casts (no `unsafe` left in the draw path); `cargo audit` runs
-  as a hard CI gate.
+- One long page became seven sidebar pages in the COSMIC System Settings
+  style: Wallpaper, Live Wallpapers, Layout Themes, Now Playing, Visualiser,
+  Weather, General. Options appear only when the style they belong to is
+  selected.
+- Background styles are now visual cards previewing your actual wallpaper,
+  and Frosted Glass has a live preview that responds to the blur slider.
+- **Live Wallpapers library**: drag video files from your file manager
+  straight into the window to import them; the library shows first-frame
+  thumbnails and durations, and clicking a tile sets it as your background.
+- New in the GUI: visualiser bands and smoothing, weather units, location
+  and update interval, a *Prefer Spotify Canvas* toggle, and a shortcut to
+  the videos folder.
+- The inline TOML editor is retired — *Open Folder* plus the engine's live
+  reload covers hand-editing, without a second editor to maintain.
 
-## Known limitations
+## Fixes
 
-- A stale MPRIS watcher thread can linger until session-bus name activity
-  wakes it: the upstream `mpris` crate's blocking event iterator cannot be
-  interrupted. Watchers are reaped on player switches, capping the impact.
-- Prebuilt binaries and the `.deb` target x86_64 Linux only.
+- Switching from a video background back to any other style no longer
+  leaves the last video frame stuck on screen.
+- Dropdown menus in Settings are opaque again on frosted/transparent system
+  themes.
+- Turning *Prefer Spotify Canvas* off stops Canvas loops immediately,
+  mid-track.
 
 ## Install
 
 Pop!_OS / Ubuntu 24.04: `sudo apt install ./cosmic-wallpaper_*.deb` — the
 package includes both binaries and a session autostart entry. Other distros:
 use the prebuilt binaries and verify them against the signed `SHA256SUMS.txt`.
+Upgrading from 1.0.0: the in-app updater (Settings → General) verifies and
+installs it for you.
