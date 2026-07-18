@@ -269,6 +269,9 @@ fn default_text_position() -> [f32; 2] {
 fn default_text_align() -> TextAlign {
     TextAlign::Center
 }
+fn default_text_size() -> f32 {
+    1.0
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TextLayout {
@@ -276,6 +279,9 @@ pub struct TextLayout {
     pub position: [f32; 2],
     #[serde(default = "default_text_align")]
     pub align: TextAlign,
+    /// Scale multiplier on the element's computed font size (1.0 = default).
+    #[serde(default = "default_text_size")]
+    pub size: f32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Copy)]
@@ -300,18 +306,21 @@ fn default_track_info_layout() -> TextLayout {
     TextLayout {
         position: [0.5, 0.10],
         align: TextAlign::Center,
+        size: 1.0,
     }
 }
 fn default_lyrics_layout() -> TextLayout {
     TextLayout {
         position: [0.5, 0.85],
         align: TextAlign::Center,
+        size: 1.0,
     }
 }
 fn default_weather_layout() -> TextLayout {
     TextLayout {
         position: [0.98, 0.05],
         align: TextAlign::Right,
+        size: 1.0,
     }
 }
 

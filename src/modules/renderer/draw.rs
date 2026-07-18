@@ -600,7 +600,9 @@ pub(crate) fn draw_frame(
                     });
 
                 if let Some(lyric_window) = lyric_window {
-                    let base_font_size = (logical_height * 0.04).clamp(16.0, 48.0) * scale_factor;
+                    let base_font_size = (logical_height * 0.04).clamp(16.0, 48.0)
+                        * scale_factor
+                        * renderer.theme.lyrics.size.clamp(0.25, 4.0);
                     let active_font_size = base_font_size * 1.5;
                     let inv_active_font_size = 1.0 / active_font_size;
                     let line_spacing = active_font_size * 1.2;
@@ -753,7 +755,9 @@ pub(crate) fn draw_frame(
 
             if renderer.state.current_track.is_some() && !renderer.cached_track_str.is_empty() {
                 let text = renderer.cached_track_str.clone();
-                let info_scale = (logical_height * 0.025).clamp(16.0, 36.0) * scale_factor;
+                let info_scale = (logical_height * 0.025).clamp(16.0, 36.0)
+                    * scale_factor
+                    * renderer.theme.track_info.size.clamp(0.25, 4.0);
                 let metrics = Metrics::new(info_scale, info_scale * 1.2);
                 let text_key = TextCacheKey::Track {
                     monitor: i,
@@ -785,7 +789,9 @@ pub(crate) fn draw_frame(
                 && !renderer.cached_weather_str.is_empty()
             {
                 let text = renderer.cached_weather_str.clone();
-                let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0) * scale_factor;
+                let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0)
+                    * scale_factor
+                    * renderer.theme.weather.size.clamp(0.25, 4.0);
                 let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
                 let text_key = TextCacheKey::Weather {
                     monitor: i,

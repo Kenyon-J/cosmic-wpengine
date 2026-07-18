@@ -1,0 +1,30 @@
+# Minimal - stays out of the way: small corner art, low thin bars, no bounce.
+
+[album_art]
+position = [0.07, 0.88]
+size = 0.12
+
+[track_info]
+position = [0.07, 0.97]
+align = "center"
+size = 0.8
+
+[lyrics]
+position = [0.5, 0.93]
+align = "center"
+size = 0.9
+
+[weather]
+position = [0.98, 0.04]
+align = "right"
+size = 0.9
+
+[visualiser]
+shape = "linear"
+position = [0.5, 0.99]
+size = 0.6
+amplitude = 0.6
+
+[effects]
+lyric_bounce = 0.0
+beat_pulse = 0.5

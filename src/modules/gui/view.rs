@@ -486,6 +486,250 @@ fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 
 // ------------------------------------------------------------------ Themes
 
+pub(crate) const THEME_ELEMENTS: [&str; 6] = [
+    "Album Art",
+    "Track Info",
+    "Lyrics",
+    "Visualiser",
+    "Weather",
+    "Effects",
+];
+const TEXT_ALIGN_LABELS: [&str; 3] = ["Left", "Center", "Right"];
+const ART_SHAPE_LABELS: [&str; 2] = ["Square", "Circular"];
+const VIS_SHAPE_LABELS: [&str; 3] = ["Linear", "Circular", "Square"];
+
+/// One editor slider row: label, live value, TOML key caption.
+fn theme_slider<'a>(
+    label: &'a str,
+    key: &'a str,
+    value: f32,
+    range: std::ops::RangeInclusive<f32>,
+    step: f32,
+    msg: fn(f32) -> super::ThemeEditMsg,
+) -> cosmic::Element<'a, Message> {
+    settings::item::builder(label)
+        .description(key)
+        .control(labeled_slider(
+            format!("{value:.2}"),
+            slider(range, value, move |v| Message::ThemeEdit(msg(v)))
+                .step(step)
+                .width(Length::Fixed(200.0))
+                .into(),
+        ))
+        .into()
+}
+
+fn theme_editor_rows<'a>(
+    app: &'a SettingsApp,
+    layout: &'a cosmic_wallpaper::modules::config::ThemeLayout,
+) -> cosmic::Element<'a, Message> {
+    use super::ThemeEditMsg as E;
+    use cosmic_wallpaper::modules::config::{ArtShape, TextAlign, VisAlign, VisShape};
+
+    let mut section = settings::section().title(THEME_ELEMENTS[app.theme_element]);
+
+    let align_row = |align: usize| {
+        settings::item::builder("Align")
+            .description("align")
+            .control(dropdown(&TEXT_ALIGN_LABELS[..], Some(align), |idx| {
+                Message::ThemeEdit(E::Align(idx))
+            }))
+    };
+    let text_align_idx = |a: TextAlign| match a {
+        TextAlign::Left => 0,
+        TextAlign::Center => 1,
+        TextAlign::Right => 2,
+    };
+
+    match app.theme_element {
+        // Album Art
+        0 => {
+            let art = &layout.album_art;
+            section = section
+                .add(theme_slider(
+                    "Position X",
+                    "position[0]",
+                    art.position[0],
+                    0.0..=1.0,
+                    0.01,
+                    E::PosX,
+                ))
+                .add(theme_slider(
+                    "Position Y",
+                    "position[1]",
+                    art.position[1],
+                    0.0..=1.0,
+                    0.01,
+                    E::PosY,
+                ))
+                .add(theme_slider(
+                    "Size",
+                    "size",
+                    art.size,
+                    0.05..=1.0,
+                    0.01,
+                    E::Size,
+                ))
+                .add(
+                    settings::item::builder("Shape")
+                        .description("shape")
+                        .control(dropdown(
+                            &ART_SHAPE_LABELS[..],
+                            Some(match art.shape {
+                                ArtShape::Square => 0,
+                                ArtShape::Circular => 1,
+                            }),
+                            |idx| Message::ThemeEdit(E::Shape(idx)),
+                        )),
+                );
+        }
+        // Track Info / Lyrics / Weather
+        1 | 2 | 4 => {
+            let t = match app.theme_element {
+                1 => &layout.track_info,
+                2 => &layout.lyrics,
+                _ => &layout.weather,
+            };
+            section = section
+                .add(theme_slider(
+                    "Position X",
+                    "position[0]",
+                    t.position[0],
+                    0.0..=1.0,
+                    0.01,
+                    E::PosX,
+                ))
+                .add(theme_slider(
+                    "Position Y",
+                    "position[1]",
+                    t.position[1],
+                    0.0..=1.0,
+                    0.01,
+                    E::PosY,
+                ))
+                .add(theme_slider(
+                    "Text size",
+                    "size",
+                    t.size,
+                    0.5..=2.5,
+                    0.05,
+                    E::Size,
+                ))
+                .add(align_row(text_align_idx(t.align)));
+        }
+        // Visualiser
+        3 => {
+            let v = &layout.visualiser;
+            section = section
+                .add(
+                    settings::item::builder("Shape")
+                        .description("shape")
+                        .control(dropdown(
+                            &VIS_SHAPE_LABELS[..],
+                            Some(match v.shape {
+                                VisShape::Linear => 0,
+                                VisShape::Circular => 1,
+                                VisShape::Square => 2,
+                            }),
+                            |idx| Message::ThemeEdit(E::Shape(idx)),
+                        )),
+                )
+                .add(theme_slider(
+                    "Position X",
+                    "position[0]",
+                    v.position[0],
+                    0.0..=1.0,
+                    0.01,
+                    E::PosX,
+                ))
+                .add(theme_slider(
+                    "Position Y",
+                    "position[1]",
+                    v.position[1],
+                    0.0..=1.0,
+                    0.01,
+                    E::PosY,
+                ))
+                .add(theme_slider(
+                    "Size",
+                    "size",
+                    v.size,
+                    0.05..=1.5,
+                    0.01,
+                    E::Size,
+                ))
+                .add(theme_slider(
+                    "Rotation",
+                    "rotation (degrees)",
+                    v.rotation,
+                    -180.0..=180.0,
+                    1.0,
+                    E::Rotation,
+                ))
+                .add(theme_slider(
+                    "Amplitude",
+                    "amplitude",
+                    v.amplitude,
+                    0.2..=3.0,
+                    0.05,
+                    E::Amplitude,
+                ))
+                .add(
+                    settings::item::builder("Band order")
+                        .description("align")
+                        .control(dropdown(
+                            &TEXT_ALIGN_LABELS[..],
+                            Some(match v.align {
+                                VisAlign::Left => 0,
+                                VisAlign::Center => 1,
+                                VisAlign::Right => 2,
+                            }),
+                            |idx| Message::ThemeEdit(E::Align(idx)),
+                        )),
+                );
+        }
+        // Effects
+        _ => {
+            let fx = &layout.effects;
+            section = section
+                .add(theme_slider(
+                    "Lyric bounce",
+                    "lyric_bounce",
+                    fx.lyric_bounce,
+                    0.0..=3.0,
+                    0.05,
+                    E::Bounce,
+                ))
+                .add(theme_slider(
+                    "Spring stiffness",
+                    "lyric_spring_stiffness",
+                    fx.lyric_spring_stiffness,
+                    30.0..=400.0,
+                    5.0,
+                    E::Stiffness,
+                ))
+                .add(theme_slider(
+                    "Spring damping",
+                    "lyric_spring_damping",
+                    fx.lyric_spring_damping,
+                    2.0..=40.0,
+                    1.0,
+                    E::Damping,
+                ))
+                .add(theme_slider(
+                    "Beat pulse",
+                    "beat_pulse",
+                    fx.beat_pulse,
+                    0.0..=3.0,
+                    0.05,
+                    E::BeatPulse,
+                ));
+        }
+    }
+
+    section.into()
+}
+
 fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let selected_theme = app
         .selected_theme
@@ -497,26 +741,53 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         Message::ThemeSelected,
     );
 
-    let sections = vec![
-        settings::section()
-            .title("Visualiser Themes")
-            .add(
-                settings::item::builder("Theme")
-                    .description("Where the visualiser sits and how it is shaped.")
-                    .control(
-                        Row::new()
-                            .push(theme_picker)
-                            .push(button::suggested("Apply").on_press(Message::ApplyTheme))
-                            .spacing(8)
-                            .align_y(cosmic::iced::Alignment::Center),
-                    ),
-            )
-            .into(),
+    let is_active = app.selected_theme.as_deref() == Some(app.wp_config.audio.style.as_str());
+
+    let mut sections = vec![settings::section()
+        .title("Theme")
+        .add(
+            settings::item::builder("Editing")
+                .description(if is_active {
+                    "This theme is live - changes appear on your desktop as you make them."
+                } else {
+                    "Not the active theme - changes save to its file; Apply to see them."
+                })
+                .control(
+                    Row::new()
+                        .push(theme_picker)
+                        .push(if is_active {
+                            button::standard("Active")
+                        } else {
+                            button::suggested("Apply").on_press(Message::ApplyTheme)
+                        })
+                        .spacing(8)
+                        .align_y(cosmic::iced::Alignment::Center),
+                ),
+        )
+        .into()];
+
+    if let Some(layout) = &app.edit_theme {
+        // Element tabs.
+        let mut tabs = Row::new().spacing(6);
+        for (idx, label) in THEME_ELEMENTS.iter().enumerate() {
+            let selected = idx == app.theme_element;
+            tabs = tabs.push(
+                button::custom(text::body(*label))
+                    .class(card_class(selected))
+                    .padding([4, 10])
+                    .on_press(Message::ThemeElementSelected(idx)),
+            );
+        }
+        sections.push(tabs.into());
+        sections.push(theme_editor_rows(app, layout));
+    }
+
+    sections.push(
         settings::section()
             .title("Manage")
             .add(
                 settings::item::builder("Create new theme")
-                    .description("Starts from a template layout you can edit.")
+                    .description("Starts from a fully-commented template layout.")
                     .control(
                         Row::new()
                             .push(
@@ -531,19 +802,26 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                     ),
             )
             .add(
-                settings::item::builder("Theme files")
-                    .description("Edit theme files by hand - changes apply while the engine runs.")
+                settings::item::builder("Import")
+                    .description("Drop .toml theme files anywhere on this page to add them.")
                     .control(button::standard("Open Folder").on_press(Message::OpenConfigFolder)),
             )
             .into(),
-    ];
+    );
 
-    page(
+    let content = page(
         app,
         "Layout Themes",
-        "How the audio visualiser is laid out on screen.",
+        "Where everything sits on screen. Slide something and watch your desktop follow.",
         sections,
+    );
+
+    // The whole page accepts theme-file drops.
+    cosmic::widget::dnd_destination::dnd_destination_for_data(
+        content,
+        |data: Option<super::library::DroppedFiles>, _action| Message::ThemeFilesDropped(data),
     )
+    .into()
 }
 
 // ------------------------------------------------------------- Now Playing
@@ -729,6 +1007,18 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let mut sections = vec![
         settings::section()
             .title("Engine")
+            .add(
+                settings::item::builder("Wallpaper engine")
+                    .description(match app.engine_pid {
+                        Some(pid) => format!("Running (pid {pid})."),
+                        None => "Not running.".to_string(),
+                    })
+                    .control(if app.engine_pid.is_some() {
+                        button::standard("Stop").on_press(Message::StopEngine)
+                    } else {
+                        button::suggested("Start").on_press(Message::StartEngine)
+                    }),
+            )
             .add(
                 settings::item::builder("Start on login")
                     .description("Launches the wallpaper engine when you log in.")

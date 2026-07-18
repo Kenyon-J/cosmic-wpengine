@@ -50,6 +50,15 @@ struct SettingsApp {
     /// while invalid; only valid coordinates are saved).
     lat_input: String,
     lon_input: String,
+    /// Parsed layout of `selected_theme`, edited live by the theme editor.
+    edit_theme: Option<config::ThemeLayout>,
+    /// Index into `view::THEME_ELEMENTS` - which element's controls show.
+    theme_element: usize,
+    /// Debounce generation for theme-file writes (mirrors `save_generation`).
+    theme_save_generation: u64,
+    /// Engine process, when running (refreshed on General, and after
+    /// Start/Stop).
+    engine_pid: Option<u32>,
     /// Monotonic counter pairing each slider change with its debounce timer;
     /// a DebouncedSave only writes to disk if its generation is still the
     /// newest (i.e. the slider settled for the full window).
@@ -67,6 +76,26 @@ struct WallpaperPreview {
     card_blurred: cosmic::widget::image::Handle,
     /// Mean sRGB of the wallpaper, for previewing the adaptive text colour.
     mean: [f32; 3],
+}
+
+/// A single edit from the theme editor, applied to the selected element of
+/// `edit_theme` in `update`.
+#[derive(Debug, Clone, Copy)]
+enum ThemeEditMsg {
+    PosX(f32),
+    PosY(f32),
+    Size(f32),
+    Rotation(f32),
+    Amplitude(f32),
+    /// Index into the element's shape options (art: square/circular;
+    /// visualiser: linear/circular/square).
+    Shape(usize),
+    /// Index into left/center/right.
+    Align(usize),
+    Bounce(f32),
+    Stiffness(f32),
+    Damping(f32),
+    BeatPulse(f32),
 }
 
 /// One page of the settings window, keyed off the sidebar selection.
@@ -125,6 +154,217 @@ impl SettingsApp {
             |generation| Message::DebouncedSave(generation).into(),
         )
     }
+
+    /// Theme-file counterpart of [`Self::schedule_debounced_save`].
+    fn schedule_theme_save(&mut self) -> Task<cosmic::Action<Message>> {
+        self.theme_save_generation = self.theme_save_generation.wrapping_add(1);
+        let generation = self.theme_save_generation;
+        Task::perform(
+            async move {
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                generation
+            },
+            |generation| Message::DebouncedThemeSave(generation).into(),
+        )
+    }
+
+    /// Serialises the edited layout to its theme file. The engine watches
+    /// the shaders directory, so a successful write is a live reload.
+    fn write_theme_file(&mut self) {
+        let (Some(name), Some(layout)) = (&self.selected_theme, &self.edit_theme) else {
+            return;
+        };
+        let rel = format!("shaders/{name}.toml");
+        if !is_safe_path(&rel) {
+            self.status_msg = format!("Blocked unsafe theme name: {name}");
+            return;
+        }
+        match toml::to_string_pretty(layout) {
+            Ok(text) => {
+                let path = config::Config::config_dir().join(&rel);
+                match std::fs::write(&path, text) {
+                    Ok(()) => {
+                        self.status_msg = if self.wp_config.audio.style == *name {
+                            format!("Saved {name} - the desktop is showing your change.")
+                        } else {
+                            format!("Saved {name}. Apply it to see it on the desktop.")
+                        };
+                    }
+                    Err(e) => self.status_msg = format!("Error saving theme: {e}"),
+                }
+            }
+            Err(e) => self.status_msg = format!("Error serialising theme: {e}"),
+        }
+    }
+
+    /// (Re)loads the selected theme's layout into the editor.
+    fn load_edit_theme(&mut self) {
+        self.edit_theme = self
+            .selected_theme
+            .as_ref()
+            .map(|name| config::ThemeLayout::load(name));
+    }
+}
+
+/// The file `Create Theme` writes: the complete default layout with every
+/// key present and explained, so a new theme's file teaches the format.
+/// Keep in sync with `ThemeLayout` in config/types.rs.
+const THEME_TEMPLATE: &str = r#"# cosmic-wallpaper layout theme.
+# Positions are [x, y] fractions of the screen: [0.0, 0.0] is the top-left
+# corner, [1.0, 1.0] the bottom-right. Every key is optional - missing keys
+# use the defaults shown here. The engine reloads this file as you save it.
+
+[album_art]
+position = [0.5, 0.5]
+size = 0.25          # fraction of screen height
+shape = "square"     # "square" or "circular"
+
+[track_info]
+position = [0.5, 0.1]
+align = "center"     # "left", "center" or "right"
+size = 1.0           # font scale multiplier
+
+[lyrics]
+position = [0.5, 0.85]
+align = "center"
+size = 1.0
+
+[weather]
+position = [0.98, 0.05]
+align = "right"
+size = 1.0
+
+[visualiser]
+shape = "linear"     # "linear", "circular" or "square"
+position = [0.5, 0.5]
+size = 0.25          # bar span (linear) or ring radius (circular)
+rotation = 0.0       # degrees
+amplitude = 1.0      # bar height multiplier
+align = "center"     # band ordering: "left", "center" or "right"
+# color_top = [1.0, 0.2, 0.5]     # override the album-palette colours
+# color_bottom = [0.2, 0.5, 1.0]
+
+[effects]
+lyric_bounce = 1.0             # how far the active lyric hops on the beat
+lyric_spring_stiffness = 150.0 # snappiness of the lyric scroll
+lyric_spring_damping = 12.0    # wobble control: lower = bouncier
+beat_pulse = 1.0               # visualiser pulse on detected beats
+
+# font_family = "Fira Sans"    # this theme's font (user setting wins)
+"#;
+
+/// Applies one editor change to the element at `element` (index into
+/// `view::THEME_ELEMENTS`: art, track, lyrics, visualiser, weather,
+/// effects). Messages that don't apply to the element are ignored.
+fn apply_theme_edit(layout: &mut config::ThemeLayout, element: usize, edit: ThemeEditMsg) {
+    use config::{ArtShape, TextAlign, VisAlign, VisShape};
+
+    const TEXT_ALIGNS: [TextAlign; 3] = [TextAlign::Left, TextAlign::Center, TextAlign::Right];
+    const VIS_ALIGNS: [VisAlign; 3] = [VisAlign::Left, VisAlign::Center, VisAlign::Right];
+    const ART_SHAPES: [ArtShape; 2] = [ArtShape::Square, ArtShape::Circular];
+    const VIS_SHAPES: [VisShape; 3] = [VisShape::Linear, VisShape::Circular, VisShape::Square];
+
+    fn text_layout(
+        layout: &mut config::ThemeLayout,
+        element: usize,
+    ) -> Option<&mut config::TextLayout> {
+        match element {
+            1 => Some(&mut layout.track_info),
+            2 => Some(&mut layout.lyrics),
+            4 => Some(&mut layout.weather),
+            _ => None,
+        }
+    }
+
+    match edit {
+        ThemeEditMsg::PosX(v) => match element {
+            0 => layout.album_art.position[0] = v,
+            3 => layout.visualiser.position[0] = v,
+            _ => {
+                if let Some(t) = text_layout(layout, element) {
+                    t.position[0] = v;
+                }
+            }
+        },
+        ThemeEditMsg::PosY(v) => match element {
+            0 => layout.album_art.position[1] = v,
+            3 => layout.visualiser.position[1] = v,
+            _ => {
+                if let Some(t) = text_layout(layout, element) {
+                    t.position[1] = v;
+                }
+            }
+        },
+        ThemeEditMsg::Size(v) => match element {
+            0 => layout.album_art.size = v,
+            3 => layout.visualiser.size = v,
+            _ => {
+                if let Some(t) = text_layout(layout, element) {
+                    t.size = v;
+                }
+            }
+        },
+        ThemeEditMsg::Rotation(v) => layout.visualiser.rotation = v,
+        ThemeEditMsg::Amplitude(v) => layout.visualiser.amplitude = v,
+        ThemeEditMsg::Shape(idx) => match element {
+            0 => {
+                if let Some(shape) = ART_SHAPES.get(idx) {
+                    layout.album_art.shape = *shape;
+                }
+            }
+            3 => {
+                if let Some(shape) = VIS_SHAPES.get(idx) {
+                    layout.visualiser.shape = *shape;
+                }
+            }
+            _ => {}
+        },
+        ThemeEditMsg::Align(idx) => match element {
+            3 => {
+                if let Some(align) = VIS_ALIGNS.get(idx) {
+                    layout.visualiser.align = *align;
+                }
+            }
+            _ => {
+                if let Some(t) = text_layout(layout, element) {
+                    if let Some(align) = TEXT_ALIGNS.get(idx) {
+                        t.align = *align;
+                    }
+                }
+            }
+        },
+        ThemeEditMsg::Bounce(v) => layout.effects.lyric_bounce = v,
+        ThemeEditMsg::Stiffness(v) => layout.effects.lyric_spring_stiffness = v,
+        ThemeEditMsg::Damping(v) => layout.effects.lyric_spring_damping = v,
+        ThemeEditMsg::BeatPulse(v) => layout.effects.beat_pulse = v,
+    }
+}
+
+/// PID of a running wallpaper engine, found by cmdline (comm truncates to
+/// 15 chars, which cannot distinguish the engine from this GUI).
+fn find_engine_pid() -> Option<u32> {
+    let entries = std::fs::read_dir("/proc").ok()?;
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|n| n.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else {
+            continue;
+        };
+        let arg0 = cmdline.split(|b| *b == 0).next().unwrap_or_default();
+        let arg0 = String::from_utf8_lossy(arg0);
+        if std::path::Path::new(arg0.as_ref())
+            .file_name()
+            .is_some_and(|n| n == "cosmic-wallpaper")
+        {
+            return Some(pid);
+        }
+    }
+    None
 }
 
 /// Center-crops `img` to `ratio` (w/h) and resizes to `w`x`h`.
@@ -443,6 +683,15 @@ enum Message {
     LongitudeChanged(String),
     /// Index into `view::POLL_MINUTES`.
     PollIntervalSelected(usize),
+    /// Index into `view::THEME_ELEMENTS`.
+    ThemeElementSelected(usize),
+    ThemeEdit(ThemeEditMsg),
+    DebouncedThemeSave(u64),
+    /// Theme .toml files dropped onto the Layout Themes page.
+    ThemeFilesDropped(Option<library::DroppedFiles>),
+    StartEngine,
+    StopEngine,
+    RefreshEngineStatus,
     ApplyTheme,
     FpsChanged(f32),
     BlurOpacityChanged(f32),
@@ -535,6 +784,9 @@ impl Application for SettingsApp {
             .build();
 
         let appearance_snapshot = wp_config.appearance.clone();
+        let edit_theme = selected_theme
+            .as_ref()
+            .map(|name| config::ThemeLayout::load(name));
 
         (
             SettingsApp {
@@ -562,6 +814,10 @@ impl Application for SettingsApp {
                 ),
                 lat_input: format!("{}", wp_config.weather.latitude),
                 lon_input: format!("{}", wp_config.weather.longitude),
+                edit_theme,
+                theme_element: 0,
+                theme_save_generation: 0,
+                engine_pid: find_engine_pid(),
                 wp_config,
                 save_generation: 0,
             },
@@ -581,6 +837,10 @@ impl Application for SettingsApp {
 
     fn on_nav_select(&mut self, id: nav_bar::Id) -> Task<cosmic::Action<Self::Message>> {
         self.nav.activate(id);
+        // Keep the engine row honest whenever General comes into view.
+        if self.nav.active_data::<Page>() == Some(&Page::General) {
+            self.engine_pid = find_engine_pid();
+        }
         Task::none()
     }
 
@@ -754,6 +1014,104 @@ impl Application for SettingsApp {
             }
             Message::ThemeSelected(idx) => {
                 self.selected_theme = self.available_themes.get(idx).cloned();
+                self.load_edit_theme();
+            }
+            Message::ThemeElementSelected(idx) => {
+                self.theme_element = idx;
+            }
+            Message::ThemeEdit(edit) => {
+                let element = self.theme_element;
+                if let Some(layout) = &mut self.edit_theme {
+                    apply_theme_edit(layout, element, edit);
+                    return self.schedule_theme_save();
+                }
+            }
+            Message::DebouncedThemeSave(generation) => {
+                if generation == self.theme_save_generation {
+                    self.write_theme_file();
+                }
+            }
+            Message::ThemeFilesDropped(files) => {
+                let paths = files.map(|f| f.0).unwrap_or_default();
+                let mut imported = 0;
+                for path in paths
+                    .iter()
+                    .filter(|p| p.extension().is_some_and(|e| e == "toml"))
+                {
+                    let Ok(text) = std::fs::read_to_string(path) else {
+                        continue;
+                    };
+                    if let Err(e) = toml::from_str::<config::ThemeLayout>(&text) {
+                        self.status_msg = format!("Not a valid theme: {e}");
+                        continue;
+                    }
+                    let Some(name) = path.file_name() else {
+                        continue;
+                    };
+                    let dir = config::Config::config_dir().join("shaders");
+                    let _ = std::fs::create_dir_all(&dir);
+                    if std::fs::write(dir.join(name), text).is_ok() {
+                        imported += 1;
+                    }
+                }
+                if imported > 0 {
+                    self.available_themes = load_themes();
+                    self.status_msg = format!(
+                        "Imported {imported} theme{}.",
+                        if imported == 1 { "" } else { "s" }
+                    );
+                } else if self.status_msg.starts_with("Ready") {
+                    self.status_msg = "Nothing imported - drop .toml theme files.".into();
+                }
+            }
+            Message::StartEngine => {
+                if let Some(engine) = resolve_binary("cosmic-wallpaper") {
+                    match std::process::Command::new(engine).spawn() {
+                        Ok(_) => {
+                            self.status_msg = "Engine starting...".into();
+                            return Task::perform(
+                                tokio::time::sleep(std::time::Duration::from_millis(1500)),
+                                |()| Message::RefreshEngineStatus.into(),
+                            );
+                        }
+                        Err(e) => self.status_msg = format!("Failed to start the engine: {e}"),
+                    }
+                } else {
+                    self.status_msg = "cosmic-wallpaper not found in PATH.".into();
+                }
+            }
+            Message::StopEngine => {
+                if let Some(pid) = self.engine_pid {
+                    // The tray's Quit item is the tested graceful-shutdown
+                    // path; menu id 3 is Quit Engine.
+                    if let Some(busctl) = resolve_binary("busctl") {
+                        let _ = std::process::Command::new(busctl)
+                            .args([
+                                "--user",
+                                "call",
+                                &format!("org.kde.StatusNotifierItem-{pid}-1"),
+                                "/MenuBar",
+                                "com.canonical.dbusmenu",
+                                "Event",
+                                "isvu",
+                                "3",
+                                "clicked",
+                                "v",
+                                "s",
+                                "",
+                                "0",
+                            ])
+                            .output();
+                        self.status_msg = "Engine stopping...".into();
+                        return Task::perform(
+                            tokio::time::sleep(std::time::Duration::from_millis(1500)),
+                            |()| Message::RefreshEngineStatus.into(),
+                        );
+                    }
+                }
+            }
+            Message::RefreshEngineStatus => {
+                self.engine_pid = find_engine_pid();
             }
             Message::ApplyTheme => {
                 if let Some(theme) = &self.selected_theme {
@@ -834,16 +1192,11 @@ impl Application for SettingsApp {
 
                     match options.open(&path) {
                         Ok(mut file) => {
-                            let default_content = r#"[visualiser]
-shape = "linear"
-position = [0.5, 0.5]
-size = 0.85
-rotation = 0.0
-amplitude = 1.5"#;
                             use std::io::Write;
-                            let _ = file.write_all(default_content.as_bytes());
+                            let _ = file.write_all(THEME_TEMPLATE.as_bytes());
                             self.available_themes = load_themes();
                             self.selected_theme = Some(name.to_string());
+                            self.load_edit_theme();
                             self.status_msg = format!("Created {}", file_name);
                             self.new_theme_name.clear();
                         }
