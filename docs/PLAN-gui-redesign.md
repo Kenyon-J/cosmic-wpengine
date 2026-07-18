@@ -70,6 +70,13 @@ Pure restructure plus a few free wins; no drag-and-drop yet.
       writes config + the engine live-reloads (no input automation available
       on Wayland to do this hands-off)
 
+2026-07-18 evening: Phases 1+2 signed off by Joshua and installed as the
+system GUI (`~/.local/bin/cosmic-wallpaper-gui`). Fixed en route: thumbnail
+overflow (image widget doesn't clip Cover; use fixed-box Contain),
+tech-jargon subtitles, and the stuck-frame bug when switching Video →
+Frosted (engine now reloads the wallpaper on the video's Some→None
+transition). Next: Phase 3.
+
 Feedback round 1 (2026-07-18): sidebar felt laggy → was the unoptimized
 debug build, plus per-render `Vec<String>` clones feeding iced pick_lists;
 pick_list overlay menus also rendered translucent on the frosted system
