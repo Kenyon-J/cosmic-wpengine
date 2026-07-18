@@ -182,26 +182,30 @@ pub async fn perform_update(client: reqwest::Client, target_tag: String) -> Resu
         .to_path_buf();
     let engine_path = install_dir.join("cosmic-wallpaper");
 
-    let sums_text = client
+    let sums_resp = client
         .get(tagged_download_url(&target_tag, "SHA256SUMS.txt"))
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .text()
+        .map_err(|e| e.to_string())?;
+    // Prevent OOM from large/malicious payloads by capping text downloads to 1MB
+    let sums_bytes = cosmic_wallpaper::modules::utils::read_capped(sums_resp, 1024 * 1024)
         .await
         .map_err(|e| e.to_string())?;
+    let sums_text = String::from_utf8(sums_bytes).map_err(|e| e.to_string())?;
 
     // The hashes only authenticate the binaries against SHA256SUMS.txt; the
     // minisign signature authenticates SHA256SUMS.txt itself. Verify it
     // before trusting a single hash in the file.
-    let sig_text = client
+    let sig_resp = client
         .get(tagged_download_url(&target_tag, "SHA256SUMS.txt.minisig"))
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .text()
+        .map_err(|e| e.to_string())?;
+    // Prevent OOM from large/malicious payloads by capping text downloads to 1MB
+    let sig_bytes = cosmic_wallpaper::modules::utils::read_capped(sig_resp, 1024 * 1024)
         .await
         .map_err(|e| e.to_string())?;
+    let sig_text = String::from_utf8(sig_bytes).map_err(|e| e.to_string())?;
     verify_sums_signature(MINISIGN_PUBLIC_KEY, &sums_text, &sig_text)?;
 
     let sums = parse_sha256sums(&sums_text);
