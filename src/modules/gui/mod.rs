@@ -340,6 +340,22 @@ fn apply_theme_edit(layout: &mut config::ThemeLayout, element: usize, edit: Them
     }
 }
 
+/// Path to the engine binary: the GUI's sibling first (both binaries
+/// install side by side - ~/.local/bin, /usr/bin, and the .deb all do
+/// this; the updater relies on the same layout), falling back to the
+/// trusted system paths for split installs.
+fn engine_binary_path() -> Option<std::path::PathBuf> {
+    if let Ok(gui) = std::env::current_exe() {
+        if let Some(dir) = gui.parent() {
+            let sibling = dir.join("cosmic-wallpaper");
+            if sibling.exists() {
+                return Some(sibling);
+            }
+        }
+    }
+    resolve_binary("cosmic-wallpaper")
+}
+
 /// PID of a running wallpaper engine, found by cmdline (comm truncates to
 /// 15 chars, which cannot distinguish the engine from this GUI).
 fn find_engine_pid() -> Option<u32> {
@@ -1065,7 +1081,7 @@ impl Application for SettingsApp {
                 }
             }
             Message::StartEngine => {
-                if let Some(engine) = resolve_binary("cosmic-wallpaper") {
+                if let Some(engine) = engine_binary_path() {
                     match std::process::Command::new(engine).spawn() {
                         Ok(_) => {
                             self.status_msg = "Engine starting...".into();
@@ -1077,7 +1093,8 @@ impl Application for SettingsApp {
                         Err(e) => self.status_msg = format!("Failed to start the engine: {e}"),
                     }
                 } else {
-                    self.status_msg = "cosmic-wallpaper not found in PATH.".into();
+                    self.status_msg =
+                        "Could not find the cosmic-wallpaper binary next to Settings.".into();
                 }
             }
             Message::StopEngine => {
