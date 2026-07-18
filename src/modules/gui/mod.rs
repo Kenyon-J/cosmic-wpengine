@@ -148,7 +148,7 @@ fn load_wallpaper_preview_task(
     Task::perform(
         async move {
             let resolved = appearance.resolved_background().await;
-            tokio::task::spawn_blocking(move || build_wallpaper_preview(resolved))
+            tokio::task::spawn_blocking(move || build_wallpaper_preview(resolved).map(Box::new))
                 .await
                 .ok()
                 .flatten()
@@ -435,7 +435,7 @@ enum Message {
         imported: usize,
         skipped: usize,
     },
-    WallpaperPreviewLoaded(Option<WallpaperPreview>),
+    WallpaperPreviewLoaded(Option<Box<WallpaperPreview>>),
     /// 0 = automatic text colour, 1 = custom.
     TextColorMode(usize),
     TextColorPicker(ColorPickerUpdate),
@@ -690,7 +690,7 @@ impl Application for SettingsApp {
                 }
             }
             Message::WallpaperPreviewLoaded(preview) => {
-                self.wallpaper_preview = preview;
+                self.wallpaper_preview = preview.map(|boxed| *boxed);
             }
             Message::TextColorMode(idx) => {
                 self.wp_config.appearance.text_color = if idx == 0 {
