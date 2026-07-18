@@ -451,9 +451,25 @@ fn scan_library_task() -> Task<cosmic::Action<Message>> {
     )
 }
 
-fn autostart_path() -> std::path::PathBuf {
+fn autostart_dir() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
-    std::path::PathBuf::from(home).join(".config/autostart/cosmic-wallpaper.desktop")
+    std::path::PathBuf::from(home).join(".config/autostart")
+}
+
+/// The canonical autostart entry - the same file name the .deb installs, so
+/// the toggle and package-managed autostart agree on one file.
+fn autostart_path() -> std::path::PathBuf {
+    autostart_dir().join("io.github.kenyon_j.cosmic_wpengine.desktop")
+}
+
+/// A stale name this toggle wrote before it matched the packaged entry;
+/// removed on disable so old installs can't end up starting two engines.
+fn legacy_autostart_path() -> std::path::PathBuf {
+    autostart_dir().join("cosmic-wallpaper.desktop")
+}
+
+fn autostart_enabled() -> bool {
+    autostart_path().exists() || legacy_autostart_path().exists()
 }
 
 fn set_autostart(enable: bool) {
@@ -485,18 +501,31 @@ fn set_autostart(enable: bool) {
     }
 
     let path = autostart_path();
+    // Whatever the new state, the pre-1.2 file name must go: leaving it
+    // alongside the canonical entry would start two engines at login.
+    let _ = std::fs::remove_file(legacy_autostart_path());
     if enable {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+        // Absolute Exec: the session's autostart environment does not
+        // reliably include ~/.local/bin in PATH.
+        let exec = engine_binary_path()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "cosmic-wallpaper".to_string());
         let _ = std::fs::write(
             &path,
-            r#"[Desktop Entry]
+            format!(
+                r#"[Desktop Entry]
 Type=Application
-Exec=cosmic-wallpaper
-Hidden=false
+Name=COSMIC Wallpaper Engine
+Comment=Live wallpaper engine for the COSMIC desktop
+Exec={exec}
+Terminal=false
+StartupNotify=false
 X-GNOME-Autostart-enabled=true
-Name=COSMIC Wallpaper"#,
+"#
+            ),
         );
     } else {
         let _ = std::fs::remove_file(path);
@@ -813,7 +842,7 @@ impl Application for SettingsApp {
                 library: Vec::new(),
                 drop_hover: false,
                 selected_theme,
-                autostart: autostart_path().exists(),
+                autostart: autostart_enabled(),
                 new_theme_name: String::new(),
                 status_msg: "Ready.".into(),
                 update_state: UpdateState::UpToDate,
@@ -1129,6 +1158,18 @@ impl Application for SettingsApp {
             }
             Message::RefreshEngineStatus => {
                 self.engine_pid = find_engine_pid();
+                // Resolve the transitional status set by Start/Stop.
+                if self.status_msg.starts_with("Engine start") {
+                    self.status_msg = match self.engine_pid {
+                        Some(_) => "Engine running.".into(),
+                        None => "The engine did not start - check the logs.".into(),
+                    };
+                } else if self.status_msg.starts_with("Engine stop") {
+                    self.status_msg = match self.engine_pid {
+                        Some(_) => "The engine is still running.".into(),
+                        None => "Engine stopped.".into(),
+                    };
+                }
             }
             Message::ApplyTheme => {
                 if let Some(theme) = &self.selected_theme {
