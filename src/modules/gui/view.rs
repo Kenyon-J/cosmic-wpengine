@@ -90,7 +90,7 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                 .title("Frosted Glass")
                 .add(
                     settings::item::builder("Blur amount")
-                        .description("Same dual-Kawase strengths as COSMIC's frosted windows.")
+                        .description("How strongly the wallpaper is blurred.")
                         .control(labeled_slider(
                             format!("{:.2}", app.wp_config.appearance.blur_opacity),
                             slider(
@@ -129,6 +129,11 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 
 // --------------------------------------------------------- Live Wallpapers
 
+/// Fixed thumbnail box per tile; 16:9, small enough for three tiles plus
+/// spacing at the window's default width.
+const TILE_THUMB_WIDTH: f32 = 168.0;
+const TILE_THUMB_HEIGHT: f32 = 94.5;
+
 fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     // Drop zone: accepts text/uri-list drags from the file manager.
     let drop_label = if app.drop_hover {
@@ -162,19 +167,21 @@ fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             let idx = row_idx * 3 + col_idx;
             let is_active = active_video == Some(entry.file_name.as_str());
 
-            let thumb: cosmic::Element<'_, Message> = match &entry.thumbnail {
+            // Contain (not Cover): the image renderer at this rev does not
+            // clip overflow, so the scaled image must never exceed its box.
+            let thumb_inner: cosmic::Element<'_, Message> = match &entry.thumbnail {
                 Some(path) => cosmic::widget::image(cosmic::widget::image::Handle::from_path(path))
-                    .content_fit(cosmic::iced::ContentFit::Cover)
-                    .width(Length::Fill)
-                    .height(Length::Fixed(96.0))
+                    .content_fit(cosmic::iced::ContentFit::Contain)
+                    .width(Length::Fixed(TILE_THUMB_WIDTH))
+                    .height(Length::Fixed(TILE_THUMB_HEIGHT))
                     .into(),
-                None => cosmic::widget::container(text::title3("▶"))
-                    .width(Length::Fill)
-                    .height(Length::Fixed(96.0))
-                    .align_x(cosmic::iced::alignment::Horizontal::Center)
-                    .align_y(cosmic::iced::alignment::Vertical::Center)
-                    .into(),
+                None => text::title3("▶").into(),
             };
+            let thumb = cosmic::widget::container(thumb_inner)
+                .width(Length::Fill)
+                .height(Length::Fixed(TILE_THUMB_HEIGHT))
+                .align_x(cosmic::iced::alignment::Horizontal::Center)
+                .align_y(cosmic::iced::alignment::Vertical::Center);
 
             let mut meta = Row::new()
                 .spacing(6)
@@ -303,7 +310,7 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             )
             .add(
                 settings::item::builder("Theme files")
-                    .description("Plain TOML in the shaders folder - edits apply live.")
+                    .description("Edit theme files by hand - changes apply while the engine runs.")
                     .control(button::standard("Open Folder").on_press(Message::OpenConfigFolder)),
             )
             .into(),
@@ -404,7 +411,7 @@ fn visualiser(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     page(
         app,
         "Visualiser",
-        "Audio-reactive bars, driven by whatever plays through PipeWire.",
+        "Bars that move with whatever is playing.",
         sections,
     )
 }
@@ -428,7 +435,7 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         )
         .add(
             settings::item::builder("Hide animated effects")
-                .description("Skips rain and snow particles to save GPU.")
+                .description("Turns off rain and snow animations to save power.")
                 .toggler(
                     app.wp_config.weather.hide_effects,
                     Message::ToggleHideWeatherEffects,
