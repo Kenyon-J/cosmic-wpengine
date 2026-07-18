@@ -13,9 +13,21 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
     // only 8 * 8 * 8 = 512 possible buckets. This avoids heap allocations and hashing overhead.
     let mut buckets = [0u32; 512];
 
+    // Optimization: Extract the underlying RgbaImage reference once before the nested loop.
+    // This bypasses the 10-variant enum matching overhead of DynamicImage::get_pixel
+    // for thousands of pixel sampling operations.
+    let fallback;
+    let rgba_img = match image.as_rgba8() {
+        Some(img) => img,
+        None => {
+            fallback = image.to_rgba8();
+            &fallback
+        }
+    };
+
     for y in (0..height).step_by(step_y as usize) {
         for x in (0..width).step_by(step_x as usize) {
-            let Rgba([r, g, b, a]) = image.get_pixel(x, y);
+            let Rgba([r, g, b, a]) = *rgba_img.get_pixel(x, y);
             if a < 128 {
                 continue;
             }
