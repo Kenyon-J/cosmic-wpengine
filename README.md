@@ -298,11 +298,4 @@ The renderer processes events each frame, updates `AppState`, and dispatches to 
 
 ## Roadmap
 
-- [x] System Tray (AppIndicator) menu for quick settings toggles (Blur, Lyrics, Backgrounds)
-- [x] User-loadable custom shaders
-- [x] Hardware-accelerated compute shaders for weather particles
-- [x] Spotify Canvas (short video loops) background support
-- [x] Advanced beat-detection for more organic lyric bouncing
-- [ ] Interactive mouse-reactive wallpaper effects
-- [x] Generic video file playback (MP4/WebM) as backgrounds
-- [ ] Plugin API for custom data sources
+Planned work lives in [docs/ROADMAP.md](docs/ROADMAP.md).

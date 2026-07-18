@@ -23,3 +23,8 @@ Fold into the redesign:
 The ~120-field `Renderer` + ~900-line `draw_frame` split (Phase 9 of
 [PLAN-v1-hardening.md](PLAN-v1-hardening.md)). Needs its own plan and ideally
 a frame-capture harness first.
+
+## Unscheduled ideas
+
+- Interactive mouse-reactive wallpaper effects
+- Plugin API for custom data sources
