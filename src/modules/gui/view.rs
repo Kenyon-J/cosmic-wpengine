@@ -1,460 +1,431 @@
-use cosmic::iced::widget::{checkbox, pick_list, slider, Column, Row};
+use cosmic::iced::widget::{pick_list, slider, Column, Row};
 use cosmic::iced::Length;
-use cosmic::widget::{text, text_editor, text_input};
-pub(crate) fn view_app(app: &super::SettingsApp) -> cosmic::Element<'_, super::Message> {
-    let font = cosmic::iced::Font::DEFAULT;
+use cosmic::widget::{button, settings, text, text_input};
 
-    let current_bg_mode = if app.wp_config.appearance.video_background_path.is_some() {
-        super::BackgroundMode::Video
-    } else if app.wp_config.appearance.album_color_background {
-        super::BackgroundMode::AlbumPalette
-    } else if app.wp_config.appearance.album_art_background {
-        super::BackgroundMode::AlbumArt
-    } else if app.wp_config.appearance.transparent_background {
-        super::BackgroundMode::Transparent
-    } else {
-        super::BackgroundMode::FrostedGlass
+use super::{BackgroundMode, Message, Page, SettingsApp, UpdateState};
+
+pub(crate) fn view_app(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    let page = app
+        .nav
+        .active_data::<Page>()
+        .copied()
+        .unwrap_or(Page::Wallpaper);
+
+    let content = match page {
+        Page::Wallpaper => wallpaper(app),
+        Page::LiveWallpapers => live_wallpapers(app),
+        Page::Themes => themes(app),
+        Page::NowPlaying => now_playing(app),
+        Page::Visualiser => visualiser(app),
+        Page::Weather => weather(app),
+        Page::General => general(app),
     };
 
-    let bg_mode_selector = cosmic::iced::widget::tooltip(
-        pick_list(
-            &super::BackgroundMode::ALL[..],
-            Some(current_bg_mode),
-            super::Message::BackgroundModeSelected,
-        ),
-        "Changes the desktop background effect.",
-        cosmic::iced::widget::tooltip::Position::Top,
-    );
+    cosmic::iced::widget::scrollable(
+        cosmic::iced::widget::container(content)
+            .padding([24, 32])
+            .width(Length::Fill),
+    )
+    .into()
+}
 
-    let mut toggles_row = Column::new().push(
-        Row::new()
-            .push(
-                text("Background Style:")
-                    .font(font)
-                    .width(Length::Fixed(200.0)),
-            )
-            .push(bg_mode_selector)
-            .spacing(20)
-            .align_y(cosmic::iced::Alignment::Center),
-    );
+/// Shared page scaffold: title, one-line summary, settings sections, and the
+/// status line every action reports into.
+fn page<'a>(
+    app: &'a SettingsApp,
+    title: &'a str,
+    summary: &'a str,
+    sections: Vec<cosmic::Element<'a, Message>>,
+) -> cosmic::Element<'a, Message> {
+    let mut children: Vec<cosmic::Element<'a, Message>> =
+        vec![text::title3(title).into(), text::caption(summary).into()];
+    children.extend(sections);
+    children.push(text::caption(&app.status_msg).into());
+    settings::view_column(children).into()
+}
 
-    if current_bg_mode == super::BackgroundMode::Video {
-        let video_selector = cosmic::iced::widget::tooltip(
-            pick_list(
-                app.available_videos.clone(),
-                app.wp_config.appearance.video_background_path.clone(),
-                super::Message::VideoSelected,
-            )
-            .placeholder(if app.available_videos.is_empty() {
-                "Place videos in ~/.config/cosmic-wallpaper/videos"
-            } else {
-                "Select a video..."
-            }),
-            "Select a video file to play as the background.",
-            cosmic::iced::widget::tooltip::Position::Top,
-        );
-        toggles_row = toggles_row.push(
-            Row::new()
-                .push(
-                    text("Selected Video:")
-                        .font(font)
-                        .width(Length::Fixed(200.0)),
-                )
-                .push(video_selector)
-                .spacing(20)
-                .align_y(cosmic::iced::Alignment::Center),
-        );
-    }
-
-    let toggles_row = toggles_row
-        .push(
-            Row::new()
-                .push(cosmic::iced::widget::tooltip(
-                    checkbox(app.wp_config.appearance.show_album_art)
-                        .on_toggle(super::Message::ToggleShowAlbumArt)
-                        .label("Show Album Art Foreground")
-                        .font(font),
-                    "Displays the current album cover over the background.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                ))
-                .push(cosmic::iced::widget::tooltip(
-                    checkbox(app.wp_config.audio.show_lyrics)
-                        .on_toggle(super::Message::ToggleShowLyrics)
-                        .label("Show Lyrics")
-                        .font(font),
-                    "Displays scrolling lyrics for the current track.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                ))
-                .push(cosmic::iced::widget::tooltip(
-                    checkbox(app.autostart)
-                        .on_toggle(super::Message::ToggleAutostart)
-                        .label("Autostart on Login")
-                        .font(font),
-                    "Launches the wallpaper engine automatically when you log in.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                ))
-                .spacing(20)
-                .align_y(cosmic::iced::Alignment::Center),
-        )
-        .push(
-            Row::new()
-                .push(cosmic::iced::widget::tooltip(
-                    checkbox(app.wp_config.weather.enabled)
-                        .on_toggle(super::Message::ToggleWeatherEnabled)
-                        .label("Enable Weather")
-                        .font(font),
-                    "Displays current weather information on the desktop.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                ))
-                .push({
-                    let cb = checkbox(app.wp_config.weather.hide_effects)
-                        .label("Hide Weather Effects")
-                        .font(font);
-                    let element: cosmic::Element<'_, super::Message> =
-                        if app.wp_config.weather.enabled {
-                            cosmic::iced::widget::tooltip(
-                                cb.on_toggle(super::Message::ToggleHideWeatherEffects),
-                                "Disables rain and snow animations to save performance.",
-                                cosmic::iced::widget::tooltip::Position::Top,
-                            )
-                            .into()
-                        } else {
-                            cosmic::iced::widget::tooltip(
-                                cb,
-                                "Enable Weather first to use this setting.",
-                                cosmic::iced::widget::tooltip::Position::Top,
-                            )
-                            .into()
-                        };
-                    element
-                })
-                .spacing(20)
-                .align_y(cosmic::iced::Alignment::Center),
-        )
-        .spacing(15);
-
-    let font_row = Row::new()
-        .push(text("Font Family:").font(font).width(Length::Fixed(200.0)))
-        .push(cosmic::iced::widget::tooltip(
-            pick_list(
-                app.available_fonts.clone(),
-                app.wp_config
-                    .appearance
-                    .font_family
-                    .clone()
-                    .or_else(|| Some("System Default".to_string())),
-                super::Message::FontFamilySelected,
-            )
-            .placeholder(if app.available_fonts.is_empty() {
-                "No system fonts found"
-            } else {
-                "Select a font..."
-            }),
-            "Select the font used for displaying the clock, weather, and lyrics.",
-            cosmic::iced::widget::tooltip::Position::Top,
-        ))
-        .spacing(20)
-        .align_y(cosmic::iced::Alignment::Center);
-
-    let framerate_row = Row::new()
-        .push(
-            text(format!("Target Framerate: {} FPS", app.wp_config.fps))
-                .font(font)
-                .width(Length::Fixed(200.0)),
-        )
-        .push(cosmic::iced::widget::tooltip(
-            slider(
-                15.0..=144.0,
-                app.wp_config.fps as f32,
-                super::Message::FpsChanged,
-            )
-            .step(1.0_f32),
-            "Higher framerates are smoother but use more system resources.",
-            cosmic::iced::widget::tooltip::Position::Top,
-        ))
-        .spacing(20)
-        .align_y(cosmic::iced::Alignment::Center);
-
-    let blur_row = Row::new()
-        .push(
-            text(format!(
-                "Blur Strength: {:.2}",
-                app.wp_config.appearance.blur_opacity
-            ))
-            .font(font)
-            .width(Length::Fixed(200.0)),
-        )
-        .push(cosmic::iced::widget::tooltip(
-            slider(
-                0.0..=1.0,
-                app.wp_config.appearance.blur_opacity,
-                super::Message::BlurOpacityChanged,
-            )
-            .step(0.05_f32),
-            "Controls the strength of the background blur (only applies to Frosted Glass mode).",
-            cosmic::iced::widget::tooltip::Position::Top,
-        ))
-        .spacing(20)
-        .align_y(cosmic::iced::Alignment::Center);
-
-    let file_selector = cosmic::iced::widget::tooltip(
-        pick_list(
-            app.available_files.clone(),
-            app.selected_file.clone(),
-            super::Message::FileSelected,
-        )
-        .placeholder(if app.available_files.is_empty() {
-            "Place files in ~/.config/cosmic-wallpaper/"
-        } else {
-            "Select a file..."
-        }),
-        "Select a configuration or shader theme file to edit.",
-        cosmic::iced::widget::tooltip::Position::Top,
-    );
-
-    let save_btn: cosmic::Element<'_, super::Message> = {
-        let btn = cosmic::iced::widget::button(text("Save File").font(font));
-        if app.selected_file.is_some() {
-            cosmic::iced::widget::tooltip(
-                btn.on_press(super::Message::SaveFile),
-                "Save changes to the current file.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            )
-            .into()
-        } else {
-            cosmic::iced::widget::tooltip(
-                btn,
-                "Select a file to enable saving.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            )
-            .into()
-        }
-    };
-
-    let apply_btn: cosmic::Element<'_, super::Message> = {
-        let selected_theme = app.selected_file.as_ref().and_then(|f| {
-            if f.starts_with("shaders/") && f.ends_with(".toml") {
-                Some(
-                    f.trim_start_matches("shaders/")
-                        .trim_end_matches(".toml")
-                        .to_string(),
-                )
-            } else {
-                None
-            }
-        });
-
-        if let Some(theme_name) = selected_theme {
-            if theme_name == app.wp_config.audio.style {
-                let btn = cosmic::iced::widget::button(text("Theme Active").font(font));
-                cosmic::iced::widget::tooltip(
-                    btn,
-                    "This theme is currently active.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                )
-                .into()
-            } else {
-                let btn = cosmic::iced::widget::button(text("Apply Theme").font(font));
-                cosmic::iced::widget::tooltip(
-                    btn.on_press(super::Message::ApplyTheme),
-                    "Apply this theme to the wallpaper engine.",
-                    cosmic::iced::widget::tooltip::Position::Top,
-                )
-                .into()
-            }
-        } else {
-            let btn = cosmic::iced::widget::button(text("Apply Theme").font(font));
-            cosmic::iced::widget::tooltip(
-                btn,
-                "Select a theme (.toml in shaders/) to apply it.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            )
-            .into()
-        }
-    };
-
-    let theme_exists = !app.new_theme_name.trim().is_empty() && {
-        let name = app.new_theme_name.trim().trim_end_matches(".toml");
-        let file_name = format!("shaders/{}.toml", name);
-        app.available_files.contains(&file_name)
-    };
-
-    let mut theme_input = text_input("New Theme Name...", &app.new_theme_name)
-        .on_input(super::Message::NewThemeNameChanged);
-    if !app.new_theme_name.trim().is_empty() && !theme_exists {
-        theme_input = theme_input.on_submit(|_| super::Message::CreateTheme);
-    }
-    let new_theme_input = cosmic::iced::widget::tooltip(
-        theme_input,
-        if theme_exists {
-            "A theme with this name already exists."
-        } else {
-            "Enter a name to create a new copy of the current theme."
-        },
-        cosmic::iced::widget::tooltip::Position::Top,
-    );
-
-    let create_btn: cosmic::Element<'_, super::Message> = {
-        let btn = cosmic::iced::widget::button(text("Create Theme").font(font));
-        if theme_exists {
-            cosmic::iced::widget::tooltip(
-                btn,
-                "A theme with this name already exists.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            )
-            .into()
-        } else if !app.new_theme_name.trim().is_empty() {
-            cosmic::iced::widget::tooltip(
-                btn.on_press(super::Message::CreateTheme),
-                "Create a new theme with this name.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            )
-            .into()
-        } else {
-            cosmic::iced::widget::tooltip(
-                btn,
-                "Enter a name for the new theme first.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            )
-            .into()
-        }
-    };
-
-    let open_folder_btn = cosmic::iced::widget::tooltip(
-        cosmic::iced::widget::button(text("Open Folder").font(font))
-            .on_press(super::Message::OpenConfigFolder),
-        "Open the configuration directory in your file manager.",
-        cosmic::iced::widget::tooltip::Position::Top,
-    );
-
-    let toolbar = Row::new()
-        .push(text("Edit File:").font(font).width(Length::Shrink))
-        .push(file_selector)
-        .push(open_folder_btn)
-        .push(save_btn)
-        .push(apply_btn)
-        .push(text(" | ").font(font))
-        .push(new_theme_input)
-        .push(create_btn)
-        .spacing(10)
-        .align_y(cosmic::iced::Alignment::Center);
-
-    let mut editor = text_editor(&app.editor_content)
-        .font(cosmic::iced::Font::MONOSPACE)
-        .placeholder(if app.selected_file.is_some() {
-            "Type here to edit the file..."
-        } else {
-            "Select a file from the dropdown above to view and edit its contents..."
-        })
-        .height(Length::Fill);
-
-    if app.selected_file.is_some() {
-        editor = editor.on_action(super::Message::EditorAction);
-    }
-
-    let report_btn = cosmic::iced::widget::tooltip(
-        cosmic::iced::widget::button(text("Report Issue").font(font).size(14))
-            .on_press(super::Message::ReportIssue),
-        "Open GitHub to report a bug or request a feature.",
-        cosmic::iced::widget::tooltip::Position::Top,
-    );
-    let notes_btn: cosmic::Element<'_, super::Message> = {
-        if app.status_msg == "Fetching patch notes..." {
-            let btn = cosmic::iced::widget::button(text("Fetching...").font(font).size(14));
-            cosmic::iced::widget::tooltip(
-                btn,
-                "Downloading patch notes from GitHub...",
-                cosmic::iced::widget::tooltip::Position::Top,
-            )
-            .into()
-        } else {
-            let btn = cosmic::iced::widget::button(text("Patch Notes").font(font).size(14));
-            cosmic::iced::widget::tooltip(
-                btn.on_press(super::Message::ShowPatchNotes),
-                "View recent changes and updates to the engine.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            )
-            .into()
-        }
-    };
-
-    let version_display: cosmic::Element<'_, super::Message> = match &app.update_state {
-        super::UpdateState::Available(new_v) if super::updater::is_self_updatable() => {
-            let update_btn = cosmic::iced::widget::button(
-                text(format!("Update to {}", new_v)).font(font).size(14),
-            )
-            .on_press(super::Message::StartUpdate);
-
-            cosmic::iced::widget::tooltip(
-                update_btn,
-                "Download, verify, and install the update, then restart the wallpaper engine.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            )
-            .into()
-        }
-        super::UpdateState::Available(new_v) => {
-            // Package-managed install (e.g. under /usr) - update via the
-            // system package manager instead of overwriting its files.
-            let update_btn = cosmic::iced::widget::button(
-                text(format!("Update Available: {}", new_v))
-                    .font(font)
-                    .size(14),
-            )
-            .on_press(super::Message::OpenUpdateLink);
-
-            cosmic::iced::widget::tooltip(
-                update_btn,
-                "Installed via a system package - open the release page and update with your package manager.",
-                cosmic::iced::widget::tooltip::Position::Top,
-            )
-            .into()
-        }
-        super::UpdateState::Updating(tag) => cosmic::iced::widget::tooltip(
-            cosmic::iced::widget::button(
-                text(format!("Updating to {}...", tag)).font(font).size(14),
-            ),
-            "Downloading and verifying the update...",
-            cosmic::iced::widget::tooltip::Position::Top,
-        )
-        .into(),
-        super::UpdateState::Installed(tag) => text(format!("v{} installed, restart to apply", tag))
-            .font(font)
-            .size(14)
-            .into(),
-        super::UpdateState::UpToDate => text(format!("v{}", env!("CARGO_PKG_VERSION")))
-            .font(font)
-            .size(14)
-            .into(),
-    };
-
-    let footer_row = Row::new()
-        .push(
-            text(&app.status_msg)
-                .font(font)
-                .size(14)
-                .width(Length::Fill),
-        )
-        .push(version_display)
-        .push(notes_btn)
-        .push(report_btn)
-        .spacing(15)
-        .align_y(cosmic::iced::Alignment::Center);
-
-    let mut main_col = Column::new()
-        .push(text("COSMIC Wallpaper Settings").font(font).size(32))
-        .push(toggles_row)
-        .push(font_row)
-        .push(framerate_row);
-
-    if current_bg_mode == super::BackgroundMode::FrostedGlass {
-        main_col = main_col.push(blur_row);
-    }
-
-    main_col
-        .push(toolbar)
-        .push(editor)
-        .push(footer_row)
-        .padding(40)
-        .spacing(20)
+fn labeled_slider<'a>(
+    value_label: String,
+    control: cosmic::Element<'a, Message>,
+) -> cosmic::Element<'a, Message> {
+    Row::new()
+        .push(text::body(value_label))
+        .push(control)
+        .spacing(12)
+        .align_y(cosmic::iced::Alignment::Center)
         .into()
+}
+
+// ---------------------------------------------------------------- Wallpaper
+
+fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    let mode = app.current_background_mode();
+
+    let mut sections = vec![settings::section()
+        .title("Style")
+        .add(
+            settings::item::builder("Background style")
+                .description("What fills the desktop behind the overlays.")
+                .control(pick_list(
+                    &BackgroundMode::ALL[..],
+                    Some(mode),
+                    Message::BackgroundModeSelected,
+                )),
+        )
+        .into()];
+
+    if mode == BackgroundMode::FrostedGlass {
+        sections.push(
+            settings::section()
+                .title("Frosted Glass")
+                .add(
+                    settings::item::builder("Blur amount")
+                        .description("Same dual-Kawase strengths as COSMIC's frosted windows.")
+                        .control(labeled_slider(
+                            format!("{:.2}", app.wp_config.appearance.blur_opacity),
+                            slider(
+                                0.0..=1.0,
+                                app.wp_config.appearance.blur_opacity,
+                                Message::BlurOpacityChanged,
+                            )
+                            .step(0.05_f32)
+                            .width(Length::Fixed(220.0))
+                            .into(),
+                        )),
+                )
+                .into(),
+        );
+    }
+
+    if mode == BackgroundMode::Video {
+        sections.push(
+            settings::section()
+                .title("Live Wallpaper")
+                .add(settings::item(
+                    "Video",
+                    text::body("Pick and manage videos on the Live Wallpapers page"),
+                ))
+                .into(),
+        );
+    }
+
+    page(
+        app,
+        "Wallpaper",
+        "Options for the selected style appear below it.",
+        sections,
+    )
+}
+
+// --------------------------------------------------------- Live Wallpapers
+
+fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    let video_picker = pick_list(
+        app.available_videos.clone(),
+        app.wp_config.appearance.video_background_path.clone(),
+        Message::VideoSelected,
+    )
+    .placeholder(if app.available_videos.is_empty() {
+        "No videos in your library yet"
+    } else {
+        "Select a video..."
+    });
+
+    let sections = vec![settings::section()
+        .title("Library")
+        .add(
+            settings::item::builder("Active video")
+                .description("Selecting a video also switches the wallpaper style to it.")
+                .control(video_picker),
+        )
+        .add(
+            settings::item::builder("Library folder")
+                .description("MP4 and WebM files placed here appear in the list above.")
+                .control(button::standard("Open Folder").on_press(Message::OpenVideosFolder)),
+        )
+        .into()];
+
+    page(
+        app,
+        "Live Wallpapers",
+        "Looping videos that play as your background.",
+        sections,
+    )
+}
+
+// ------------------------------------------------------------------ Themes
+
+fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    let theme_picker = pick_list(
+        app.available_themes.clone(),
+        app.selected_theme.clone(),
+        Message::ThemeSelected,
+    )
+    .placeholder("Select a theme...");
+
+    let sections = vec![
+        settings::section()
+            .title("Visualiser Themes")
+            .add(
+                settings::item::builder("Theme")
+                    .description("Where the visualiser sits and how it is shaped.")
+                    .control(
+                        Row::new()
+                            .push(theme_picker)
+                            .push(button::suggested("Apply").on_press(Message::ApplyTheme))
+                            .spacing(8)
+                            .align_y(cosmic::iced::Alignment::Center),
+                    ),
+            )
+            .into(),
+        settings::section()
+            .title("Manage")
+            .add(
+                settings::item::builder("Create new theme")
+                    .description("Starts from a template layout you can edit.")
+                    .control(
+                        Row::new()
+                            .push(
+                                text_input("Theme name", &app.new_theme_name)
+                                    .on_input(Message::NewThemeNameChanged)
+                                    .on_submit(|_| Message::CreateTheme)
+                                    .width(Length::Fixed(180.0)),
+                            )
+                            .push(button::standard("Create").on_press(Message::CreateTheme))
+                            .spacing(8)
+                            .align_y(cosmic::iced::Alignment::Center),
+                    ),
+            )
+            .add(
+                settings::item::builder("Theme files")
+                    .description("Plain TOML in the shaders folder - edits apply live.")
+                    .control(button::standard("Open Folder").on_press(Message::OpenConfigFolder)),
+            )
+            .into(),
+    ];
+
+    page(
+        app,
+        "Layout Themes",
+        "How the audio visualiser is laid out on screen.",
+        sections,
+    )
+}
+
+// ------------------------------------------------------------- Now Playing
+
+fn now_playing(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    let current_font = app
+        .wp_config
+        .appearance
+        .font_family
+        .clone()
+        .unwrap_or_else(|| "System Default".to_string());
+
+    let sections = vec![
+        settings::section()
+            .title("Album Art")
+            .add(
+                settings::item::builder("Show album art")
+                    .description("The current cover, placed by the active layout theme.")
+                    .toggler(
+                        app.wp_config.appearance.show_album_art,
+                        Message::ToggleShowAlbumArt,
+                    ),
+            )
+            .into(),
+        settings::section()
+            .title("Lyrics & Text")
+            .add(
+                settings::item::builder("Show lyrics")
+                    .description("Synced lyrics for the current track, when available.")
+                    .toggler(app.wp_config.audio.show_lyrics, Message::ToggleShowLyrics),
+            )
+            .add(settings::item::builder("Font family").control(pick_list(
+                app.available_fonts.clone(),
+                Some(current_font),
+                Message::FontFamilySelected,
+            )))
+            .into(),
+    ];
+
+    page(
+        app,
+        "Now Playing",
+        "What appears when music plays: album art, track info, and lyrics.",
+        sections,
+    )
+}
+
+// -------------------------------------------------------------- Visualiser
+
+fn visualiser(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    let sections = vec![settings::section()
+        .title("Audio Response")
+        .add(
+            settings::item::builder("Bands")
+                .description("How many bars the visualiser draws.")
+                .control(labeled_slider(
+                    format!("{}", app.wp_config.audio.bands),
+                    slider(
+                        16.0..=128.0,
+                        app.wp_config.audio.bands as f32,
+                        Message::BandsChanged,
+                    )
+                    .step(1.0_f32)
+                    .width(Length::Fixed(220.0))
+                    .into(),
+                )),
+        )
+        .add(
+            settings::item::builder("Smoothing")
+                .description("Higher is calmer; lower is snappier.")
+                .control(labeled_slider(
+                    format!("{:.2}", app.wp_config.audio.smoothing),
+                    slider(
+                        0.0..=0.95,
+                        app.wp_config.audio.smoothing,
+                        Message::SmoothingChanged,
+                    )
+                    .step(0.05_f32)
+                    .width(Length::Fixed(220.0))
+                    .into(),
+                )),
+        )
+        .into()];
+
+    page(
+        app,
+        "Visualiser",
+        "Audio-reactive bars, driven by whatever plays through PipeWire.",
+        sections,
+    )
+}
+
+// ----------------------------------------------------------------- Weather
+
+const TEMPERATURE_UNITS: [&str; 2] = ["Celsius", "Fahrenheit"];
+
+fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    let current_unit = match app.wp_config.weather.temperature_unit {
+        cosmic_wallpaper::modules::config::TemperatureUnit::Celsius => "Celsius",
+        cosmic_wallpaper::modules::config::TemperatureUnit::Fahrenheit => "Fahrenheit",
+    };
+
+    let sections = vec![settings::section()
+        .title("Weather")
+        .add(
+            settings::item::builder("Show weather")
+                .description("Current conditions on the desktop.")
+                .toggler(app.wp_config.weather.enabled, Message::ToggleWeatherEnabled),
+        )
+        .add(
+            settings::item::builder("Hide animated effects")
+                .description("Skips rain and snow particles to save GPU.")
+                .toggler(
+                    app.wp_config.weather.hide_effects,
+                    Message::ToggleHideWeatherEffects,
+                ),
+        )
+        .add(settings::item::builder("Units").control(pick_list(
+            &TEMPERATURE_UNITS[..],
+            Some(current_unit),
+            |unit| Message::TemperatureUnitSelected(unit.to_string()),
+        )))
+        .into()];
+
+    page(
+        app,
+        "Weather",
+        "Conditions and effects layered over the wallpaper.",
+        sections,
+    )
+}
+
+// ----------------------------------------------------------------- General
+
+fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    let update_control: cosmic::Element<'_, Message> = match &app.update_state {
+        UpdateState::UpToDate => text::body("Up to date").into(),
+        UpdateState::Available(tag) if super::updater::is_self_updatable() => {
+            button::suggested(format!("Update to {tag}"))
+                .on_press(Message::StartUpdate)
+                .into()
+        }
+        // Installed via a system package - point at the release page instead.
+        UpdateState::Available(tag) => button::standard(format!("{tag} release page"))
+            .on_press(Message::OpenUpdateLink)
+            .into(),
+        UpdateState::Updating(tag) => text::body(format!("Updating to {tag}...")).into(),
+        UpdateState::Installed(tag) => text::body(format!("{tag} installed - restart")).into(),
+    };
+
+    let mut sections = vec![
+        settings::section()
+            .title("Engine")
+            .add(
+                settings::item::builder("Start on login")
+                    .description("Launches the wallpaper engine when you log in.")
+                    .toggler(app.autostart, Message::ToggleAutostart),
+            )
+            .add(
+                settings::item::builder("Frame rate limit")
+                    .description("Lower saves power; the engine idles when nothing animates.")
+                    .control(labeled_slider(
+                        format!("{} fps", app.wp_config.fps),
+                        slider(15.0..=144.0, app.wp_config.fps as f32, Message::FpsChanged)
+                            .step(1.0_f32)
+                            .width(Length::Fixed(220.0))
+                            .into(),
+                    )),
+            )
+            .add(
+                settings::item::builder("Config folder")
+                    .description("All engine configuration lives here.")
+                    .control(button::standard("Open Folder").on_press(Message::OpenConfigFolder)),
+            )
+            .into(),
+        settings::section()
+            .title("About")
+            .add(
+                settings::item::builder("Version")
+                    .description(env!("CARGO_PKG_VERSION"))
+                    .control(update_control),
+            )
+            .add(
+                settings::item::builder("Patch notes")
+                    .description("What changed in the latest release.")
+                    .control(if app.patch_notes.is_some() {
+                        button::standard("Hide").on_press(Message::ClosePatchNotes)
+                    } else {
+                        button::standard("Show").on_press(Message::ShowPatchNotes)
+                    }),
+            )
+            .add(
+                settings::item::builder("Something broken?")
+                    .control(button::standard("Report an Issue").on_press(Message::ReportIssue)),
+            )
+            .into(),
+    ];
+
+    if let Some(notes) = &app.patch_notes {
+        sections.push(
+            settings::section()
+                .title("Patch Notes")
+                .add(
+                    Column::new()
+                        .push(text::body(notes.as_str()))
+                        .width(Length::Fill)
+                        .padding(8),
+                )
+                .into(),
+        );
+    }
+
+    page(
+        app,
+        "General",
+        "Engine behaviour and housekeeping.",
+        sections,
+    )
 }

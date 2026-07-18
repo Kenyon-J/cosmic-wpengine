@@ -7,6 +7,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use cosmic::app::Core;
 use cosmic::iced::Task;
+use cosmic::widget::{icon, nav_bar};
 use cosmic::Application;
 use cosmic_text::fontdb;
 
@@ -21,20 +22,34 @@ fn main() -> cosmic::iced::Result {
 
 struct SettingsApp {
     core: Core,
+    nav: nav_bar::Model,
     wp_config: config::Config,
     available_fonts: Vec<String>,
-    available_files: Vec<String>,
+    available_themes: Vec<String>,
     available_videos: Vec<String>,
-    selected_file: Option<String>,
-    editor_content: cosmic::widget::text_editor::Content,
+    selected_theme: Option<String>,
     new_theme_name: String,
     status_msg: String,
     autostart: bool,
     update_state: UpdateState,
+    /// Fetched release notes, shown on the General page when present.
+    patch_notes: Option<String>,
     /// Monotonic counter pairing each slider change with its debounce timer;
     /// a DebouncedSave only writes to disk if its generation is still the
     /// newest (i.e. the slider settled for the full window).
     save_generation: u64,
+}
+
+/// One page of the settings window, keyed off the sidebar selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Page {
+    Wallpaper,
+    LiveWallpapers,
+    Themes,
+    NowPlaying,
+    Visualiser,
+    Weather,
+    General,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,11 +63,19 @@ enum UpdateState {
 }
 
 impl SettingsApp {
-    fn refresh_editor(&mut self) {
-        if self.selected_file.as_deref() == Some("config.toml") {
-            let path = config::Config::config_dir().join("config.toml");
-            let content_str = std::fs::read_to_string(path).unwrap_or_default();
-            self.editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
+    /// Derives the mode shown by the Wallpaper page from the config flags,
+    /// video-first (matching the engine's own precedence).
+    fn current_background_mode(&self) -> BackgroundMode {
+        if self.wp_config.appearance.video_background_path.is_some() {
+            BackgroundMode::Video
+        } else if self.wp_config.appearance.album_color_background {
+            BackgroundMode::AlbumPalette
+        } else if self.wp_config.appearance.album_art_background {
+            BackgroundMode::AlbumArt
+        } else if self.wp_config.appearance.transparent_background {
+            BackgroundMode::Transparent
+        } else {
+            BackgroundMode::FrostedGlass
         }
     }
 
@@ -140,20 +163,22 @@ pub(crate) fn is_safe_path(path_str: &str) -> bool {
     true
 }
 
-fn load_files() -> Vec<String> {
-    let mut files = vec!["config.toml".to_string()];
+/// Names of the visualiser layout themes (shaders/*.toml, without path or
+/// extension) - the same names `audio.style` takes.
+fn load_themes() -> Vec<String> {
+    let mut themes = Vec::new();
     let shaders_dir = config::Config::config_dir().join("shaders");
     if let Ok(entries) = std::fs::read_dir(shaders_dir) {
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
-                if name.ends_with(".toml") {
-                    files.push(format!("shaders/{}", name));
+                if let Some(stem) = name.strip_suffix(".toml") {
+                    themes.push(stem.to_string());
                 }
             }
         }
     }
-    files.sort();
-    files
+    themes.sort();
+    themes
 }
 
 fn load_fonts() -> Vec<String> {
@@ -296,13 +321,14 @@ enum Message {
     BackgroundModeSelected(BackgroundMode),
     FontFamilySelected(String),
     ToggleShowAlbumArt(bool),
-    FileSelected(String),
+    ThemeSelected(String),
     VideoSelected(String),
-    EditorAction(cosmic::widget::text_editor::Action),
-    SaveFile,
     ApplyTheme,
     FpsChanged(f32),
     BlurOpacityChanged(f32),
+    BandsChanged(f32),
+    SmoothingChanged(f32),
+    TemperatureUnitSelected(String),
     /// Fired by the settle timer a slider change starts; the payload is the
     /// generation at scheduling time, so only the most recent change's timer
     /// actually writes config.toml.
@@ -315,12 +341,14 @@ enum Message {
     CreateTheme,
     ShowPatchNotes,
     PatchNotesLoaded(String),
+    ClosePatchNotes,
     ReportIssue,
     UpdateCheckDone(Option<String>),
     StartUpdate,
     UpdateFinished(Result<String, String>),
     OpenUpdateLink,
     OpenConfigFolder,
+    OpenVideosFolder,
 }
 
 impl Application for SettingsApp {
@@ -341,32 +369,80 @@ impl Application for SettingsApp {
         // Load your existing engine configuration
         let wp_config = config::Config::load_or_default().unwrap_or_default();
         let available_fonts = load_fonts();
-        let available_files = load_files();
-        let selected_file = Some("config.toml".to_string());
+        let available_themes = load_themes();
+        let selected_theme = available_themes
+            .iter()
+            .find(|t| **t == wp_config.audio.style)
+            .cloned();
 
-        let path = config::Config::config_dir().join("config.toml");
-        let content_str = std::fs::read_to_string(path).unwrap_or_default();
-        let editor_content = cosmic::widget::text_editor::Content::with_text(&content_str);
+        let nav = nav_bar::Model::builder()
+            .insert(|b| {
+                b.text("Wallpaper")
+                    .icon(icon::from_name("preferences-desktop-wallpaper-symbolic"))
+                    .data(Page::Wallpaper)
+                    .activate()
+            })
+            .insert(|b| {
+                b.text("Live Wallpapers")
+                    .icon(icon::from_name("video-display-symbolic"))
+                    .data(Page::LiveWallpapers)
+            })
+            .insert(|b| {
+                b.text("Layout Themes")
+                    .icon(icon::from_name("applications-graphics-symbolic"))
+                    .data(Page::Themes)
+            })
+            .insert(|b| {
+                b.text("Now Playing")
+                    .icon(icon::from_name("emblem-music-symbolic"))
+                    .data(Page::NowPlaying)
+            })
+            .insert(|b| {
+                b.text("Visualiser")
+                    .icon(icon::from_name("audio-speakers-symbolic"))
+                    .data(Page::Visualiser)
+            })
+            .insert(|b| {
+                b.text("Weather")
+                    .icon(icon::from_name("weather-clear-symbolic"))
+                    .data(Page::Weather)
+            })
+            .insert(|b| {
+                b.text("General")
+                    .icon(icon::from_name("emblem-system-symbolic"))
+                    .data(Page::General)
+            })
+            .build();
 
         (
             SettingsApp {
                 core,
+                nav,
                 wp_config,
                 available_fonts,
-                available_files,
+                available_themes,
                 available_videos: config::Config::available_videos(),
-                selected_file,
-                editor_content,
+                selected_theme,
                 autostart: autostart_path().exists(),
                 new_theme_name: String::new(),
                 status_msg: "Ready.".into(),
                 update_state: UpdateState::UpToDate,
+                patch_notes: None,
                 save_generation: 0,
             },
             Task::perform(check_for_updates(), |version| {
                 Message::UpdateCheckDone(version).into()
             }),
         )
+    }
+
+    fn nav_model(&self) -> Option<&nav_bar::Model> {
+        Some(&self.nav)
+    }
+
+    fn on_nav_select(&mut self, id: nav_bar::Id) -> Task<cosmic::Action<Self::Message>> {
+        self.nav.activate(id);
+        Task::none()
     }
 
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
@@ -422,7 +498,6 @@ impl Application for SettingsApp {
                     }
                 }
                 let _ = self.wp_config.save();
-                self.refresh_editor();
             }
             Message::FontFamilySelected(family) => {
                 if family == "System Default" {
@@ -431,71 +506,28 @@ impl Application for SettingsApp {
                     self.wp_config.appearance.font_family = Some(family);
                 }
                 let _ = self.wp_config.save();
-                self.refresh_editor();
             }
             Message::ToggleShowAlbumArt(state) => {
                 self.wp_config.appearance.show_album_art = state;
                 let _ = self.wp_config.save();
-                self.refresh_editor();
             }
             Message::VideoSelected(video) => {
                 self.wp_config.appearance.video_background_path = Some(video);
                 let _ = self.wp_config.save();
-                self.refresh_editor();
             }
-            Message::FileSelected(file) => {
-                if is_safe_path(&file) {
-                    self.selected_file = Some(file.clone());
-                    let path = config::Config::config_dir().join(&file);
-                    let content_str = std::fs::read_to_string(path).unwrap_or_default();
-                    self.editor_content =
-                        cosmic::widget::text_editor::Content::with_text(&content_str);
-                    self.status_msg = format!("Loaded {}", file);
-                } else {
-                    self.status_msg = format!("Blocked unsafe file path: {}", file);
-                }
-            }
-            Message::EditorAction(action) => {
-                self.editor_content.perform(action);
-            }
-            Message::SaveFile => {
-                if let Some(file) = &self.selected_file {
-                    if !is_safe_path(file) {
-                        self.status_msg = format!("Blocked unsafe save path: {}", file);
-                        return Task::none();
-                    }
-                    let path = config::Config::config_dir().join(file);
-                    let text = self.editor_content.text();
-                    match std::fs::write(&path, text) {
-                        Ok(_) => {
-                            self.status_msg = format!("Saved {}", file);
-                            // If we edited the base config, ensure our GUI state stays in sync
-                            if file == "config.toml" {
-                                if let Ok(new_cfg) = config::Config::load_or_default() {
-                                    self.wp_config = new_cfg;
-                                }
-                            }
-                        }
-                        Err(e) => self.status_msg = format!("Error saving: {}", e),
-                    }
-                }
+            Message::ThemeSelected(theme) => {
+                self.selected_theme = Some(theme);
             }
             Message::ApplyTheme => {
-                if let Some(file) = &self.selected_file {
-                    if file.starts_with("shaders/") && file.ends_with(".toml") {
-                        let theme_name = file
-                            .trim_start_matches("shaders/")
-                            .trim_end_matches(".toml");
-                        self.wp_config.audio.style = theme_name.to_string();
-                        if let Err(e) = self.wp_config.save() {
-                            self.status_msg = format!("Error applying theme: {}", e);
-                        } else {
-                            self.status_msg = format!("Applied theme: '{}'", theme_name);
-                        }
+                if let Some(theme) = &self.selected_theme {
+                    self.wp_config.audio.style = theme.clone();
+                    if let Err(e) = self.wp_config.save() {
+                        self.status_msg = format!("Error applying theme: {}", e);
                     } else {
-                        self.status_msg =
-                            "Please select a theme (.toml in shaders/) to apply.".into();
+                        self.status_msg = format!("Applied theme: '{}'", theme);
                     }
+                } else {
+                    self.status_msg = "Select a theme to apply.".into();
                 }
             }
             Message::FpsChanged(fps) => {
@@ -506,18 +538,32 @@ impl Application for SettingsApp {
                 self.wp_config.appearance.blur_opacity = opacity;
                 return self.schedule_debounced_save();
             }
+            Message::BandsChanged(bands) => {
+                self.wp_config.audio.bands = bands as usize;
+                return self.schedule_debounced_save();
+            }
+            Message::SmoothingChanged(smoothing) => {
+                self.wp_config.audio.smoothing = smoothing;
+                return self.schedule_debounced_save();
+            }
+            Message::TemperatureUnitSelected(unit) => {
+                self.wp_config.weather.temperature_unit = if unit == "Fahrenheit" {
+                    config::TemperatureUnit::Fahrenheit
+                } else {
+                    config::TemperatureUnit::Celsius
+                };
+                let _ = self.wp_config.save();
+            }
             Message::DebouncedSave(generation) => {
                 // A newer slider change re-armed the timer; let its own
                 // DebouncedSave do the (single) write.
                 if generation == self.save_generation {
                     let _ = self.wp_config.save(); // Hot-reloads the engine via its file watcher
-                    self.refresh_editor();
                 }
             }
             Message::ToggleShowLyrics(state) => {
                 self.wp_config.audio.show_lyrics = state;
                 let _ = self.wp_config.save();
-                self.refresh_editor();
             }
             Message::ToggleAutostart(state) => {
                 self.autostart = state;
@@ -526,12 +572,10 @@ impl Application for SettingsApp {
             Message::ToggleWeatherEnabled(state) => {
                 self.wp_config.weather.enabled = state;
                 let _ = self.wp_config.save();
-                self.refresh_editor();
             }
             Message::ToggleHideWeatherEffects(state) => {
                 self.wp_config.weather.hide_effects = state;
                 let _ = self.wp_config.save();
-                self.refresh_editor();
             }
             Message::NewThemeNameChanged(name) => {
                 self.new_theme_name = name;
@@ -561,11 +605,8 @@ rotation = 0.0
 amplitude = 1.5"#;
                             use std::io::Write;
                             let _ = file.write_all(default_content.as_bytes());
-                            self.available_files = load_files();
-                            self.selected_file = Some(file_name.clone());
-                            let content_str = std::fs::read_to_string(path).unwrap_or_default();
-                            self.editor_content =
-                                cosmic::widget::text_editor::Content::with_text(&content_str);
+                            self.available_themes = load_themes();
+                            self.selected_theme = Some(name.to_string());
                             self.status_msg = format!("Created {}", file_name);
                             self.new_theme_name.clear();
                         }
@@ -579,18 +620,17 @@ amplitude = 1.5"#;
                 }
             }
             Message::ShowPatchNotes => {
-                self.selected_file = None;
-                self.editor_content = cosmic::widget::text_editor::Content::with_text(
-                    "Fetching latest patch notes from GitHub...",
-                );
                 self.status_msg = "Fetching patch notes...".into();
                 return Task::perform(fetch_patch_notes(), |notes| {
                     Message::PatchNotesLoaded(notes).into()
                 });
             }
             Message::PatchNotesLoaded(notes) => {
-                self.editor_content = cosmic::widget::text_editor::Content::with_text(&notes);
-                self.status_msg = "Viewing Patch Notes. Select a file to return to editing.".into();
+                self.patch_notes = Some(notes);
+                self.status_msg = "Ready.".into();
+            }
+            Message::ClosePatchNotes => {
+                self.patch_notes = None;
             }
             Message::ReportIssue => {
                 if let Some(xdg_open) = resolve_binary("xdg-open") {
@@ -656,6 +696,16 @@ amplitude = 1.5"#;
                 if let Some(xdg_open) = resolve_binary("xdg-open") {
                     let config_dir = config::Config::config_dir();
                     let _ = std::process::Command::new(xdg_open).arg(config_dir).spawn();
+                } else {
+                    tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
+                    self.status_msg = "Failed to open folder: xdg-open not found".into();
+                }
+            }
+            Message::OpenVideosFolder => {
+                let videos_dir = config::Config::config_dir().join("videos");
+                let _ = std::fs::create_dir_all(&videos_dir);
+                if let Some(xdg_open) = resolve_binary("xdg-open") {
+                    let _ = std::process::Command::new(xdg_open).arg(videos_dir).spawn();
                 } else {
                     tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
                     self.status_msg = "Failed to open folder: xdg-open not found".into();
