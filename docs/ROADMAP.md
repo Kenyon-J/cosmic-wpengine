@@ -35,7 +35,14 @@ the desktop itself is the theme editor's preview. Approved direction
    1:1 onto `ThemeLayout` fields: position sliders, size/rotation/
    amplitude, shape and align toggles, effects (lyric bounce/spring,
    beat pulse). Every change debounce-writes the theme TOML; the engine's
-   live reload shows it on the real desktop instantly.
+   live reload shows it on the real desktop instantly. Built with the
+   same libcosmic widget vocabulary as the rest of the app
+   (`settings::section` rows, dropdowns, native sliders) — the HTML
+   mockup is a wireframe, not a styling target.
+   - Includes a NEW `TextLayout.size` scale field (serde-default 1.0):
+     lyric/track/weather font sizes are currently hardcoded in draw.rs
+     (`logical_height * 0.04` for lyrics); the theme value multiplies in,
+     giving each text element a Size slider.
 2. **Full starter template** — `Create Theme` writes the complete default
    layout with every key commented, not the current 6-line stub.
 3. **`docs/THEMES.md`** — every field, range, default; annotated examples.
