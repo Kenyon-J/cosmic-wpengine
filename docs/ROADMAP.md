@@ -52,6 +52,24 @@ the desktop itself is the theme editor's preview. Approved direction
    Start/Stop button (gap found 2026-07-18: GUI had no way to restart a
    quit engine).
 
+## 1.3 candidate — i18n groundwork
+
+Adopt the COSMIC-native translation stack before the string count grows
+further (~80-100 user-facing strings as of 1.2):
+
+- Fluent catalogs under `i18n/<lang>/io.github.kenyon_j.cosmic_wpengine.ftl`,
+  embedded via `i18n-embed`/`rust-embed`; language follows the desktop's
+  locale automatically (`DesktopLanguageRequester`), per-string English
+  fallback
+- Mechanical `fl!` sweep over the GUI's literals (view.rs + status
+  messages) and the engine's tray menu labels
+- Move hand-rolled plural strings ("Imported {n} video{s}") into Fluent
+  selectors
+- Contribution flow: `.ftl` files as PRs, then Weblate registration once
+  there's translator interest
+- Out of scope: docs/THEMES.md and release notes; RTL layout mirroring is
+  an upstream iced limitation
+
 ## Visualiser bar polish
 
 One coherent visual pass over the bars (deferred 2026-07-18 - they still
