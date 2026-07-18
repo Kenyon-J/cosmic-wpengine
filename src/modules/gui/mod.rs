@@ -31,6 +31,7 @@ struct SettingsApp {
     status_msg: String,
     autostart: bool,
     update_state: UpdateState,
+    is_dirty: bool,
     /// Monotonic counter pairing each slider change with its debounce timer;
     /// a DebouncedSave only writes to disk if its generation is still the
     /// newest (i.e. the slider settled for the full window).
@@ -361,6 +362,7 @@ impl Application for SettingsApp {
                 new_theme_name: String::new(),
                 status_msg: "Ready.".into(),
                 update_state: UpdateState::UpToDate,
+                is_dirty: false,
                 save_generation: 0,
             },
             Task::perform(check_for_updates(), |version| {
@@ -451,11 +453,15 @@ impl Application for SettingsApp {
                     self.editor_content =
                         cosmic::widget::text_editor::Content::with_text(&content_str);
                     self.status_msg = format!("Loaded {}", file);
+                    self.is_dirty = false;
                 } else {
                     self.status_msg = format!("Blocked unsafe file path: {}", file);
                 }
             }
             Message::EditorAction(action) => {
+                if let cosmic::widget::text_editor::Action::Edit(_) = action {
+                    self.is_dirty = true;
+                }
                 self.editor_content.perform(action);
             }
             Message::SaveFile => {
@@ -469,6 +475,7 @@ impl Application for SettingsApp {
                     match std::fs::write(&path, text) {
                         Ok(_) => {
                             self.status_msg = format!("Saved {}", file);
+                            self.is_dirty = false;
                             // If we edited the base config, ensure our GUI state stays in sync
                             if file == "config.toml" {
                                 if let Ok(new_cfg) = config::Config::load_or_default() {
@@ -568,6 +575,7 @@ amplitude = 1.5"#;
                                 cosmic::widget::text_editor::Content::with_text(&content_str);
                             self.status_msg = format!("Created {}", file_name);
                             self.new_theme_name.clear();
+                            self.is_dirty = false;
                         }
                         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                             self.status_msg = format!("Theme '{}' already exists!", name);
@@ -591,6 +599,7 @@ amplitude = 1.5"#;
             Message::PatchNotesLoaded(notes) => {
                 self.editor_content = cosmic::widget::text_editor::Content::with_text(&notes);
                 self.status_msg = "Viewing Patch Notes. Select a file to return to editing.".into();
+                self.is_dirty = false;
             }
             Message::ReportIssue => {
                 if let Some(xdg_open) = resolve_binary("xdg-open") {
