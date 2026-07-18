@@ -1,3 +1,4 @@
+pub(crate) mod blur;
 pub mod core;
 pub(crate) mod draw;
 pub(crate) mod pipelines;

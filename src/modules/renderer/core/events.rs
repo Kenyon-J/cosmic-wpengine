@@ -45,11 +45,21 @@ impl Renderer {
                     )
                     .await;
 
+                let blur_settings_changed = config.appearance.disable_blur
+                    != self.state.config.appearance.disable_blur
+                    || config.appearance.blur_opacity != self.state.config.appearance.blur_opacity
+                    || config.appearance.album_art_background
+                        != self.state.config.appearance.album_art_background;
+
                 // Always reload the theme layout so live edits to the .toml apply instantly!
                 self.theme = *theme_layout;
                 self.inv_smoothing = 1.0 - config.audio.smoothing;
                 self.state.config = *config;
                 self.update_theme_colors();
+
+                if blur_settings_changed {
+                    self.refresh_blur_chains();
+                }
 
                 // Optimization: Clear the text buffer cache on config updates to ensure
                 // changes like font family or size are applied immediately.
@@ -201,6 +211,7 @@ impl Renderer {
                 self.album_art_fg_bind_group = None;
                 self.current_album_texture = None;
                 self.current_album_size = None;
+                self.album_blur_chain = None;
                 self.state.has_album_art = false;
                 self.state.current_track = None;
                 self.update_theme_colors();

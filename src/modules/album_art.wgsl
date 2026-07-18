@@ -1,9 +1,9 @@
-// v4
+// v5
 struct ArtUniforms {
     color_and_transition: vec4<f32>,
     uv_transform: vec4<f32>, // scale_x, scale_y, offset_x, offset_y
     art_position: vec2<f32>,
-    blur_step: vec2<f32>,
+    blur_step: vec2<f32>, // unused since the Kawase blur moved offscreen; kept for layout
     audio_energy: f32,
     mode: u32,
     bg_alpha: f32,
@@ -17,6 +17,10 @@ struct ArtUniforms {
 @group(0) @binding(0) var<uniform> uniforms: ArtUniforms;
 @group(0) @binding(1) var current_art: texture_2d<f32>;
 @group(0) @binding(2) var art_sampler: sampler;
+// Cached dual-Kawase blur of current_art, rebuilt offscreen when the artwork
+// or the blur amount changes (renderer/blur.rs). Bound to current_art itself
+// for pipeline modes that never sample it.
+@group(0) @binding(3) var blurred_art: texture_2d<f32>;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -44,38 +48,9 @@ fn sample_art(uv: vec2<f32>) -> vec4f {
     return textureSampleLevel(current_art, art_sampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
 }
 
-var<private> BLUR_OFFSETS: array<vec2<f32>, 16> = array<vec2<f32>, 16>(
-    vec2<f32>(0.176777, 0.000000),
-    vec2<f32>(-0.225772, 0.206827),
-    vec2<f32>(0.034556, -0.393771),
-    vec2<f32>(0.284575, 0.371170),
-    vec2<f32>(-0.522224, -0.092367),
-    vec2<f32>(0.494690, -0.314693),
-    vec2<f32>(-0.165454, 0.615528),
-    vec2<f32>(-0.315575, -0.607587),
-    vec2<f32>(0.684649, 0.250013),
-    vec2<f32>(-0.712248, 0.294030),
-    vec2<f32>(0.343331, -0.733740),
-    vec2<f32>(0.253759, 0.808923),
-    vec2<f32>(-0.764763, -0.443156),
-    vec2<f32>(0.897126, -0.197270),
-    vec2<f32>(-0.547472, 0.778797),
-    vec2<f32>(-0.126534, -0.976084)
-);
-
-// Optimized Golden Ratio (Vogel) Spiral Blur.
-// Provides an incredibly smooth, frosted glass look matching Kawase quality
-// but executes in a single pass to save framerate.
-fn blur(uv: vec2<f32>) -> vec4f {
-    var total = vec4<f32>(0.0);
-
-    for (var i: i32 = 0; i < 16; i++) {
-        let offset = BLUR_OFFSETS[i];
-        total += sample_art(uv + offset * uniforms.blur_step);
-    }
-
-    return total / 16.0;
-}
+// COSMIC's glass look composites the theme's flat neutral background over the
+// compositor blur (cosmic-theme dark gray_1 #1B1B1B, here in linear light).
+const GLASS_TINT: vec3<f32> = vec3<f32>(0.011, 0.011, 0.011);
 
 fn get_shape_mask(point: vec2<f32>, size: f32, shape: u32) -> f32 {
     let half_size = size * 0.5;
@@ -106,18 +81,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         if uniforms.blur_opacity < 0.01 {
             return vec4<f32>(raw_bg.rgb, uniforms.bg_alpha);
         }
-        
-        let blurred_bg = blur(cover_uv); // Use pre-calculated blur step
-        
+
+        // Same UV space as the sharp art: the cached blur preserves the
+        // source's aspect ratio, only its resolution differs.
+        let blurred_bg = textureSampleLevel(
+            blurred_art,
+            art_sampler,
+            clamp(cover_uv, vec2<f32>(0.0), vec2<f32>(1.0)),
+            0.0
+        );
+
         // Fade between the sharp and blurred image
         var final_color = mix(raw_bg.rgb, blurred_bg.rgb, uniforms.blur_opacity);
-        
-        // Apply a balanced dimming tint so the effect isn't completely overpowering like before.
-        let dim_factor = 1.0 - (uniforms.blur_opacity * 0.4); 
-        let tint = mix(vec3<f32>(1.0), uniforms.color_and_transition.rgb, uniforms.blur_opacity * 0.5);
-        
-        final_color = final_color * tint * dim_factor;
-        
+
+        // COSMIC composites its translucent neutral surface over the blur
+        // (AlphaMap alphas run 0.60-0.90 for windows); scaled down here so
+        // the artwork stays visible behind the frost instead of flattening
+        // to a solid pane.
+        final_color = mix(final_color, GLASS_TINT, uniforms.blur_opacity * 0.45);
+
         return vec4<f32>(final_color, uniforms.bg_alpha);
     }
 

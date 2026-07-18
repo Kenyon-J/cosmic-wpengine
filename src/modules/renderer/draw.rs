@@ -317,7 +317,6 @@ pub(crate) fn draw_frame(
     let mut last_uniform_res = None;
 
     let blur_opacity = renderer.state.config.appearance.blur_opacity;
-    let blur_factor = 30.0 * blur_opacity;
 
     // Optimization: Pre-calculate Visualizer instance count outside the monitor loop
     let visualiser_instance_count = if renderer.is_waveform_style {
@@ -450,7 +449,6 @@ pub(crate) fn draw_frame(
         if (show_art_fg || show_art_bg || show_color_bg) && last_uniform_res != Some(current_res) {
             if let Some(_track) = &renderer.state.current_track {
                 let color = art_tint_color;
-                let blur_step = [blur_factor / screen_res_f[0], blur_factor / screen_res_f[1]];
 
                 let bg_uv_transform = get_uv_transform(0, screen_aspect, album_art_aspect);
 
@@ -463,7 +461,7 @@ pub(crate) fn draw_frame(
                     ],
                     uv_transform: bg_uv_transform,
                     art_position: [0.5, 0.5],
-                    blur_step,
+                    blur_step: [0.0, 0.0], // retired: the blur is pre-rendered offscreen
                     audio_energy,
                     mode: album_art_bg_mode,
                     bg_alpha: album_art_bg_alpha,
@@ -515,7 +513,6 @@ pub(crate) fn draw_frame(
 
         if last_uniform_res != Some(current_res) {
             if renderer.custom_bg_bind_group.is_some() {
-                let blur_step = [blur_factor / screen_res_f[0], blur_factor / screen_res_f[1]];
                 let bg_uv_transform = get_uv_transform(0, screen_aspect, custom_bg_aspect);
 
                 // 4. Process custom background uniforms
@@ -523,7 +520,7 @@ pub(crate) fn draw_frame(
                     color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
                     uv_transform: bg_uv_transform,
                     art_position: [0.5, 0.5],
-                    blur_step,
+                    blur_step: [0.0, 0.0], // retired: the blur is pre-rendered offscreen
                     audio_energy,
                     mode: custom_bg_mode,
                     bg_alpha: custom_bg_alpha,

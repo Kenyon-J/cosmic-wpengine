@@ -16,7 +16,7 @@ pub struct ArtUniforms {
     pub color_and_transition: [f32; 4], // offset 0
     pub uv_transform: [f32; 4],         // offset 16 (scale_x, scale_y, offset_x, offset_y)
     pub art_position: [f32; 2],         // offset 32
-    pub blur_step: [f32; 2],            // offset 40
+    pub blur_step: [f32; 2],            // offset 40 (retired: blur is pre-rendered offscreen)
     pub audio_energy: f32,              // offset 48
     pub mode: u32,                      // offset 52
     pub bg_alpha: f32,                  // offset 56

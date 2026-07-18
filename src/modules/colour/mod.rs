@@ -58,6 +58,40 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
         .into_boxed_slice()
 }
 
+/// Area-weighted mean colour of an image, for judging what text drawn over
+/// it must contrast against. Unlike [`extract_palette`] this keeps very dark
+/// and very bright pixels: a mostly-black or mostly-white wallpaper should
+/// pull the mean toward black or white, not toward its accent colours.
+pub fn average_colour(img: &image::RgbaImage) -> [f32; 3] {
+    let (width, height) = img.dimensions();
+    let step_x = (width / 64).max(1);
+    let step_y = (height / 64).max(1);
+
+    let mut sum = [0.0f64; 3];
+    let mut count = 0u32;
+    for y in (0..height).step_by(step_y as usize) {
+        for x in (0..width).step_by(step_x as usize) {
+            let Rgba([r, g, b, a]) = *img.get_pixel(x, y);
+            if a < 128 {
+                continue;
+            }
+            sum[0] += r as f64;
+            sum[1] += g as f64;
+            sum[2] += b as f64;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return [0.1, 0.1, 0.1];
+    }
+    let n = count as f64 * 255.0;
+    [
+        (sum[0] / n) as f32,
+        (sum[1] / n) as f32,
+        (sum[2] / n) as f32,
+    ]
+}
+
 pub fn lerp_colour(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [
         a[0] + (b[0] - a[0]) * t,

@@ -115,6 +115,13 @@ pub struct Renderer {
     pub(crate) current_album_texture: Option<wgpu::Texture>,
     pub(crate) current_album_size: Option<(u32, u32)>,
     pub(crate) album_art_sampler: wgpu::Sampler,
+    /// Mean colour of the custom background image, kept so text drawn over
+    /// the wallpaper can pick its colour against what is actually behind it
+    /// rather than the album palette.
+    pub(crate) custom_bg_avg_color: Option<[f32; 3]>,
+    pub(crate) kawase_blur: crate::modules::renderer::blur::KawaseBlur,
+    pub(crate) album_blur_chain: Option<crate::modules::renderer::blur::BlurChain>,
+    pub(crate) custom_bg_blur_chain: Option<crate::modules::renderer::blur::BlurChain>,
     pub(crate) ambient_pipeline: wgpu::RenderPipeline,
     pub(crate) ambient_bind_group: wgpu::BindGroup,
     pub(crate) ambient_uniform_buffer: wgpu::Buffer,
@@ -385,6 +392,7 @@ impl Renderer {
                     self.album_art_fg_bind_group = None;
                     self.current_album_texture = None;
                     self.current_album_size = None;
+                    self.album_blur_chain = None;
                     self.state.has_album_art = false;
                     if let Some(track) = self.state.current_track.as_mut() {
                         self.state.previous_palette = track.palette.take();

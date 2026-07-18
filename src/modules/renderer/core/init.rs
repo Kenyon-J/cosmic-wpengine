@@ -90,6 +90,7 @@ impl Renderer {
             &queue,
             config_format,
         );
+        let kawase_blur = crate::modules::renderer::blur::KawaseBlur::new(&device);
         let (
             ambient_pipeline,
             ambient_bind_group,
@@ -160,6 +161,10 @@ impl Renderer {
             current_album_texture: Some(empty_texture),
             current_album_size: None,
             album_art_sampler,
+            custom_bg_avg_color: None,
+            kawase_blur,
+            album_blur_chain: None,
+            custom_bg_blur_chain: None,
             ambient_pipeline,
             ambient_bind_group,
             ambient_uniform_buffer,
