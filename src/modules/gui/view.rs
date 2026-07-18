@@ -56,13 +56,32 @@ fn page<'a>(
     settings::view_column(children).into()
 }
 
-fn labeled_slider<'a>(
+/// A slider paired with a spin button: drag for coarse changes, click the
+/// steppers for one-step fine tuning. Both drive the same message.
+fn stepped_slider<'a>(
+    name: &'a str,
     value_label: String,
-    control: cosmic::Element<'a, Message>,
+    value: f32,
+    range: std::ops::RangeInclusive<f32>,
+    step: f32,
+    on_change: impl Fn(f32) -> Message + Clone + 'static,
 ) -> cosmic::Element<'a, Message> {
+    let (min, max) = (*range.start(), *range.end());
     Row::new()
-        .push(text::body(value_label))
-        .push(control)
+        .push(cosmic::widget::spin_button(
+            value_label,
+            name,
+            value,
+            step,
+            min,
+            max,
+            on_change.clone(),
+        ))
+        .push(
+            slider(range, value, on_change)
+                .step(step)
+                .width(Length::Fixed(180.0)),
+        )
         .spacing(12)
         .align_y(cosmic::iced::Alignment::Center)
         .into()
@@ -276,16 +295,13 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         frosted = frosted.add(
             settings::item::builder("Blur amount")
                 .description("How strongly the wallpaper is blurred.")
-                .control(labeled_slider(
+                .control(stepped_slider(
+                    "Blur amount",
                     format!("{:.2}", app.wp_config.appearance.blur_opacity),
-                    slider(
-                        0.0..=1.0,
-                        app.wp_config.appearance.blur_opacity,
-                        Message::BlurOpacityChanged,
-                    )
-                    .step(0.05_f32)
-                    .width(Length::Fixed(220.0))
-                    .into(),
+                    app.wp_config.appearance.blur_opacity,
+                    0.0..=1.0,
+                    0.05,
+                    Message::BlurOpacityChanged,
                 )),
         );
         sections.push(frosted.into());
@@ -509,12 +525,13 @@ fn theme_slider<'a>(
 ) -> cosmic::Element<'a, Message> {
     settings::item::builder(label)
         .description(key)
-        .control(labeled_slider(
+        .control(stepped_slider(
+            label,
             format!("{value:.2}"),
-            slider(range, value, move |v| Message::ThemeEdit(msg(v)))
-                .step(step)
-                .width(Length::Fixed(200.0))
-                .into(),
+            value,
+            range,
+            step,
+            move |v| Message::ThemeEdit(msg(v)),
         ))
         .into()
 }
@@ -879,31 +896,25 @@ fn visualiser(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         .add(
             settings::item::builder("Bands")
                 .description("How many bars the visualiser draws.")
-                .control(labeled_slider(
+                .control(stepped_slider(
+                    "Bands",
                     format!("{}", app.wp_config.audio.bands),
-                    slider(
-                        16.0..=128.0,
-                        app.wp_config.audio.bands as f32,
-                        Message::BandsChanged,
-                    )
-                    .step(1.0_f32)
-                    .width(Length::Fixed(220.0))
-                    .into(),
+                    app.wp_config.audio.bands as f32,
+                    16.0..=128.0,
+                    1.0,
+                    Message::BandsChanged,
                 )),
         )
         .add(
             settings::item::builder("Smoothing")
                 .description("Higher is calmer; lower is snappier.")
-                .control(labeled_slider(
+                .control(stepped_slider(
+                    "Smoothing",
                     format!("{:.2}", app.wp_config.audio.smoothing),
-                    slider(
-                        0.0..=0.95,
-                        app.wp_config.audio.smoothing,
-                        Message::SmoothingChanged,
-                    )
-                    .step(0.05_f32)
-                    .width(Length::Fixed(220.0))
-                    .into(),
+                    app.wp_config.audio.smoothing,
+                    0.0..=0.95,
+                    0.05,
+                    Message::SmoothingChanged,
                 )),
         )
         .into()];
@@ -1027,12 +1038,13 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .add(
                 settings::item::builder("Frame rate limit")
                     .description("Lower saves power; the engine idles when nothing animates.")
-                    .control(labeled_slider(
+                    .control(stepped_slider(
+                        "Frame rate limit",
                         format!("{} fps", app.wp_config.fps),
-                        slider(15.0..=144.0, app.wp_config.fps as f32, Message::FpsChanged)
-                            .step(1.0_f32)
-                            .width(Length::Fixed(220.0))
-                            .into(),
+                        app.wp_config.fps as f32,
+                        15.0..=144.0,
+                        1.0,
+                        Message::FpsChanged,
                     )),
             )
             .add(
