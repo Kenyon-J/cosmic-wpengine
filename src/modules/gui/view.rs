@@ -7,12 +7,14 @@ use super::{BackgroundMode, Message, Page, SettingsApp, UpdateState};
 /// Labels for the background-style dropdown, index-aligned with
 /// [`BackgroundMode::ALL`].
 const BG_MODE_LABELS: [&str; 5] = [
-    "Frosted Glass (Blur)",
-    "Fully Transparent",
-    "Album Art Background",
+    "Frosted Glass",
+    "Transparent",
+    "Album Art",
     "Album Colour",
-    "Video Background",
+    "Live Wallpaper",
 ];
+
+const TEXT_COLOR_MODES: [&str; 2] = ["Automatic", "Custom"];
 
 pub(crate) fn view_app(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let page = app
@@ -68,43 +70,225 @@ fn labeled_slider<'a>(
 
 // ---------------------------------------------------------------- Wallpaper
 
+/// Preview box inside each style card.
+const CARD_W: f32 = 116.0;
+const CARD_H: f32 = 65.0;
+
+/// Card button style: quiet by default, accent border when selected, faint
+/// overlay on hover/press.
+fn card_class(selected: bool) -> cosmic::theme::Button {
+    fn base(selected: bool, overlay_alpha: f32, theme: &cosmic::Theme) -> button::Style {
+        let mut style = button::Style::new();
+        style.border_radius = theme.cosmic().corner_radii.radius_s.into();
+        style.border_width = 2.0;
+        style.border_color = if selected {
+            cosmic::iced::Color::from(theme.cosmic().accent_color())
+        } else {
+            cosmic::iced::Color::TRANSPARENT
+        };
+        if overlay_alpha > 0.0 {
+            style.overlay = Some(cosmic::iced::Background::Color(
+                cosmic::iced::Color::from_rgba(1.0, 1.0, 1.0, overlay_alpha),
+            ));
+        }
+        style
+    }
+    cosmic::theme::Button::Custom {
+        active: Box::new(move |_, theme| base(selected, 0.0, theme)),
+        disabled: Box::new(move |theme| base(selected, 0.0, theme)),
+        hovered: Box::new(move |_, theme| base(selected, 0.05, theme)),
+        pressed: Box::new(move |_, theme| base(selected, 0.1, theme)),
+    }
+}
+
+/// A fixed-size card preview box, centring `content`.
+fn card_box(content: cosmic::Element<'_, Message>) -> cosmic::Element<'_, Message> {
+    cosmic::widget::container(content)
+        .width(Length::Fixed(CARD_W))
+        .height(Length::Fixed(CARD_H))
+        .align_x(cosmic::iced::alignment::Horizontal::Center)
+        .align_y(cosmic::iced::alignment::Vertical::Center)
+        .into()
+}
+
+fn card_image(handle: &cosmic::widget::image::Handle) -> cosmic::widget::Image<'_> {
+    cosmic::widget::image(handle.clone())
+        .content_fit(cosmic::iced::ContentFit::Contain)
+        .width(Length::Fixed(CARD_W))
+        .height(Length::Fixed(CARD_H))
+}
+
+/// The preview drawn inside one style card.
+fn style_card_preview(app: &SettingsApp, mode: BackgroundMode) -> cosmic::Element<'_, Message> {
+    let preview = app.wallpaper_preview.as_ref();
+    match mode {
+        BackgroundMode::FrostedGlass => match preview {
+            Some(p) => card_image(&p.card_blurred).into(),
+            None => card_box(text::title3("❄").into()),
+        },
+        BackgroundMode::Transparent => match preview {
+            Some(p) => card_image(&p.card_sharp).opacity(0.25_f32).into(),
+            None => card_box(text::caption("None").into()),
+        },
+        BackgroundMode::AlbumArt => card_box(
+            cosmic::widget::icon::from_name("emblem-music-symbolic")
+                .size(28)
+                .into(),
+        ),
+        BackgroundMode::AlbumPalette => cosmic::widget::container(text::body(""))
+            .width(Length::Fixed(CARD_W))
+            .height(Length::Fixed(CARD_H))
+            .class(cosmic::theme::Container::custom(|_| {
+                cosmic::iced::widget::container::Style {
+                    background: Some(cosmic::iced::Background::Gradient(
+                        cosmic::iced::Gradient::Linear(
+                            cosmic::iced::gradient::Linear::new(cosmic::iced::Radians(
+                                std::f32::consts::FRAC_PI_2,
+                            ))
+                            .add_stop(0.0, cosmic::iced::Color::from_rgb(0.48, 0.20, 0.32))
+                            .add_stop(0.5, cosmic::iced::Color::from_rgb(0.77, 0.42, 0.29))
+                            .add_stop(1.0, cosmic::iced::Color::from_rgb(0.85, 0.63, 0.36)),
+                        ),
+                    )),
+                    ..Default::default()
+                }
+            }))
+            .into(),
+        BackgroundMode::Video => match app.library.iter().find_map(|e| e.thumbnail.as_ref()) {
+            Some(thumb) => cosmic::widget::image(cosmic::widget::image::Handle::from_path(thumb))
+                .content_fit(cosmic::iced::ContentFit::Contain)
+                .width(Length::Fixed(CARD_W))
+                .height(Length::Fixed(CARD_H))
+                .into(),
+            None => card_box(text::title3("▶").into()),
+        },
+    }
+}
+
+/// The frosted-glass live preview: the real wallpaper, its blurred copy
+/// mixed in at the configured amount, the glass tint, and sample text in
+/// the colour the engine would pick.
+fn frosted_preview(app: &SettingsApp) -> Option<cosmic::Element<'_, Message>> {
+    use cosmic_wallpaper::modules::colour;
+    let p = app.wallpaper_preview.as_ref()?;
+    let opacity = app.wp_config.appearance.blur_opacity;
+    let tint_alpha = opacity * 0.45;
+
+    // Mirror the engine's adaptive choice against the tinted backdrop.
+    let sample_color = match app.wp_config.appearance.text_color {
+        Some(c) => cosmic::iced::Color::from_rgb(c[0], c[1], c[2]),
+        None => {
+            let dimmed = colour::lerp_colour(p.mean, [0.106, 0.106, 0.106], tint_alpha);
+            if colour::relative_luminance(dimmed) > 0.179 {
+                cosmic::iced::Color::from_rgb(0.1, 0.1, 0.1)
+            } else {
+                cosmic::iced::Color::from_rgb(0.95, 0.95, 0.95)
+            }
+        }
+    };
+
+    let tint = cosmic::widget::container(text::body(""))
+        .width(Length::Fixed(480.0))
+        .height(Length::Fixed(160.0))
+        .class(cosmic::theme::Container::custom(move |_| {
+            cosmic::iced::widget::container::Style {
+                background: Some(cosmic::iced::Background::Color(
+                    cosmic::iced::Color::from_rgba(0.106, 0.106, 0.106, tint_alpha),
+                )),
+                ..Default::default()
+            }
+        }));
+
+    let sample = cosmic::widget::container(
+        Column::new()
+            .push(
+                text::title4("On, and on, and on, and on")
+                    .class(cosmic::theme::Text::Color(sample_color)),
+            )
+            .push(
+                text::caption("I can feel the rush, I can feel the noise")
+                    .class(cosmic::theme::Text::Color(sample_color)),
+            )
+            .spacing(4)
+            .align_x(cosmic::iced::Alignment::Center),
+    )
+    .width(Length::Fixed(480.0))
+    .height(Length::Fixed(160.0))
+    .align_x(cosmic::iced::alignment::Horizontal::Center)
+    .align_y(cosmic::iced::alignment::Vertical::Center);
+
+    let stack = cosmic::iced::widget::Stack::with_children(vec![
+        cosmic::widget::image(p.strip_sharp.clone())
+            .content_fit(cosmic::iced::ContentFit::Contain)
+            .width(Length::Fixed(480.0))
+            .height(Length::Fixed(160.0))
+            .into(),
+        cosmic::widget::image(p.strip_blurred.clone())
+            .opacity(opacity)
+            .content_fit(cosmic::iced::ContentFit::Contain)
+            .width(Length::Fixed(480.0))
+            .height(Length::Fixed(160.0))
+            .into(),
+        tint.into(),
+        sample.into(),
+    ]);
+
+    Some(
+        cosmic::widget::container(stack)
+            .width(Length::Fill)
+            .align_x(cosmic::iced::alignment::Horizontal::Center)
+            .into(),
+    )
+}
+
 fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let mode = app.current_background_mode();
 
-    let mut sections = vec![settings::section()
-        .title("Style")
-        .add(
-            settings::item::builder("Background style")
-                .description("What fills the desktop behind the overlays.")
-                .control(dropdown(
-                    &BG_MODE_LABELS[..],
-                    BackgroundMode::ALL.iter().position(|m| *m == mode),
-                    |idx| Message::BackgroundModeSelected(BackgroundMode::ALL[idx]),
-                )),
-        )
-        .into()];
+    // Style cards: preview + label, selected card highlighted.
+    let mut cards: Vec<cosmic::Element<'_, Message>> = Vec::new();
+    for (idx, card_mode) in BackgroundMode::ALL.iter().enumerate() {
+        let selected = *card_mode == mode;
+        cards.push(
+            button::custom(
+                Column::new()
+                    .push(style_card_preview(app, *card_mode))
+                    .push(text::caption(BG_MODE_LABELS[idx]))
+                    .spacing(4)
+                    .align_x(cosmic::iced::Alignment::Center),
+            )
+            .class(card_class(selected))
+            .padding(4)
+            .on_press(Message::BackgroundModeSelected(*card_mode))
+            .into(),
+        );
+    }
+    let cards = cosmic::widget::flex_row(cards)
+        .row_spacing(8)
+        .column_spacing(8);
+
+    let mut sections = vec![settings::section().title("Style").add(cards).into()];
 
     if mode == BackgroundMode::FrostedGlass {
-        sections.push(
-            settings::section()
-                .title("Frosted Glass")
-                .add(
-                    settings::item::builder("Blur amount")
-                        .description("How strongly the wallpaper is blurred.")
-                        .control(labeled_slider(
-                            format!("{:.2}", app.wp_config.appearance.blur_opacity),
-                            slider(
-                                0.0..=1.0,
-                                app.wp_config.appearance.blur_opacity,
-                                Message::BlurOpacityChanged,
-                            )
-                            .step(0.05_f32)
-                            .width(Length::Fixed(220.0))
-                            .into(),
-                        )),
-                )
-                .into(),
+        let mut frosted = settings::section().title("Frosted Glass");
+        if let Some(preview) = frosted_preview(app) {
+            frosted = frosted.add(preview);
+        }
+        frosted = frosted.add(
+            settings::item::builder("Blur amount")
+                .description("How strongly the wallpaper is blurred.")
+                .control(labeled_slider(
+                    format!("{:.2}", app.wp_config.appearance.blur_opacity),
+                    slider(
+                        0.0..=1.0,
+                        app.wp_config.appearance.blur_opacity,
+                        Message::BlurOpacityChanged,
+                    )
+                    .step(0.05_f32)
+                    .width(Length::Fixed(220.0))
+                    .into(),
+                )),
         );
+        sections.push(frosted.into());
     }
 
     if mode == BackgroundMode::Video {
@@ -115,6 +299,44 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                     "Video",
                     text::body("Pick and manage videos on the Live Wallpapers page"),
                 ))
+                .into(),
+        );
+    }
+
+    // Text colour applies to every style, so it lives outside the
+    // conditional sections.
+    let custom_active = app.wp_config.appearance.text_color.is_some();
+    let mut colour_row = Row::new()
+        .spacing(8)
+        .align_y(cosmic::iced::Alignment::Center)
+        .push(dropdown(
+            &TEXT_COLOR_MODES[..],
+            Some(usize::from(custom_active)),
+            Message::TextColorMode,
+        ));
+    if custom_active {
+        colour_row = colour_row.push(
+            app.color_picker
+                .picker_button(Message::TextColorPicker, None)
+                .width(Length::Fixed(48.0)),
+        );
+    }
+    sections.push(
+        settings::section()
+            .title("Text")
+            .add(
+                settings::item::builder("Text colour")
+                    .description("Automatic picks a colour that stays readable on your wallpaper.")
+                    .control(colour_row),
+            )
+            .into(),
+    );
+
+    if custom_active && app.color_picker.get_is_active() {
+        sections.push(
+            app.color_picker
+                .builder(Message::TextColorPicker)
+                .build("Recent colours", "Copy to clipboard", "Copied to clipboard")
                 .into(),
         );
     }
@@ -419,6 +641,8 @@ fn visualiser(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 // ----------------------------------------------------------------- Weather
 
 const TEMPERATURE_UNITS: [&str; 2] = ["Celsius", "Fahrenheit"];
+const POLL_LABELS: [&str; 4] = ["5 minutes", "15 minutes", "30 minutes", "1 hour"];
+pub(crate) const POLL_MINUTES: [u64; 4] = [5, 15, 30, 60];
 
 fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let current_unit = match app.wp_config.weather.temperature_unit {
@@ -446,6 +670,34 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             Some(current_unit),
             |idx| Message::TemperatureUnitSelected(TEMPERATURE_UNITS[idx].to_string()),
         )))
+        .add(
+            settings::item::builder("Location")
+                .description("Latitude and longitude for the forecast.")
+                .control(
+                    Row::new()
+                        .push(
+                            text_input("Latitude", &app.lat_input)
+                                .on_input(Message::LatitudeChanged)
+                                .width(Length::Fixed(100.0)),
+                        )
+                        .push(
+                            text_input("Longitude", &app.lon_input)
+                                .on_input(Message::LongitudeChanged)
+                                .width(Length::Fixed(100.0)),
+                        )
+                        .spacing(8)
+                        .align_y(cosmic::iced::Alignment::Center),
+                ),
+        )
+        .add(
+            settings::item::builder("Update every").control(dropdown(
+                &POLL_LABELS[..],
+                POLL_MINUTES
+                    .iter()
+                    .position(|m| *m == app.wp_config.weather.poll_interval_minutes),
+                Message::PollIntervalSelected,
+            )),
+        )
         .into()];
 
     page(

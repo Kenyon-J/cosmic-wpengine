@@ -8,9 +8,11 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use cosmic::app::Core;
 use cosmic::iced::Task;
+use cosmic::widget::color_picker::{ColorPickerModel, ColorPickerUpdate};
 use cosmic::widget::{icon, nav_bar};
 use cosmic::Application;
 use cosmic_text::fontdb;
+use cosmic_wallpaper::modules::config::ResolvedBackground;
 
 // Import the shared modules from your newly created library crate!
 use cosmic_wallpaper::modules::config;
@@ -39,10 +41,32 @@ struct SettingsApp {
     update_state: UpdateState,
     /// Fetched release notes, shown on the General page when present.
     patch_notes: Option<String>,
+    /// Wallpaper snapshots for the Wallpaper page previews; loaded async at
+    /// startup from the same background resolution the engine uses.
+    wallpaper_preview: Option<WallpaperPreview>,
+    /// Picker state for the custom text colour.
+    color_picker: ColorPickerModel,
+    /// Text buffers for the weather location inputs (kept as typed even
+    /// while invalid; only valid coordinates are saved).
+    lat_input: String,
+    lon_input: String,
     /// Monotonic counter pairing each slider change with its debounce timer;
     /// a DebouncedSave only writes to disk if its generation is still the
     /// newest (i.e. the slider settled for the full window).
     save_generation: u64,
+}
+
+/// Pre-rendered wallpaper snapshots for the Wallpaper page: a wide 3:1
+/// strip (sharp + gaussian-blurred) for the frosted-glass preview, and a
+/// 16:9 card pair for the style cards.
+#[derive(Debug, Clone)]
+struct WallpaperPreview {
+    strip_sharp: cosmic::widget::image::Handle,
+    strip_blurred: cosmic::widget::image::Handle,
+    card_sharp: cosmic::widget::image::Handle,
+    card_blurred: cosmic::widget::image::Handle,
+    /// Mean sRGB of the wallpaper, for previewing the adaptive text colour.
+    mean: [f32; 3],
 }
 
 /// One page of the settings window, keyed off the sidebar selection.
@@ -101,6 +125,61 @@ impl SettingsApp {
             |generation| Message::DebouncedSave(generation).into(),
         )
     }
+}
+
+/// Center-crops `img` to `ratio` (w/h) and resizes to `w`x`h`.
+fn crop_resize(img: &image::RgbaImage, w: u32, h: u32) -> image::RgbaImage {
+    let (sw, sh) = img.dimensions();
+    let ratio = w as f32 / h as f32;
+    let (cw, ch) = if sw as f32 / sh as f32 > ratio {
+        (((sh as f32 * ratio) as u32).clamp(1, sw), sh)
+    } else {
+        (sw, ((sw as f32 / ratio) as u32).clamp(1, sh))
+    };
+    let cropped = image::imageops::crop_imm(img, (sw - cw) / 2, (sh - ch) / 2, cw, ch).to_image();
+    image::imageops::resize(&cropped, w, h, image::imageops::FilterType::Triangle)
+}
+
+/// Loads the same background the engine resolves (wallpaper file, colour or
+/// gradient) and prepares the preview snapshots.
+fn load_wallpaper_preview_task(
+    appearance: config::AppearanceConfig,
+) -> Task<cosmic::Action<Message>> {
+    Task::perform(
+        async move {
+            let resolved = appearance.resolved_background().await;
+            tokio::task::spawn_blocking(move || build_wallpaper_preview(resolved))
+                .await
+                .ok()
+                .flatten()
+        },
+        |preview| Message::WallpaperPreviewLoaded(preview).into(),
+    )
+}
+
+fn build_wallpaper_preview(resolved: Option<ResolvedBackground>) -> Option<WallpaperPreview> {
+    use cosmic_wallpaper::modules::renderer::utils as render_utils;
+    let img: image::RgbaImage = match resolved? {
+        ResolvedBackground::Image(path) => image::open(path).ok()?.to_rgba8(),
+        ResolvedBackground::Colour(colour) => render_utils::solid_colour_image(colour),
+        ResolvedBackground::Gradient { colors, angle_deg } => {
+            render_utils::gradient_image(&colors, angle_deg, 480, 160)
+        }
+    };
+    let mean = cosmic_wallpaper::modules::colour::average_colour(&img);
+
+    let handle = |img: &image::RgbaImage| {
+        cosmic::widget::image::Handle::from_rgba(img.width(), img.height(), img.clone().into_raw())
+    };
+    let strip = crop_resize(&img, 480, 160);
+    let card = crop_resize(&img, 160, 90);
+    Some(WallpaperPreview {
+        strip_sharp: handle(&strip),
+        strip_blurred: handle(&image::imageops::blur(&strip, 8.0)),
+        card_sharp: handle(&card),
+        card_blurred: handle(&image::imageops::blur(&card, 5.0)),
+        mean,
+    })
 }
 
 /// Rescans the video library (thumbnail extraction included) off the UI
@@ -356,6 +435,14 @@ enum Message {
         imported: usize,
         skipped: usize,
     },
+    WallpaperPreviewLoaded(Option<WallpaperPreview>),
+    /// 0 = automatic text colour, 1 = custom.
+    TextColorMode(usize),
+    TextColorPicker(ColorPickerUpdate),
+    LatitudeChanged(String),
+    LongitudeChanged(String),
+    /// Index into `view::POLL_MINUTES`.
+    PollIntervalSelected(usize),
     ApplyTheme,
     FpsChanged(f32),
     BlurOpacityChanged(f32),
@@ -447,11 +534,12 @@ impl Application for SettingsApp {
             })
             .build();
 
+        let appearance_snapshot = wp_config.appearance.clone();
+
         (
             SettingsApp {
                 core,
                 nav,
-                wp_config,
                 available_fonts,
                 available_themes,
                 library: Vec::new(),
@@ -462,6 +550,19 @@ impl Application for SettingsApp {
                 status_msg: "Ready.".into(),
                 update_state: UpdateState::UpToDate,
                 patch_notes: None,
+                wallpaper_preview: None,
+                color_picker: ColorPickerModel::new(
+                    "Hex",
+                    "RGB",
+                    None,
+                    wp_config
+                        .appearance
+                        .text_color
+                        .map(|c| cosmic::iced::Color::from_rgb(c[0], c[1], c[2])),
+                ),
+                lat_input: format!("{}", wp_config.weather.latitude),
+                lon_input: format!("{}", wp_config.weather.longitude),
+                wp_config,
                 save_generation: 0,
             },
             Task::batch([
@@ -469,6 +570,7 @@ impl Application for SettingsApp {
                     Message::UpdateCheckDone(version).into()
                 }),
                 scan_library_task(),
+                load_wallpaper_preview_task(appearance_snapshot),
             ]),
         )
     }
@@ -585,6 +687,61 @@ impl Application for SettingsApp {
                         },
                         |(imported, skipped)| Message::ImportDone { imported, skipped }.into(),
                     );
+                }
+            }
+            Message::WallpaperPreviewLoaded(preview) => {
+                self.wallpaper_preview = preview;
+            }
+            Message::TextColorMode(idx) => {
+                self.wp_config.appearance.text_color = if idx == 0 {
+                    None
+                } else {
+                    let colour = self
+                        .color_picker
+                        .get_applied_color()
+                        .unwrap_or(cosmic::iced::Color::WHITE);
+                    Some([colour.r, colour.g, colour.b])
+                };
+                let _ = self.wp_config.save();
+            }
+            Message::TextColorPicker(update) => {
+                if matches!(update, ColorPickerUpdate::AppliedColor) {
+                    // The applied colour lands in the model below; save after.
+                    let task = self.color_picker.update::<cosmic::Action<Message>>(update);
+                    if let Some(colour) = self.color_picker.get_applied_color() {
+                        self.wp_config.appearance.text_color = Some([colour.r, colour.g, colour.b]);
+                        let _ = self.wp_config.save();
+                    }
+                    return task;
+                }
+                if matches!(update, ColorPickerUpdate::Reset) {
+                    self.wp_config.appearance.text_color = None;
+                    let _ = self.wp_config.save();
+                }
+                return self.color_picker.update::<cosmic::Action<Message>>(update);
+            }
+            Message::LatitudeChanged(input) => {
+                self.lat_input = input;
+                if let Ok(lat) = self.lat_input.trim().parse::<f64>() {
+                    if (-90.0..=90.0).contains(&lat) {
+                        self.wp_config.weather.latitude = lat;
+                        return self.schedule_debounced_save();
+                    }
+                }
+            }
+            Message::LongitudeChanged(input) => {
+                self.lon_input = input;
+                if let Ok(lon) = self.lon_input.trim().parse::<f64>() {
+                    if (-180.0..=180.0).contains(&lon) {
+                        self.wp_config.weather.longitude = lon;
+                        return self.schedule_debounced_save();
+                    }
+                }
+            }
+            Message::PollIntervalSelected(idx) => {
+                if let Some(&minutes) = view::POLL_MINUTES.get(idx) {
+                    self.wp_config.weather.poll_interval_minutes = minutes;
+                    let _ = self.wp_config.save();
                 }
             }
             Message::ImportDone { imported, skipped } => {

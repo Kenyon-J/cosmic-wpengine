@@ -495,6 +495,14 @@ impl Renderer {
     }
 
     pub(crate) fn update_text_colors(&mut self) {
+        // A user-picked colour overrides the adaptive logic entirely.
+        if let Some(c) = self.state.config.appearance.text_color {
+            self.primary_text_color = [c[0], c[1], c[2], 1.0];
+            self.secondary_text_color = [c[0], c[1], c[2], 0.7];
+            self.text_color_diff = [0.0, 0.0, 0.0, 0.3];
+            return;
+        }
+
         let palette = self
             .state
             .current_track

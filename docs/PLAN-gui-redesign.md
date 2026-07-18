@@ -109,13 +109,32 @@ selection messages are now index-based: `FontSelected`/`ThemeSelected`/
       highlight + import), tile click switches the wallpaper, canvas toggle
       with Spotify playing
 
-### Phase 3 — Wallpaper page polish + colour picker
+### Phase 3 — Wallpaper page polish + colour picker (CODE COMPLETE, verifying)
 
-- [ ] Style cards with mini previews replacing the pick_list
-- [ ] Frosted Glass live preview strip
-- [ ] Text colour: Automatic / Custom with colour picker (engine: config
-      field + override in `update_text_colors`; see ROADMAP notes on why)
-- [ ] Weather location editing (lat/lon), poll interval
+- [x] Style cards replacing the dropdown: real previews (blurred/sharp
+      wallpaper snapshots, first video thumbnail, palette gradient, music
+      icon) in a wrapping `flex_row`; selection = accent border via
+      `theme::Button::Custom` (Suggested fill looked like a giant pill)
+- [x] Frosted Glass live preview strip: `Stack` of sharp wallpaper +
+      blurred copy at `Image::opacity(blur_opacity)` + glass-tint layer +
+      sample lyric in the colour the engine would pick. Wallpaper loaded
+      via the engine's own `resolved_background()`; snapshots prepared
+      off-thread in `build_wallpaper_preview` (gaussian approximation of
+      the Kawase look)
+- [x] Text colour: `appearance.text_color: Option<[f32;3]>` (None =
+      automatic) short-circuits `update_text_colors`; GUI has
+      Automatic/Custom dropdown + native `ColorPickerModel` (save applies,
+      Reset returns to automatic)
+- [x] Weather: lat/lon text inputs (validated, debounced) + poll-interval
+      dropdown
+- [ ] Joshua to verify: card clicks, picker flow end-to-end with the
+      engine running, weather inputs. NOTE: engine binary with text_color
+      support is installed but NOT started (Joshua had quit it while
+      gaming); GUI running the phase 3 build.
+
+Known nits: image widget clips nothing at this rev, so every preview uses
+fixed-box Contain; preview strip is loaded once at startup (wallpaper
+changes mid-session won't refresh it until reopen).
 
 ## Status log
 

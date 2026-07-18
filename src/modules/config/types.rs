@@ -88,6 +88,10 @@ pub struct AppearanceConfig {
     /// the configured background.
     #[serde(default = "default_true")]
     pub prefer_canvas: bool,
+    /// Fixed sRGB text colour. `None` picks a colour automatically from
+    /// whatever is behind the text.
+    #[serde(default)]
+    pub text_color: Option<[f32; 3]>,
 }
 
 fn default_true() -> bool {
@@ -107,6 +111,7 @@ impl Default for AppearanceConfig {
             custom_background_path: None,
             video_background_path: None,
             prefer_canvas: true,
+            text_color: None,
         }
     }
 }

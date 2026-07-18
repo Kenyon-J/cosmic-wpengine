@@ -93,7 +93,7 @@ fn linear_to_srgb(c: f32) -> f32 {
 /// A tiny uniform texture standing in for a solid-colour desktop wallpaper;
 /// the frosted-glass shader's cover-crop of a uniform image is identical at
 /// any resolution, so 16x16 is plenty.
-pub(crate) fn solid_colour_image(colour: [f32; 3]) -> image::RgbaImage {
+pub fn solid_colour_image(colour: [f32; 3]) -> image::RgbaImage {
     let pixel = image::Rgba([
         srgb_byte(colour[0]),
         srgb_byte(colour[1]),
@@ -106,7 +106,7 @@ pub(crate) fn solid_colour_image(colour: [f32; 3]) -> image::RgbaImage {
 /// Renders a cosmic-bg gradient wallpaper: evenly spaced stops interpolated
 /// in linear RGB along an axis `angle_deg` clockwise from bottom-to-top,
 /// matching cosmic-bg's 0/90/180/270 orientations.
-pub(crate) fn gradient_image(
+pub fn gradient_image(
     colors: &[[f32; 3]],
     angle_deg: f32,
     width: u32,
