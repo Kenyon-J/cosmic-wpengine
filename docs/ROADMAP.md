@@ -24,6 +24,21 @@ The ~120-field `Renderer` + ~900-line `draw_frame` split (Phase 9 of
 [PLAN-v1-hardening.md](PLAN-v1-hardening.md)). Needs its own plan and ideally
 a frame-capture harness first.
 
+## Visualiser bar polish
+
+One coherent visual pass over the bars (deferred 2026-07-18 - they still
+look good, so no urgency):
+
+- Capsule SDF with smoothstep edges: rounded caps plus real anti-aliasing
+  (`eval_shape` in visualiser.wgsl currently hard-cuts at the bar edge)
+- Mirror reflection below the baseline ("glass floor", fits the frosted
+  identity)
+- Glow scaled by the bar's own band energy, not just `lyric_pulse`
+- Peak-hold caps that fall with gravity (needs a per-band peak array
+  alongside the existing smoothed bands)
+- Expose bar width ratio (hardcoded 0.85), cap radius, reflection, and an
+  LED/segmented mode as `ThemeLayout` options so themes opt in
+
 ## Unscheduled ideas
 
 - Interactive mouse-reactive wallpaper effects
