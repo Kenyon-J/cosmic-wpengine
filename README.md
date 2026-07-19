@@ -93,6 +93,11 @@ Grab the latest release from the [Releases page](https://github.com/Kenyon-J/cos
 - **Other distros**: download the prebuilt `cosmic-wallpaper-x86_64-linux-gnu`
   and `cosmic-wallpaper-gui-x86_64-linux-gnu` binaries. `SHA256SUMS.txt` is
   signed with minisign (`SHA256SUMS.txt.minisig`) so you can verify what you run.
+  These binaries bundle FFmpeg statically so they run regardless of your
+  distro's ffmpeg version. FFmpeg is LGPL-2.1+: the bundled build is compiled
+  unmodified from the [official source](https://github.com/FFmpeg/FFmpeg) at
+  the version pinned by `ffmpeg-sys-next` (see `Cargo.lock`), with no GPL
+  components enabled.
 - Once installed, future updates are one click in the settings app: it checks
   GitHub Releases, verifies the signed checksums, and swaps the binaries in place.
 

@@ -6,6 +6,18 @@ description = "A live wallpaper engine for the COSMIC desktop"
 license = "MIT"
 default-run = "cosmic-wallpaper"
 
+[features]
+# Release-CI only: ffmpeg-sys-next's build script clones the matching FFmpeg
+# tag and links it statically, so published binaries stop depending on the
+# host distro's ffmpeg sonames (an Arch ffmpeg major bump made every
+# CI-built binary die at the dynamic linker with exit 127 - see the roadmap's
+# "Portable release binaries" entry). Needs git, make and nasm on the build
+# host. Local/dev builds and the .deb stay dynamic against the system ffmpeg:
+# faster builds, and the package manager owns the ABI there. FFmpeg is
+# LGPL-2.1+; the static build keeps the default LGPL configure (no
+# --enable-gpl), with the source-availability note in the README.
+static-ffmpeg = ["ffmpeg-next/build"]
+
 [dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync", "net"] }
 smithay-client-toolkit = { version = "0.19", features = ["calloop"] }

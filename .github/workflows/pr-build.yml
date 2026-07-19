@@ -29,14 +29,16 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
+      # Default features only: the sole non-default feature (static-ffmpeg)
+      # compiles ffmpeg from source and has its own dedicated job below.
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Check compilation
-        run: cargo check --all-targets --all-features
+        run: cargo check --all-targets
 
       - name: Run tests
-        run: cargo test --all-targets --all-features
+        run: cargo test --all-targets
 
       - name: Build release
         run: cargo build --release
@@ -120,8 +122,9 @@ jobs:
       - name: Set up Rust cache
         uses: Swatinem/rust-cache@v2
 
+      # Default features only - see the Ubuntu job; this container has no nasm.
       - name: Check compilation
-        run: cargo check --all-targets --all-features
+        run: cargo check --all-targets
 
       # On failure, surface the tail of the test output as a check-run
       # annotation so the error is visible from the API/mobile without
@@ -131,13 +134,45 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          if ! cargo test --all-targets --all-features 2>&1 | tee /tmp/test.log; then
+          if ! cargo test --all-targets 2>&1 | tee /tmp/test.log; then
             sed 's/\x1b\[[0-9;]*m//g' /tmp/test.log | tail -c 3000 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g' | sed 's/^/::error title=arch tests failed::/'
             exit 1
           fi
 
       - name: Build release
         run: cargo build --release
+
+  # Mirrors the release workflow's standalone-binary build so a broken
+  # static ffmpeg build (or a dynamic-linking regression) is caught on every
+  # push instead of at tag time. See the "Portable release binaries" roadmap
+  # entry for why the standalone binaries must not link the host's ffmpeg.
+  build-static-ffmpeg:
+    name: Static-ffmpeg release build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev libssl-dev nasm
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries with static ffmpeg
+        run: cargo build --release --locked --features static-ffmpeg
+
+      - name: Verify binaries do not link a host ffmpeg
+        run: |
+          for bin in cosmic-wallpaper cosmic-wallpaper-gui; do
+            if ldd "target/release/$bin" | grep -E "libav|libsw(scale|resample)|libpostproc"; then
+              echo "::error::$bin still links ffmpeg dynamically; the static-ffmpeg feature did not take effect"
+              exit 1
+            fi
+          done
 
   # Hard gate: fails on any RustSec advisory not in the .cargo/audit.toml
   # ignore list. That ignore list holds only transitive, unfixable-from-here

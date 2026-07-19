@@ -30,8 +30,11 @@ jobs:
       # verifies this set is sufficient to build cosmic-wallpaper.
       - name: Install system dependencies
         run: |
+          # nasm: assembler for the static ffmpeg build (static-ffmpeg
+          # feature); the libav*-dev packages are gone for the same reason -
+          # the standalone binaries must not link the host's ffmpeg.
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev ffmpeg libssl-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev libpostproc-dev
+          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev libssl-dev nasm
 
       - name: Set up Rust cache
         uses: Swatinem/rust-cache@v2
@@ -45,8 +48,22 @@ jobs:
             exit 1
           fi
 
+      # static-ffmpeg: the standalone binaries go to arbitrary distros whose
+      # ffmpeg sonames CI cannot predict (an Arch ffmpeg major bump made
+      # dynamically-linked releases die at the linker with exit 127), so
+      # ffmpeg is compiled in. The .deb job below stays dynamic: its package
+      # dependencies pin the distro's ffmpeg correctly.
       - name: Build release binaries
-        run: cargo build --release --locked --all-targets
+        run: cargo build --release --locked --all-targets --features static-ffmpeg
+
+      - name: Verify binaries do not link a host ffmpeg
+        run: |
+          for bin in cosmic-wallpaper cosmic-wallpaper-gui; do
+            if ldd "target/release/$bin" | grep -E "libav|libsw(scale|resample)|libpostproc"; then
+              echo "::error::$bin still links ffmpeg dynamically; the static-ffmpeg feature did not take effect"
+              exit 1
+            fi
+          done
 
       - name: Package release assets
         run: |
