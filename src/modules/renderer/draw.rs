@@ -1,9 +1,6 @@
+use super::frame_params::{get_uv_transform, FrameParams};
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::{AmbUniforms, ArtUniforms, VisUniforms};
-use crate::modules::colour::{lerp_colour, time_to_sky_colour};
-use crate::modules::config::{ArtShape, TextAlign, VisAlign, VisShape, WallpaperMode};
-use crate::modules::event::WeatherCondition;
-use crate::modules::state::SceneHint;
 use crate::modules::wayland::WaylandManager;
 use anyhow::Result;
 use cosmic_text::{self, Attrs, Family, Metrics, Shaping};
@@ -114,52 +111,57 @@ pub(crate) fn draw_frame(
     wayland_manager: &mut WaylandManager,
     delta: f32,
 ) -> Result<()> {
-    let audio_data = if renderer.is_waveform_style {
-        &renderer.state.audio_waveform
-    } else {
-        &renderer.state.audio_bands
-    };
-
-    let force_weather = renderer.state.config.mode == WallpaperMode::Weather;
-    let force_vis = renderer.state.config.mode == WallpaperMode::AudioVisualiser;
-    let force_art = renderer.state.config.mode == WallpaperMode::AlbumArt;
-
-    let has_audio = (renderer.audio_max_energy > 0.001 || force_vis)
-        && !force_weather
-        && !force_art
-        && (renderer.state.current_track.is_some() || force_vis);
-
-    // Combine the pre-calculated base volume energy with our snappy treble pulse, strictly capped to prevent blown out flashing
-    let audio_energy =
-        (renderer.audio_base_energy * 0.3 + renderer.treble_pulse * 0.4).clamp(0.0, 1.0);
-
-    // --- IMPORTANT FIX ---
-    // The old state check can fail due to subtle race conditions.
-    // The most robust way to check for media is to see if the GPU resources for it exist.
-    let has_media_check_state = renderer.state.has_album_art;
-    let has_media_check_gpu = renderer.album_art_fg_bind_group.is_some();
-    if has_media_check_gpu && !has_media_check_state {
-        warn!("Album art visibility check mismatch! State: false, GPU: true. Using GPU state.");
-    }
-
-    // Decouple art visibility from force_vis so you can layer the visualizer AND the album art!
-    let show_art_fg =
-        (has_media_check_gpu || force_art) && renderer.state.config.appearance.show_album_art;
-    let show_art_bg =
-        (has_media_check_gpu || force_art) && renderer.state.config.appearance.album_art_background;
-    let show_color_bg = (has_media_check_gpu || force_art)
-        && renderer.state.config.appearance.album_color_background;
-
-    // Optimization: Use cached weather state and sky colors
-    let weather_type = renderer.weather_type;
-    let final_sky = get_final_sky_color(renderer);
-    let clear_colour = get_clear_colour_from_sky(renderer, final_sky);
-
-    // Use our new smart audio-reactive beat detector instead of the generic timer
-    let pulse = renderer.beat_pulse;
-
-    let is_weather_active = renderer.is_weather_active;
-    let active_particles = renderer.active_particles;
+    // One pass of pure derivation over &renderer (phase 1 of the renderer
+    // decomposition); the loop below is then free to take mutable borrows.
+    // Destructured into same-named locals so the per-output code reads
+    // exactly as it did when these were computed inline.
+    let FrameParams {
+        has_audio,
+        audio_energy,
+        show_art_fg,
+        show_art_bg,
+        show_color_bg,
+        clear_colour,
+        is_weather_active,
+        active_particles,
+        top_col,
+        bottom_col,
+        art_tint_color,
+        elapsed,
+        track_hash,
+        weather_hash,
+        sky_color_data,
+        vis_shape_u32,
+        vis_align_u32,
+        vis_pos_size_rot,
+        is_waveform_u32,
+        album_art_bg_mode,
+        album_art_bg_alpha,
+        album_art_aspect,
+        album_art_fg_pos,
+        album_art_fg_size,
+        album_art_fg_shape,
+        custom_bg_mode,
+        custom_bg_alpha,
+        custom_bg_aspect,
+        blur_opacity,
+        visualiser_instance_count,
+        lyric_start_idx,
+        lyric_end_idx,
+        fg_k1,
+        fg_k2,
+        fg_k3,
+        fg_scale_y,
+        fg_offset_y,
+        secondary_text,
+        text_color_diff,
+        lyrics_align,
+        track_info_align,
+        weather_align,
+        font_family,
+        lyric_bounce,
+        beat_pulse_mul,
+    } = FrameParams::compute(renderer);
 
     if is_weather_active && active_particles > 0 {
         // --- Dispatch Weather Compute Shader ---
@@ -199,6 +201,11 @@ pub(crate) fn draw_frame(
     }
 
     if has_audio {
+        let audio_data: &[f32] = if renderer.is_waveform_style {
+            &renderer.state.audio_waveform
+        } else {
+            &renderer.state.audio_bands
+        };
         renderer.queue.write_buffer(
             &renderer.visualiser_pass.bands_buffer,
             0,
@@ -206,199 +213,23 @@ pub(crate) fn draw_frame(
         );
     }
 
-    // Optimization: Pre-calculate common render values out of the monitor loop
-    // to avoid redundant calculations for each output.
-
-    // 1. Pre-calculate Visualizer colors
-    let (top_col, bottom_col) = if has_audio {
-        if renderer.state.transition_progress < 1.0 {
-            let t = renderer.state.transition_progress;
-            let top_rgb = lerp_colour(renderer.vis_prev_colors.0, renderer.vis_target_colors.0, t);
-            let bottom_rgb =
-                lerp_colour(renderer.vis_prev_colors.1, renderer.vis_target_colors.1, t);
-            (
-                [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
-                [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
-            )
-        } else {
-            let top_rgb = renderer.vis_target_colors.0;
-            let bottom_rgb = renderer.vis_target_colors.1;
-            (
-                [top_rgb[0], top_rgb[1], top_rgb[2], 1.0],
-                [bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], 1.0],
-            )
-        }
-    } else {
-        ([0.0; 4], [0.0; 4])
-    };
-
-    // 2. Pre-calculate Album Art colors
-    let art_tint_color = if show_art_fg || show_art_bg || show_color_bg {
-        if renderer.state.transition_progress < 1.0 {
-            lerp_colour(
-                renderer.art_prev_color,
-                renderer.art_target_color,
-                renderer.state.transition_progress,
-            )
-        } else {
-            renderer.art_target_color
-        }
-    } else {
-        [0.1, 0.1, 0.1]
-    };
-
-    let elapsed = renderer.start_time.elapsed().as_secs_f32();
-
-    // Optimization: Use pre-calculated hashes for display-invariant strings
-    let track_hash = renderer.cached_track_hash;
-    let weather_hash = renderer.cached_weather_hash;
-
-    // 3. Pre-calculate Sky color data for uniforms
-    let sky_color_data = if renderer.custom_bg_bind_group.is_none() {
-        Some((elapsed, weather_type, final_sky))
-    } else {
-        None
-    };
-
-    // Optimization: Pre-calculate display-invariant components for the visualizer.
-    let vis_shape_u32 = match renderer.theme.visualiser.shape {
-        VisShape::Circular => 0,
-        VisShape::Linear => 1,
-        VisShape::Square => 2,
-    };
-    let vis_align_u32 = match renderer.theme.visualiser.align {
-        VisAlign::Left => 0,
-        VisAlign::Center => 1,
-        VisAlign::Right => 2,
-    };
-    let vis_pos_size_rot = [
-        renderer.theme.visualiser.position[0],
-        renderer.theme.visualiser.position[1],
-        renderer.theme.visualiser.size,
-        renderer.theme.visualiser.rotation.to_radians(),
-    ];
-    let is_waveform_u32 = if renderer.is_waveform_style { 1 } else { 0 };
-
-    // Optimization: Pre-calculate display-invariant album art layout and dimensions.
-    let album_art_bg_mode = if show_color_bg {
-        3
-    } else if renderer.state.config.appearance.disable_blur {
-        2
-    } else {
-        0
-    };
-    let album_art_bg_alpha = (1.0 - renderer.state.transparent_fade) * renderer.art_fade;
-    let album_art_aspect = renderer.album_art_aspect;
-
-    let mut album_art_fg_pos = renderer.theme.album_art.position;
-    let mut album_art_fg_size = renderer.theme.album_art.size;
-    let mut album_art_fg_shape = if renderer.theme.album_art.shape == ArtShape::Circular {
-        1
-    } else {
-        0
-    };
-
-    if has_audio
-        && renderer.theme.visualiser.shape == VisShape::Circular
-        && renderer.theme.visualiser.dock_art
-    {
-        album_art_fg_pos = renderer.theme.visualiser.position;
-        album_art_fg_size = renderer.theme.visualiser.size;
-        album_art_fg_shape = 1;
-    }
-
-    // Optimization: Pre-calculate custom background layout.
-    let custom_bg_mode = if renderer.state.config.appearance.disable_blur {
-        2
-    } else {
-        0
-    };
-    let custom_bg_alpha = 1.0 - renderer.state.transparent_fade;
-    let custom_bg_aspect = renderer.custom_bg_aspect;
-
-    let mut last_text_params = None;
-    let mut last_uniform_res = None;
-
-    let blur_opacity = renderer.state.config.appearance.blur_opacity;
-
-    // Optimization: Pre-calculate Visualizer instance count outside the monitor loop
-    let visualiser_instance_count = if renderer.is_waveform_style {
-        1
-    } else if renderer.theme.visualiser.shape == VisShape::Linear {
-        renderer.state.config.audio.bands as u32
-    } else {
-        renderer.state.config.audio.bands as u32 * 2
-    };
-
-    // Optimization: Hoist lyric start/end indices to avoid redundant calculation
-    let (lyric_start_idx, lyric_end_idx) = if let Some(lyrics) = renderer
-        .state
-        .current_track
-        .as_ref()
-        .and_then(|t| t.lyrics.as_ref())
-    {
-        (
-            renderer.current_lyric_idx.saturating_sub(2).max(1),
-            (renderer.current_lyric_idx + 2).min(lyrics.len()),
-        )
-    } else {
-        (1, 0)
-    };
-
-    // Optimization: Pre-calculate screen-invariant foreground album art transform components
-    let fg_art_base_uv = get_uv_transform(1, 1.0, album_art_aspect);
-    // Theme sizes come from hand-editable TOML with no clamp, so size = 0.0
-    // is reachable; dividing by it would NaN-poison the whole fg transform.
-    let inv_album_art_fg_size = 1.0 / album_art_fg_size.max(1e-3);
-    let fg_k1 = inv_album_art_fg_size * fg_art_base_uv[0];
-    let fg_k2 = 0.5 * fg_art_base_uv[0] + fg_art_base_uv[2];
-    let fg_k3 = album_art_fg_pos[0] * fg_k1;
-    let fg_scale_y = inv_album_art_fg_size * fg_art_base_uv[1];
-    let fg_offset_y =
-        (0.5 - album_art_fg_pos[1] * inv_album_art_fg_size) * fg_art_base_uv[1] + fg_art_base_uv[3];
-
-    // 4. Pre-calculate Text colors (luminance and tinting) - NOW CACHED
-    let secondary_text = renderer.secondary_text_color;
-    let text_color_diff = renderer.text_color_diff;
-
-    let map_align = |a: &TextAlign| -> cosmic_text::Align {
-        match a {
-            TextAlign::Left => cosmic_text::Align::Left,
-            TextAlign::Center => cosmic_text::Align::Center,
-            TextAlign::Right => cosmic_text::Align::Right,
-        }
-    };
-
-    let lyrics_align = map_align(&renderer.theme.lyrics.align);
-    let track_info_align = map_align(&renderer.theme.track_info.align);
-    let weather_align = map_align(&renderer.theme.weather.align);
-
-    // Cloned (rather than borrowed from renderer.state) so `attrs` has no
-    // lifetime tied to `renderer`: push_text_buffer() below needs `&mut
-    // renderer` and `&attrs` in the same call, which the borrow checker
-    // would otherwise reject.
-    let font_family_owned = renderer
-        .state
-        .config
-        .appearance
-        .font_family
-        .clone()
-        .or_else(|| renderer.theme.font_family.clone());
-    let family = font_family_owned
+    // The owned family from FrameParams rebuilt into a borrow-free Attrs:
+    // push_text_buffer() below needs `&mut renderer` and `&attrs` in the
+    // same call, which a borrow through renderer would reject.
+    let family = font_family
         .as_deref()
         .map_or(Family::SansSerif, Family::Name);
     let attrs = Attrs::new().family(family);
 
     // Prevent unbound memory growth for weather/ambient setups left running for days.
-    // Optimization: Increase the cache limit to 500 to better accommodate multi-monitor setups
-    // and remove shrink_to_fit() in the hot path to avoid expensive reallocations.
+    // The cache limit is 500 to accommodate multi-monitor setups; no
+    // shrink_to_fit() in the hot path to avoid expensive reallocations.
     if renderer.text_buffer_cache.len() > 500 {
         renderer.text_buffer_cache.clear();
     }
 
-    // Optimization: Capture bounce values and scaling factors once per frame
-    let lyric_bounce = renderer.lyric_bounce_value;
-    let beat_pulse_mul = pulse * 2.0;
+    let mut last_text_params = None;
+    let mut last_uniform_res = None;
 
     for (i_idx, gpu_out) in renderer.outputs.iter_mut().enumerate() {
         let i = i_idx as u32;
@@ -968,93 +799,6 @@ pub(crate) fn draw_frame(
     }
 
     Ok(())
-}
-
-fn get_final_sky_color(renderer: &super::Renderer) -> [f32; 3] {
-    let sky = time_to_sky_colour(renderer.state.time_of_day);
-    if let Some(weather) = &renderer.state.weather {
-        if renderer.state.config.weather.enabled {
-            match weather.condition {
-                WeatherCondition::Rain | WeatherCondition::Thunderstorm => {
-                    lerp_colour(sky, [0.2, 0.2, 0.25], 0.6)
-                }
-                WeatherCondition::Snow => lerp_colour(sky, [0.8, 0.85, 0.9], 0.4),
-                _ => sky,
-            }
-        } else {
-            sky
-        }
-    } else {
-        sky
-    }
-}
-
-pub(crate) fn get_clear_colour_from_sky(
-    renderer: &super::Renderer,
-    final_sky: [f32; 3],
-) -> wgpu::Color {
-    if renderer.state.config.appearance.transparent_background {
-        return wgpu::Color::TRANSPARENT;
-    }
-
-    let scene = match renderer.state.config.mode {
-        WallpaperMode::Weather => SceneHint::Ambient,
-        WallpaperMode::AlbumArt => SceneHint::AlbumArt,
-        WallpaperMode::AudioVisualiser => SceneHint::AudioVisualiser,
-        WallpaperMode::Auto => renderer.state.scene_description(),
-    };
-
-    match scene {
-        SceneHint::Ambient => wgpu::Color {
-            r: final_sky[0] as f64,
-            g: final_sky[1] as f64,
-            b: final_sky[2] as f64,
-            a: 1.0,
-        },
-        SceneHint::AlbumArt => wgpu::Color {
-            r: 0.05,
-            g: 0.05,
-            b: 0.05,
-            a: 1.0,
-        },
-        SceneHint::AudioVisualiser => wgpu::Color {
-            r: 0.1,
-            g: 0.1,
-            b: 0.15,
-            a: 1.0,
-        },
-    }
-}
-
-fn get_uv_transform(mode: u32, screen_aspect: f32, image_aspect: f32) -> [f32; 4] {
-    let new_aspect = screen_aspect / image_aspect;
-
-    let mut scale_x = 1.0;
-    let mut scale_y = 1.0;
-    let mut offset_x = 0.0;
-    let mut offset_y = 0.0;
-
-    if mode == 0 || mode == 2 {
-        // object-fit: cover
-        if new_aspect > 1.0 {
-            scale_x = 1.0 / new_aspect;
-            offset_x = (1.0 - scale_x) / 2.0;
-        } else {
-            scale_y = new_aspect;
-            offset_y = (1.0 - scale_y) / 2.0;
-        }
-    } else if mode == 1 {
-        // object-fit: contain
-        if new_aspect > 1.0 {
-            scale_x = new_aspect;
-            offset_x = (1.0 - scale_x) / 2.0;
-        } else {
-            scale_y = 1.0 / new_aspect;
-            offset_y = (1.0 - scale_y) / 2.0;
-        }
-    }
-
-    [scale_x, scale_y, offset_x, offset_y]
 }
 
 #[cfg(test)]

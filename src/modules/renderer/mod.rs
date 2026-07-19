@@ -1,6 +1,7 @@
 pub(crate) mod blur;
 pub mod core;
 pub(crate) mod draw;
+pub(crate) mod frame_params;
 pub(crate) mod pipelines;
 pub mod text;
 pub mod types;
