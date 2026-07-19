@@ -1,3 +1,4 @@
+mod bootstrap;
 mod library;
 #[cfg(test)]
 mod tests;
@@ -784,6 +785,10 @@ impl Application for SettingsApp {
     }
 
     fn init(core: Core, _flags: Self::Flags) -> (Self, Task<cosmic::Action<Self::Message>>) {
+        // Off the UI thread: pure filesystem work with no result the UI
+        // needs, and the first run writes ~0.6 MB of icons.
+        std::thread::spawn(bootstrap::ensure_desktop_integration);
+
         // Load your existing engine configuration
         let wp_config = config::Config::load_or_default().unwrap_or_default();
         let available_fonts = load_fonts();

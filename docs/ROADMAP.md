@@ -24,7 +24,26 @@ The ~120-field `Renderer` + ~900-line `draw_frame` split (Phase 9 of
 [PLAN-v1-hardening.md](PLAN-v1-hardening.md)). Needs its own plan and ideally
 a frame-capture harness first.
 
-## 1.2 — "The Themes Release" (next up)
+## 1.2.x — first-run desktop integration (in progress)
+
+Manual installs (release tarball, and every install thereafter kept alive by
+the self-updater) are just two binaries in `~/.local/bin`: nothing installs
+the `.desktop` entry or icons, so the app never appears in COSMIC's app
+library/launcher — tray and terminal are the only ways in (gap found
+2026-07-19 while adding the app icon). On GUI startup, bootstrap the
+integration for exactly those installs:
+
+- Skip entirely under Flatpak (`/.flatpak-info`) and for package-managed
+  binaries under `/usr` — those installs ship the files themselves
+- Write `~/.local/share/applications/<app-id>.desktop` from the repo's
+  canonical entry with an absolute `Exec` (launcher sessions don't reliably
+  have `~/.local/bin` on PATH) when it's missing, or when its `Exec` points
+  at a binary that no longer exists (healing moved installs without
+  clobbering user edits)
+- Install the embedded icon set into `~/.local/share/icons/hicolor/...`,
+  rewriting on content change so icon updates propagate
+
+## 1.2 — "The Themes Release" (SHIPPED as v1.2.0/v1.2.1, 2026-07-19)
 
 Turn the engine's live TOML reload into the product's signature feature:
 the desktop itself is the theme editor's preview. Approved direction
