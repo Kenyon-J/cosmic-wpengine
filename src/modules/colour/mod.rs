@@ -8,6 +8,16 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
     let step_x = (width / 64).max(1);
     let step_y = (height / 64).max(1);
 
+    // Optimization: Avoid dynamic/enum dispatch overhead of `DynamicImage::get_pixel`
+    // in the hot loop by extracting a direct reference or copy of the underlying `RgbaImage` once.
+    let rgba_image_storage;
+    let rgba_ref = if let Some(ref_img) = image.as_rgba8() {
+        ref_img
+    } else {
+        rgba_image_storage = image.to_rgba8();
+        &rgba_image_storage
+    };
+
     // Optimization: Use a fixed-size array for the histogram instead of a HashMap.
     // Since we bin colors into 32-unit buckets (8 levels per channel), there are
     // only 8 * 8 * 8 = 512 possible buckets. This avoids heap allocations and hashing overhead.
@@ -15,7 +25,7 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
 
     for y in (0..height).step_by(step_y as usize) {
         for x in (0..width).step_by(step_x as usize) {
-            let Rgba([r, g, b, a]) = image.get_pixel(x, y);
+            let Rgba([r, g, b, a]) = *rgba_ref.get_pixel(x, y);
             if a < 128 {
                 continue;
             }
