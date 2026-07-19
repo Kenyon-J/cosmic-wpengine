@@ -18,11 +18,12 @@ Fold into the redesign:
   theme's text positions is a possible alternative, but a user override is
   the predictable escape hatch.
 
-## Renderer decomposition
+## Renderer decomposition (planned — see PLAN-renderer-decomposition.md)
 
-The ~120-field `Renderer` + ~900-line `draw_frame` split (Phase 9 of
-[PLAN-v1-hardening.md](PLAN-v1-hardening.md)). Needs its own plan and ideally
-a frame-capture harness first.
+The ~100-field `Renderer` + ~850-line `draw_frame` split (Phase 9 of
+[PLAN-v1-hardening.md](PLAN-v1-hardening.md)). Graduated to
+[PLAN-renderer-decomposition.md](PLAN-renderer-decomposition.md) 2026-07-19:
+five phases, frame-capture harness in phase 4, each phase one green commit.
 
 ## 1.2.x — first-run desktop integration (in progress)
 
