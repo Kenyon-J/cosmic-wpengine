@@ -16,8 +16,7 @@ const APP_ID: &str = "io.github.kenyon_j.cosmic_wpengine";
 /// the release tarball and the Flatpak manifest. Its bare `Exec=` is
 /// replaced with an absolute path at install time: launcher sessions do not
 /// reliably have ~/.local/bin on PATH.
-const DESKTOP_TEMPLATE: &str =
-    include_str!("../../../io.github.kenyon_j.cosmic_wpengine.desktop");
+const DESKTOP_TEMPLATE: &str = include_str!("../../../io.github.kenyon_j.cosmic_wpengine.desktop");
 const TEMPLATE_EXEC_LINE: &str = "Exec=cosmic-wallpaper-gui";
 
 /// The shipped hicolor icon set (~0.6 MB total), embedded so a two-binary
@@ -105,10 +104,7 @@ fn install(data_dir: &Path, exe: &Path) {
     let desktop_path = data_dir
         .join("applications")
         .join(format!("{APP_ID}.desktop"));
-    let desired = DESKTOP_TEMPLATE.replace(
-        TEMPLATE_EXEC_LINE,
-        &format!("Exec={}", exe.display()),
-    );
+    let desired = DESKTOP_TEMPLATE.replace(TEMPLATE_EXEC_LINE, &format!("Exec={}", exe.display()));
 
     // Write when missing, or heal an entry whose absolute Exec no longer
     // exists (the install was moved). An entry the user pointed elsewhere -

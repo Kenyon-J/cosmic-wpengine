@@ -1261,9 +1261,8 @@ impl Application for SettingsApp {
                 self.refresh_engine_status();
                 match probe {
                     Some((code, headline)) => {
-                        let code = code.map_or_else(|| "killed by signal".into(), |c| {
-                            format!("exit {c}")
-                        });
+                        let code =
+                            code.map_or_else(|| "killed by signal".into(), |c| format!("exit {c}"));
                         let detail = if headline.is_empty() {
                             format!("The engine exited immediately ({code}).")
                         } else {
