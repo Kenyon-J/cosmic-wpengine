@@ -347,7 +347,9 @@ pub(crate) fn draw_frame(
 
     // Optimization: Pre-calculate screen-invariant foreground album art transform components
     let fg_art_base_uv = get_uv_transform(1, 1.0, album_art_aspect);
-    let inv_album_art_fg_size = 1.0 / album_art_fg_size;
+    // Theme sizes come from hand-editable TOML with no clamp, so size = 0.0
+    // is reachable; dividing by it would NaN-poison the whole fg transform.
+    let inv_album_art_fg_size = 1.0 / album_art_fg_size.max(1e-3);
     let fg_k1 = inv_album_art_fg_size * fg_art_base_uv[0];
     let fg_k2 = 0.5 * fg_art_base_uv[0] + fg_art_base_uv[2];
     let fg_k3 = album_art_fg_pos[0] * fg_k1;

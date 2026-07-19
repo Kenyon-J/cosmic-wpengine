@@ -178,7 +178,10 @@ impl BlurChain {
         src_size: (u32, u32),
         label: &str,
     ) -> Self {
-        let halve = |(w, h): (u32, u32)| (w / 2, h / 2);
+        // Clamped at 1 so extreme aspect ratios (a panorama halving its
+        // short side to zero mid-prefilter) can't request a zero-dimension
+        // texture, which wgpu validation rejects.
+        let halve = |(w, h): (u32, u32)| ((w / 2).max(1), (h / 2).max(1));
 
         // Level sizes: halvings of the source down to the capped base, then
         // MAX_PASSES further halvings for the Kawase chain itself. When the
@@ -199,7 +202,7 @@ impl BlurChain {
         };
         for _ in 0..MAX_PASSES {
             cur = halve(cur);
-            sizes.push((cur.0.max(1), cur.1.max(1)));
+            sizes.push(cur);
         }
 
         let make_uniform_and_bind_group = |view: &wgpu::TextureView| {
@@ -275,8 +278,12 @@ impl BlurChain {
         &self.levels[self.base].view
     }
 
-    /// True if this chain was built for a source of `size`; a mismatch means
-    /// the source texture was recreated and the chain must be rebuilt.
+    /// True if this chain was built for a source of `size`. A size match
+    /// alone cannot prove the source is the same texture *object*: paths
+    /// that recreate the source texture must drop the chain themselves
+    /// (core/updates.rs does), because the chain binds the old texture's
+    /// view and would keep blurring it. This check only spares a rebuild
+    /// on the settings-change path, where the texture is untouched.
     pub(crate) fn matches_source(&self, size: (u32, u32)) -> bool {
         self.src_size == size
     }

@@ -110,6 +110,13 @@ impl Renderer {
         self.current_album_texture = Some(texture);
         self.current_album_size = Some(dimensions);
         self.album_art_aspect = (dimensions.0 as f32 / dimensions.1 as f32).max(0.001);
+        // The blur chain binds the source texture's view at build time, so the
+        // texture recreated above invalidates it even when the dimensions
+        // match - and matching is the norm, not the exception (streaming
+        // services serve fixed-size art, e.g. Spotify's 640x640). Keeping the
+        // chain here left the frosted background showing the previous track's
+        // art. rebuild_album_bind_groups() then builds a fresh chain.
+        self.album_blur_chain = None;
         self.rebuild_album_bind_groups();
         self.run_album_blur();
         // The art's arrival can flip the text backdrop from wallpaper to
@@ -431,6 +438,12 @@ impl Renderer {
         self.current_custom_bg_texture = Some(texture);
         self.custom_bg_aspect = (dimensions.0 as f32 / dimensions.1 as f32).max(0.001);
         self.custom_bg_avg_color = Some(crate::modules::colour::average_colour(img));
+        // Same-size recreation is even more common here than for album art:
+        // solid colours are always synthesised at 16x16, gradients at
+        // 1920x1080, and same-monitor wallpaper images share a resolution -
+        // so without dropping the chain, changing the desktop background
+        // left the frosted glass blurring the old one.
+        self.custom_bg_blur_chain = None;
         self.rebuild_custom_bg_bind_group();
         self.run_custom_bg_blur();
         self.update_text_colors();
