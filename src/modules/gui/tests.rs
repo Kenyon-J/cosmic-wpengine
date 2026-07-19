@@ -66,3 +66,43 @@ fn gallery_themes_parse() {
     }
     assert!(checked >= 2, "gallery should contain themes");
 }
+
+/// The systemctl-show parser behind the engine row's failure explanations:
+/// a failed unit must produce an actionable message (exit 127 gets the
+/// missing-libraries diagnosis), anything healthy must produce none.
+#[test]
+fn parse_unit_failure_maps_failure_states() {
+    // Healthy states: no message.
+    assert_eq!(
+        super::parse_unit_failure("ActiveState=active\nExecMainStatus=0\n"),
+        None
+    );
+    assert_eq!(
+        super::parse_unit_failure("ActiveState=inactive\nExecMainStatus=0\n"),
+        None
+    );
+    // Unknown unit / empty output: no message.
+    assert_eq!(super::parse_unit_failure(""), None);
+
+    // Exit 127 (dynamic linker refused the binary): the specific diagnosis.
+    let msg = super::parse_unit_failure("ActiveState=failed\nExecMainStatus=127\n").unwrap();
+    assert!(msg.contains("exit 127"));
+    assert!(msg.contains("missing libraries"));
+
+    // Any other failure: generic message that points at the journal.
+    let msg = super::parse_unit_failure("ActiveState=failed\nExecMainStatus=1\n").unwrap();
+    assert!(msg.contains("exit 1"));
+    assert!(msg.contains("journalctl"));
+}
+
+#[test]
+fn stderr_headline_prefers_the_linker_error() {
+    let stderr = "\nsome warning\n\
+        /home/u/.local/bin/cosmic-wallpaper: error while loading shared libraries: \
+        libavutil.so.58: cannot open shared object file: No such file or directory\n";
+    assert!(super::stderr_headline(stderr).contains("libavutil.so.58"));
+
+    // No linker line: first non-empty line wins.
+    assert_eq!(super::stderr_headline("\n\npanic: boom\n"), "panic: boom");
+    assert_eq!(super::stderr_headline(""), "");
+}

@@ -60,6 +60,10 @@ struct SettingsApp {
     /// Engine process, when running (refreshed on General, and after
     /// Start/Stop).
     engine_pid: Option<u32>,
+    /// Why the engine is not running, when systemd (or a failed Start)
+    /// knows: shown on the General page's engine row so a binary that dies
+    /// before main() stops failing invisibly.
+    engine_failure: Option<String>,
     /// Monotonic counter pairing each slider change with its debounce timer;
     /// a DebouncedSave only writes to disk if its generation is still the
     /// newest (i.e. the slider settled for the full window).
@@ -206,6 +210,18 @@ impl SettingsApp {
             .selected_theme
             .as_ref()
             .map(|name| config::ThemeLayout::load(name));
+    }
+
+    /// Re-reads the engine's liveness, and - only when it is down - asks
+    /// systemd whether the login autostart failed, so the engine row can say
+    /// why instead of just "Not running".
+    fn refresh_engine_status(&mut self) {
+        self.engine_pid = find_engine_pid();
+        if self.engine_pid.is_some() {
+            self.engine_failure = None;
+        } else if self.engine_failure.is_none() {
+            self.engine_failure = engine_autostart_failure();
+        }
     }
 }
 
@@ -359,6 +375,74 @@ fn engine_binary_path() -> Option<std::path::PathBuf> {
         }
     }
     resolve_binary("cosmic-wallpaper")
+}
+
+/// systemd unit the xdg-autostart generator creates for the engine's
+/// autostart entry. Its failure state is the only surviving record of a
+/// binary that died before main() at login - e.g. exit 127 from the dynamic
+/// linker after a system update changed a library soname - which otherwise
+/// fails completely silently (found 2026-07-19: an ffmpeg major bump left
+/// the engine dead all session with no visible error anywhere).
+const ENGINE_AUTOSTART_UNIT: &str = "app-io.github.kenyon_j.cosmic_wpengine@autostart.service";
+
+/// Asks systemd whether the engine's login autostart failed, translating
+/// the exit status into an actionable message. None when the unit is fine,
+/// unknown, or systemctl is unavailable.
+fn engine_autostart_failure() -> Option<String> {
+    let systemctl = resolve_binary("systemctl")?;
+    let output = std::process::Command::new(systemctl)
+        .args([
+            "--user",
+            "show",
+            ENGINE_AUTOSTART_UNIT,
+            "--property=ActiveState,ExecMainStatus",
+        ])
+        .output()
+        .ok()?;
+    parse_unit_failure(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// Pure parse of `systemctl show --property=ActiveState,ExecMainStatus`
+/// output, split out of [`engine_autostart_failure`] for testing.
+fn parse_unit_failure(show_output: &str) -> Option<String> {
+    let prop = |name: &str| {
+        show_output.lines().find_map(|line| {
+            line.strip_prefix(name)
+                .and_then(|rest| rest.strip_prefix('='))
+        })
+    };
+    if prop("ActiveState") != Some("failed") {
+        return None;
+    }
+    Some(match prop("ExecMainStatus") {
+        // 127 is the shell/exec convention for "could not run at all" -
+        // for a binary that exists, that means the dynamic linker bailed.
+        Some("127") => "The engine failed to start at login: its binary could not load \
+             (exit 127, usually missing libraries after a system update). \
+             Rebuild or reinstall it, then press Start."
+            .to_string(),
+        Some(code) if !code.is_empty() => format!(
+            "The engine failed to start at login (exit {code}). \
+             See: journalctl --user -u {ENGINE_AUTOSTART_UNIT}"
+        ),
+        _ => format!(
+            "The engine failed to start at login. \
+             See: journalctl --user -u {ENGINE_AUTOSTART_UNIT}"
+        ),
+    })
+}
+
+/// The most informative line of the engine's captured stderr: the dynamic
+/// linker's message when present (the exit-127 case this capture exists
+/// for), else the first non-empty line.
+fn stderr_headline(stderr: &str) -> String {
+    stderr
+        .lines()
+        .find(|l| l.contains("error while loading shared libraries"))
+        .or_else(|| stderr.lines().find(|l| !l.trim().is_empty()))
+        .unwrap_or("")
+        .trim()
+        .to_string()
 }
 
 /// PID of a running wallpaper engine, found by cmdline (comm truncates to
@@ -740,6 +824,9 @@ enum Message {
     /// Theme .toml files dropped onto the Layout Themes page.
     ThemeFilesDropped(Option<library::DroppedFiles>),
     StartEngine,
+    /// Result of the post-Start probe: `Some((exit code, stderr headline))`
+    /// when the engine died within the probe window, `None` when it survived.
+    EngineStartProbed(Option<(Option<i32>, String)>),
     StopEngine,
     RefreshEngineStatus,
     ApplyTheme,
@@ -842,6 +929,13 @@ impl Application for SettingsApp {
             .as_ref()
             .map(|name| config::ThemeLayout::load(name));
 
+        let engine_pid = find_engine_pid();
+        let engine_failure = if engine_pid.is_some() {
+            None
+        } else {
+            engine_autostart_failure()
+        };
+
         (
             SettingsApp {
                 core,
@@ -871,7 +965,8 @@ impl Application for SettingsApp {
                 edit_theme,
                 theme_element: 0,
                 theme_save_generation: 0,
-                engine_pid: find_engine_pid(),
+                engine_pid,
+                engine_failure,
                 wp_config,
                 save_generation: 0,
             },
@@ -893,7 +988,7 @@ impl Application for SettingsApp {
         self.nav.activate(id);
         // Keep the engine row honest whenever General comes into view.
         if self.nav.active_data::<Page>() == Some(&Page::General) {
-            self.engine_pid = find_engine_pid();
+            self.refresh_engine_status();
         }
         Task::none()
     }
@@ -1120,12 +1215,39 @@ impl Application for SettingsApp {
             }
             Message::StartEngine => {
                 if let Some(engine) = engine_binary_path() {
-                    match std::process::Command::new(engine).spawn() {
-                        Ok(_) => {
+                    // stderr goes to a scratch file, not a pipe: a pipe's
+                    // buffer would fill (and its reader vanish with this
+                    // process) under a long-lived engine, while a file is
+                    // safe to leave attached forever - and holds the dynamic
+                    // linker's message when the binary can't load at all.
+                    let stderr_log = std::env::temp_dir().join("cosmic-wallpaper-start.log");
+                    let stderr = std::fs::File::create(&stderr_log)
+                        .map(std::process::Stdio::from)
+                        .unwrap_or_else(|_| std::process::Stdio::null());
+                    match std::process::Command::new(engine).stderr(stderr).spawn() {
+                        Ok(mut child) => {
                             self.status_msg = "Engine starting...".into();
                             return Task::perform(
-                                tokio::time::sleep(std::time::Duration::from_millis(1500)),
-                                |()| Message::RefreshEngineStatus.into(),
+                                async move {
+                                    tokio::time::sleep(std::time::Duration::from_millis(1500))
+                                        .await;
+                                    tokio::task::spawn_blocking(move || {
+                                        match child.try_wait() {
+                                            // Died within the probe window:
+                                            // report how, from the exit code
+                                            // and captured stderr.
+                                            Ok(Some(status)) => {
+                                                let stderr = std::fs::read_to_string(&stderr_log)
+                                                    .unwrap_or_default();
+                                                Some((status.code(), stderr_headline(&stderr)))
+                                            }
+                                            _ => None,
+                                        }
+                                    })
+                                    .await
+                                    .unwrap_or(None)
+                                },
+                                |probe| Message::EngineStartProbed(probe).into(),
                             );
                         }
                         Err(e) => self.status_msg = format!("Failed to start the engine: {e}"),
@@ -1133,6 +1255,29 @@ impl Application for SettingsApp {
                 } else {
                     self.status_msg =
                         "Could not find the cosmic-wallpaper binary next to Settings.".into();
+                }
+            }
+            Message::EngineStartProbed(probe) => {
+                self.refresh_engine_status();
+                match probe {
+                    Some((code, headline)) => {
+                        let code = code.map_or_else(|| "killed by signal".into(), |c| {
+                            format!("exit {c}")
+                        });
+                        let detail = if headline.is_empty() {
+                            format!("The engine exited immediately ({code}).")
+                        } else {
+                            format!("The engine exited immediately ({code}): {headline}")
+                        };
+                        self.status_msg = detail.clone();
+                        self.engine_failure = Some(detail);
+                    }
+                    None => {
+                        self.status_msg = match self.engine_pid {
+                            Some(_) => "Engine running.".into(),
+                            None => "The engine did not start - check the logs.".into(),
+                        };
+                    }
                 }
             }
             Message::StopEngine => {
@@ -1166,7 +1311,7 @@ impl Application for SettingsApp {
                 }
             }
             Message::RefreshEngineStatus => {
-                self.engine_pid = find_engine_pid();
+                self.refresh_engine_status();
                 // Resolve the transitional status set by Start/Stop.
                 if self.status_msg.starts_with("Engine start") {
                     self.status_msg = match self.engine_pid {

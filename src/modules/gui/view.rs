@@ -1033,9 +1033,12 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .title("Engine")
             .add(
                 settings::item::builder("Wallpaper engine")
-                    .description(match app.engine_pid {
-                        Some(pid) => format!("Running (pid {pid})."),
-                        None => "Not running.".to_string(),
+                    .description(match (app.engine_pid, &app.engine_failure) {
+                        (Some(pid), _) => format!("Running (pid {pid})."),
+                        // A binary that dies before main() (linker failure
+                        // after a system update) is otherwise invisible.
+                        (None, Some(failure)) => failure.clone(),
+                        (None, None) => "Not running.".to_string(),
                     })
                     .control(if app.engine_pid.is_some() {
                         button::standard("Stop").on_press(Message::StopEngine)
