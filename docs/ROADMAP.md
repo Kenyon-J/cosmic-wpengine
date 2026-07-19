@@ -43,6 +43,23 @@ integration for exactly those installs:
 - Install the embedded icon set into `~/.local/share/icons/hicolor/...`,
   rewriting on content change so icon updates propagate
 
+## Portable release binaries — stop dynamically linking ffmpeg
+
+Found 2026-07-19: the CI release binaries (built on Ubuntu 24.04) link
+ffmpeg 6's sonames dynamically (`libavutil.so.58`, ...). Any distro that
+ships a different ffmpeg major — notably Arch and other rolling releases,
+which bump sonames on every ffmpeg major — makes both binaries die at the
+dynamic linker (exit 127) before `main`, so the engine's autostart fails
+silently and the GUI "fails to launch" with no visible error. The
+self-updater then faithfully keeps users on broken binaries.
+
+- Static-link or vendor ffmpeg in the release build (ffmpeg-next's
+  build-from-source feature, or prebuilt static libs in CI) so assets no
+  longer depend on the host's ffmpeg version
+- Until then the workaround is building from source; consider having the
+  GUI surface a linker-level failure of the engine binary (exit 127 from
+  the autostart unit) instead of failing silently
+
 ## 1.2 — "The Themes Release" (SHIPPED as v1.2.0/v1.2.1, 2026-07-19)
 
 Turn the engine's live TOML reload into the product's signature feature:
