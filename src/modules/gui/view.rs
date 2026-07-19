@@ -813,7 +813,11 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                                     .on_submit(|_| Message::CreateTheme)
                                     .width(Length::Fixed(180.0)),
                             )
-                            .push(button::standard("Create").on_press(Message::CreateTheme))
+                            .push(if app.new_theme_name.is_empty() {
+                                button::standard("Create")
+                            } else {
+                                button::standard("Create").on_press(Message::CreateTheme)
+                            })
                             .spacing(8)
                             .align_y(cosmic::iced::Alignment::Center),
                     ),
