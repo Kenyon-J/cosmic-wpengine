@@ -1,44 +1,35 @@
-# cosmic-wallpaper 1.2.0
+# cosmic-wallpaper 1.2.1
 
-The Themes Release. Your desktop is now the theme editor's preview.
+Patch release for a theme-editor blind spot found minutes after 1.2.0, plus
+a frosted-glass staleness bug caught in review.
 
-## Build themes by dragging sliders
+## Added
 
-- **Live theme editor** — Settings → Layout Themes. Pick an element (album
-  art, track info, lyrics, visualiser, weather, effects) and adjust its
-  position, size, shape, alignment and motion with native controls. Every
-  change saves the theme's TOML instantly and the engine reloads it live,
-  so you watch your actual desktop rearrange as you drag. Each control is
-  labelled with its TOML key — themes built by slider and themes written by
-  hand are the same files.
-- **Text sizing** — lyrics, track info and weather each gain a `size`
-  scale, adjustable in the editor. Long-requested, long hardcoded.
-- **Fine tuning** — every slider is paired with a stepper for exact
-  single-increment nudges (also on blur amount, visualiser bands,
-  smoothing and the frame-rate limit).
+- **An app icon.** The Settings launcher now has its own neon-gear icon
+  instead of borrowing the system wallpaper icon. The release tarball ships
+  it under `icons/` — copy that folder's contents into
+  `~/.local/share/icons` for manual installs.
 
-## Themes are for sharing
+## Fixed
 
-- **Import** — drop a theme's `.toml` onto the Layout Themes page; it's
-  validated and added to your library.
-- **Gallery** — the repository now has a [themes/](../themes/) directory
-  with ready-made layouts (*centre-stage*, *minimal*) — contributions
-  welcome, every file is parse-checked in CI.
-- **Docs** — [THEMES.md](THEMES.md) documents every key, range and
-  default; *Create Theme* now writes a fully-commented starter file
-  instead of a bare stub.
+- **Frosted glass no longer shows the previous artwork or wallpaper.**
+  The cached blur behind the frosted-glass effect was only rebuilt when the
+  source's *dimensions* changed. Album art is almost always the same size
+  track to track (streaming services serve fixed-size covers), and desktop
+  backgrounds usually share your monitor's resolution — so the frost kept
+  blurring the previous track's art, or the wallpaper you just switched
+  away from. The blur now rebuilds whenever the underlying image is
+  replaced. Also hardened the blur chain against extreme aspect-ratio
+  sources and themes with a hand-edited `size = 0.0`.
+- **Album art position and size now work with circular visualisers.**
+  Circular visualisers have always captured the album art into their ring
+  while music plays — art follows the ring's position and size. That's a
+  nice default, but it silently ignored the Album Art sliders in the new
+  theme editor. The behaviour is now a theme setting: **dock_art**
+  (on by default, so existing themes look identical), with a toggle on the
+  editor's Visualiser tab. While docked, the Album Art tab says so and
+  points at the toggle instead of offering sliders that do nothing.
 
-## Engine control from Settings
-
-- Settings → General shows whether the engine is running, with Start and
-  Stop buttons — no more hunting for the tray after quitting it.
-- Fixed: the *Start on login* toggle managed a different autostart file
-  than the one the package installs, so it displayed the wrong state — and
-  enabling it could have started two engines at login. It now manages the
-  canonical entry with an absolute path.
-
-## Install
-
-Pop!_OS / Ubuntu 24.04: `sudo apt install ./cosmic-wallpaper_*.deb`. Other
-distros: use the prebuilt binaries and verify them against the signed
-`SHA256SUMS.txt`. Upgrading: Settings → General offers the update in-app.
+See the [1.2.0 notes](https://github.com/Kenyon-J/cosmic-wpengine/releases/tag/v1.2.0)
+for the Themes Release itself: the live theme editor, text sizing, theme
+import and gallery, and engine controls in Settings.
