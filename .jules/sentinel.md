@@ -1,0 +1,4 @@
+## 2024-07-19 - OOM DoS via reqwest::Response::text() in updater
+**Vulnerability:** The updater module used `reqwest::Response::text()` to download the `SHA256SUMS.txt` and its minisign signature. `text()` fully buffers the response into memory without a size limit, meaning a compromised or malicious release server could send an infinitely large text file, causing an Out-Of-Memory (OOM) denial-of-service crash.
+**Learning:** Even for typically small files like checksums or signatures, bounding the size of downloads is crucial to prevent resource exhaustion attacks. `reqwest::Response::bytes()`, `text()`, and `json()` are all vulnerable to this pattern.
+**Prevention:** Always use a streaming approach with a strict size limit when downloading untrusted data. In this codebase, the shared `cosmic_wallpaper::modules::utils::read_capped(resp, MAX_SIZE)` guard should be used for all HTTP responses before converting to strings, JSON, or bytes.
