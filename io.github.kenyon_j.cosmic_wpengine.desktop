@@ -2,7 +2,7 @@
 Name=COSMIC Wallpaper Settings
 Comment=Configure your live wallpaper for the COSMIC desktop
 Exec=cosmic-wallpaper-gui
-Icon=preferences-desktop-wallpaper
+Icon=io.github.kenyon_j.cosmic_wpengine
 Terminal=false
 Type=Application
 Categories=Settings;DesktopSettings;

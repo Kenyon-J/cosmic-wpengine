@@ -37,7 +37,12 @@ modules:
       - install -Dm644 io.github.kenyon_j.cosmic_wpengine.desktop /app/share/applications/${FLATPAK_ID}.desktop
       # Install autostart file for the wallpaper engine
       - install -Dm644 io.github.kenyon_j.cosmic_wpengine.autostart.desktop /app/etc/xdg/autostart/${FLATPAK_ID}.desktop
-      # The icon is set to a standard Freedesktop name in the .desktop file, so no custom icon installation is needed.
+      # Install the app icon at every shipped hicolor size
+      - |
+        for dir in resources/icons/hicolor/*/apps; do
+          size="$(basename "$(dirname "$dir")")"
+          install -Dm644 "$dir/${FLATPAK_ID}.png" "/app/share/icons/hicolor/$size/apps/${FLATPAK_ID}.png"
+        done
     sources:
       - type: dir
         path: .

@@ -70,6 +70,8 @@ jobs:
           cp target/release/cosmic-wallpaper-gui "$PKG/"
           cp io.github.kenyon_j.cosmic_wpengine.desktop "$PKG/"
           cp io.github.kenyon_j.cosmic_wpengine.autostart.desktop "$PKG/"
+          # App icon, laid out for copying straight into ~/.local/share/icons
+          cp -r resources/icons "$PKG/icons"
           cp LICENSE README.md "$PKG/"
           tar -czf "$DIST/$PKG.tar.gz" "$PKG"
           rm -rf "$PKG"
