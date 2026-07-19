@@ -96,6 +96,8 @@ enum ThemeEditMsg {
     Stiffness(f32),
     Damping(f32),
     BeatPulse(f32),
+    /// Circular visualiser: capture the album art into the ring.
+    DockArt(bool),
 }
 
 /// One page of the settings window, keyed off the sidebar selection.
@@ -241,6 +243,7 @@ size = 0.25          # bar span (linear) or ring radius (circular)
 rotation = 0.0       # degrees
 amplitude = 1.0      # bar height multiplier
 align = "center"     # band ordering: "left", "center" or "right"
+dock_art = true      # circular only: album art follows the ring
 # color_top = [1.0, 0.2, 0.5]     # override the album-palette colours
 # color_bottom = [0.2, 0.5, 1.0]
 
@@ -333,6 +336,7 @@ fn apply_theme_edit(layout: &mut config::ThemeLayout, element: usize, edit: Them
                 }
             }
         },
+        ThemeEditMsg::DockArt(v) => layout.visualiser.dock_art = v,
         ThemeEditMsg::Bounce(v) => layout.effects.lyric_bounce = v,
         ThemeEditMsg::Stiffness(v) => layout.effects.lyric_spring_stiffness = v,
         ThemeEditMsg::Damping(v) => layout.effects.lyric_spring_damping = v,

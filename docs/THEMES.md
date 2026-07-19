@@ -58,6 +58,7 @@ scales together, so one `size` value keeps the proportions.
 | `rotation` | `0.0` | Degrees, clockwise |
 | `amplitude` | `1.0` | Bar height multiplier |
 | `align` | `"center"` | Band ordering: low frequencies at the `left`, mirrored from `center`, or at the `right` |
+| `dock_art` | `true` | Circular shape only: while music plays, the album art is captured into the ring and follows its position and size. Turn off to give `[album_art]`'s own position/size full effect |
 | `color_top` | *(album palette)* | `[r, g, b]` 0–1 override for the bar tips |
 | `color_bottom` | *(album palette)* | `[r, g, b]` 0–1 override for the bar bases |
 | `shader` | *(none)* | Custom WGSL visualiser shader file name |

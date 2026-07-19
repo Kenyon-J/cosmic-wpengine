@@ -188,6 +188,12 @@ pub struct VisualiserLayout {
     pub color_top: Option<[f32; 3]>,
     pub color_bottom: Option<[f32; 3]>,
     pub shader: Option<String>,
+    /// Circular visualisers historically capture the album art into their
+    /// ring (art takes the ring's position and size while audio plays).
+    /// On by default to preserve that look; off gives the art layout's own
+    /// position and size full effect.
+    #[serde(default = "default_true")]
+    pub dock_art: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Copy)]
@@ -236,6 +242,7 @@ fn default_visualiser_layout() -> VisualiserLayout {
         color_top: None,
         color_bottom: None,
         shader: None,
+        dock_art: true,
     }
 }
 

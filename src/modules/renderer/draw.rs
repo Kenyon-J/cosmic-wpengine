@@ -298,7 +298,10 @@ pub(crate) fn draw_frame(
         0
     };
 
-    if has_audio && renderer.theme.visualiser.shape == VisShape::Circular {
+    if has_audio
+        && renderer.theme.visualiser.shape == VisShape::Circular
+        && renderer.theme.visualiser.dock_art
+    {
         album_art_fg_pos = renderer.theme.visualiser.position;
         album_art_fg_size = renderer.theme.visualiser.size;
         album_art_fg_shape = 1;

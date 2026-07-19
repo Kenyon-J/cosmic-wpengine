@@ -562,6 +562,12 @@ fn theme_editor_rows<'a>(
         // Album Art
         0 => {
             let art = &layout.album_art;
+            if layout.visualiser.shape == VisShape::Circular && layout.visualiser.dock_art {
+                section = section.add(settings::item(
+                    "Docked",
+                    text::body("While music plays, the art sits inside the circular visualiser and follows its position and size. Turn off docking on the Visualiser tab to use these controls."),
+                ));
+            }
             section = section
                 .add(theme_slider(
                     "Position X",
@@ -704,6 +710,13 @@ fn theme_editor_rows<'a>(
                             |idx| Message::ThemeEdit(E::Align(idx)),
                         )),
                 );
+            if matches!(v.shape, VisShape::Circular) {
+                section = section.add(
+                    settings::item::builder("Dock album art in the ring")
+                        .description("dock_art - the art follows the ring's position and size")
+                        .toggler(v.dock_art, |on| Message::ThemeEdit(E::DockArt(on))),
+                );
+            }
         }
         // Effects
         _ => {
