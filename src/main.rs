@@ -11,7 +11,7 @@ use modules::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    modules::logging::init("engine");
     info!("Starting cosmic-wallpaper...");
 
     let local = tokio::task::LocalSet::new();

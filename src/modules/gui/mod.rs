@@ -20,6 +20,10 @@ use cosmic_wallpaper::modules::config;
 use cosmic_wallpaper::modules::utils::resolve_binary;
 
 fn main() -> cosmic::iced::Result {
+    // Previously uninitialised: every `tracing::warn!`/`info!` call in this
+    // binary (bootstrap.rs, updater.rs, the folder-open handlers below) had
+    // nowhere to go and silently no-opped.
+    cosmic_wallpaper::modules::logging::init("gui");
     // Launch the libcosmic application
     cosmic::app::run::<SettingsApp>(cosmic::app::Settings::default(), ())
 }
