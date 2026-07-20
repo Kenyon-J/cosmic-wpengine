@@ -88,6 +88,7 @@ assets = [
     ["io.github.kenyon_j.cosmic_wpengine.desktop", "usr/share/applications/", "644"],
     ["io.github.kenyon_j.cosmic_wpengine.autostart.desktop", "etc/xdg/autostart/io.github.kenyon_j.cosmic_wpengine.desktop", "644"],
     ["README.md", "usr/share/doc/cosmic-wallpaper/README.md", "644"],
+    ["THIRD-PARTY-LICENSES.md", "usr/share/doc/cosmic-wallpaper/THIRD-PARTY-LICENSES.md", "644"],
 ]
 conf-files = ["/etc/xdg/autostart/io.github.kenyon_j.cosmic_wpengine.desktop"]
 

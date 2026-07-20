@@ -96,15 +96,15 @@ they run regardless of your distro's ffmpeg version:
 mkdir -p ~/.local/bin
 wget -O ~/.local/bin/cosmic-wallpaper https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download/cosmic-wallpaper-x86_64-linux-gnu
 wget -O ~/.local/bin/cosmic-wallpaper-gui https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download/cosmic-wallpaper-gui-x86_64-linux-gnu
+wget https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download/THIRD-PARTY-LICENSES.md
 chmod +x ~/.local/bin/cosmic-wallpaper ~/.local/bin/cosmic-wallpaper-gui
 ~/.local/bin/cosmic-wallpaper-gui
 ```
 That final launch also registers the app icon and app-launcher entry
-(the `.deb` already ships its own, so it skips this). FFmpeg is
-LGPL-2.1+: the bundled build is compiled unmodified from
-the [official source](https://github.com/FFmpeg/FFmpeg) at the version
-pinned by `ffmpeg-sys-next` (see `Cargo.lock`), with no GPL components
-enabled.
+(the `.deb` already ships its own, so it skips this). These binaries
+statically link FFmpeg, unmodified, at the version pinned by
+`ffmpeg-sys-next` (see `Cargo.lock`); `THIRD-PARTY-LICENSES.md` has the
+details required by its license (LGPL-2.1-or-later).
 
 To verify what you're running, `SHA256SUMS.txt` is signed with minisign:
 ```bash
@@ -320,3 +320,8 @@ The renderer processes events each frame, updates `AppState`, and dispatches to 
 ## Roadmap
 
 Planned work lives in [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE). The standalone binaries statically link
+FFmpeg (LGPL-2.1-or-later); see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).

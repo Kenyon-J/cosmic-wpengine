@@ -79,6 +79,13 @@ jobs:
           cp target/release/cosmic-wallpaper "$DIST/cosmic-wallpaper-x86_64-linux-gnu"
           cp target/release/cosmic-wallpaper-gui "$DIST/cosmic-wallpaper-gui-x86_64-linux-gnu"
 
+          # These binaries statically link FFmpeg (LGPL-2.1-or-later),
+          # which requires the license and the written offer in
+          # THIRD-PARTY-LICENSES.md to travel with each copy of the work -
+          # shipped as its own asset so it sits right next to the raw
+          # binaries above, not just inside the tarball below.
+          cp THIRD-PARTY-LICENSES.md "$DIST/"
+
           # Versioned tarball with desktop entries, license and docs for
           # anyone installing by hand.
           PKG="cosmic-wallpaper-v${VERSION}-x86_64-linux-gnu"
@@ -89,7 +96,7 @@ jobs:
           cp io.github.kenyon_j.cosmic_wpengine.autostart.desktop "$PKG/"
           # App icon, laid out for copying straight into ~/.local/share/icons
           cp -r resources/icons "$PKG/icons"
-          cp LICENSE README.md "$PKG/"
+          cp LICENSE README.md THIRD-PARTY-LICENSES.md "$PKG/"
           tar -czf "$DIST/$PKG.tar.gz" "$PKG"
           rm -rf "$PKG"
 
