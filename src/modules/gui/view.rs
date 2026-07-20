@@ -821,12 +821,27 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                     .control(
                         Row::new()
                             .push(
-                                text_input("Theme name", &app.new_theme_name)
+                                text_input("My Custom Theme", &app.new_theme_name)
                                     .on_input(Message::NewThemeNameChanged)
                                     .on_submit(|_| Message::CreateTheme)
                                     .width(Length::Fixed(180.0)),
                             )
-                            .push(button::standard("Create").on_press(Message::CreateTheme))
+                            .push({
+                                let create_btn: cosmic::Element<'_, Message> =
+                                    if app.new_theme_name.trim().is_empty() {
+                                        cosmic::iced::widget::tooltip(
+                                            button::standard("Create"),
+                                            "Enter a theme name first",
+                                            cosmic::iced::widget::tooltip::Position::Top,
+                                        )
+                                        .into()
+                                    } else {
+                                        button::standard("Create")
+                                            .on_press(Message::CreateTheme)
+                                            .into()
+                                    };
+                                create_btn
+                            })
                             .spacing(8)
                             .align_y(cosmic::iced::Alignment::Center),
                     ),
@@ -978,12 +993,12 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                 .control(
                     Row::new()
                         .push(
-                            text_input("Latitude", &app.lat_input)
+                            text_input("e.g. 51.5074", &app.lat_input)
                                 .on_input(Message::LatitudeChanged)
                                 .width(Length::Fixed(100.0)),
                         )
                         .push(
-                            text_input("Longitude", &app.lon_input)
+                            text_input("e.g. -0.1278", &app.lon_input)
                                 .on_input(Message::LongitudeChanged)
                                 .width(Length::Fixed(100.0)),
                         )
