@@ -1,3 +1,18 @@
+# cosmic-wallpaper 1.3.1
+
+Patch release for a regression found testing 1.3.0.
+
+## Fixed
+
+- **Live Wallpaper videos could get stuck on a frame after switching back
+  to Frosted Glass.** A video frame already in flight when you switched
+  away could still land just after the background reloaded, clobbering it
+  right back with the stale frame. Fixed by dropping any video frame that
+  arrives after video's been turned off, instead of trusting it was still
+  wanted.
+
+---
+
 # cosmic-wallpaper 1.3.0
 
 Diagnostics and quality-of-life additions, plus a handful of bugs found
