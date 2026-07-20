@@ -89,6 +89,35 @@ the desktop itself is the theme editor's preview. Approved direction
    Start/Stop button (gap found 2026-07-18: GUI had no way to restart a
    quit engine).
 
+## Known upstream issue — libcosmic's ColorPickerModel (pinned rev 6359a94)
+
+Found 2026-07-20 while using the custom text-colour picker (Wallpaper →
+Text → Custom). Both live in `~/.cargo/git/checkouts/.../src/widget/
+color_picker/mod.rs`, not in this repo, so they can't be fixed here without
+vendoring/patching libcosmic itself - tracked for whenever the pin next
+gets bumped deliberately (see the `Cargo.toml` comment on why it's pinned
+rather than tracking master).
+
+- **Visual: status text clipped while the picker is expanded.** The
+  status line at the bottom of the page (e.g. "Ready.") renders with its
+  leading characters cut off whenever the color picker is active,
+  as if something invisible is drawn over the top-left of that row. The
+  widget's `layout()` fully delegates to an inner `Column`, and `draw()`
+  separately paints the saturation/value canvas into one of that column's
+  child slots - the two appear to disagree on the real painted height by
+  roughly one text row.
+- **Perf: dragging the hue strip visibly lags.** The saturation/value
+  gradient square is rasterised with a per-pixel nested loop
+  (`for column in 0..width { for row in 0..height { frame.fill_rectangle
+  (1x1 px, color) } }` - tens of thousands of individual draw calls for a
+  ~300px canvas). It's cached and only re-runs when the active hue
+  changes, which is exactly what continuous dragging on the hue strip
+  does, so that specific interaction visibly stutters.
+
+Neither is masked by anything in our own view.rs (confirmed: the picker is
+just one more section in a plain stacked `Column`, no overlay/absolute
+positioning on our side).
+
 ## 1.3 candidate — i18n groundwork
 
 Adopt the COSMIC-native translation stack before the string count grows
