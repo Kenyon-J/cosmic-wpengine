@@ -1,3 +1,42 @@
+# cosmic-wallpaper 1.2.2
+
+Fixes the release binaries themselves: v1.2.0 and v1.2.1's downloads were
+built on Ubuntu 24.04 and linked its FFmpeg 6 dynamically, so any distro on
+a different FFmpeg major (Arch, and other rolling releases, bump FFmpeg
+sonames on every major) made both binaries die at the dynamic linker before
+even reaching `main` — a silent exit 127 with no error visible anywhere.
+Also ships the app launcher/icon fixes that were sitting on top of that,
+plus a v1.2.1 bug fix (frosted-glass staleness) that had gone out on
+binaries this affected.
+
+## Fixed
+
+- **The release binaries no longer depend on the host's FFmpeg version.**
+  `cosmic-wallpaper` and `cosmic-wallpaper-gui` now statically link FFmpeg
+  at build time instead of linking the CI runner's system libraries, so
+  they run on any distro regardless of its installed FFmpeg. If you
+  installed v1.2.0 or v1.2.1's standalone binaries on a system whose
+  FFmpeg has since moved past major version 6, this is the fix. (The `.deb`
+  was never affected — Pop!_OS/Ubuntu package dependencies always pinned
+  the right FFmpeg.)
+- **A stuck engine now says why.** When the wallpaper engine fails to start
+  — including the exact silent failure above — the Settings app's General
+  page explains it instead of just saying "Not running": it checks the
+  login-autostart failure state and, for a manual Start, captures the
+  engine's own error output.
+
+## Added
+
+- **The app now appears in your launcher.** Manual installs (the release
+  tarball, and anything the in-app updater keeps current afterwards) never
+  registered a desktop entry or icon, so COSMIC's app library had nothing
+  to show — the system tray and a terminal were the only ways in. Settings
+  now installs its launcher entry and icon set on first run. Packaged
+  installs (`.deb`, Flatpak) are unaffected; they already handled this
+  themselves.
+
+---
+
 # cosmic-wallpaper 1.2.1
 
 Patch release for a theme-editor blind spot found minutes after 1.2.0, plus
