@@ -83,9 +83,6 @@ cosmic-wallpaper/
 
 ## Installation
 
-Every command below always fetches whatever the latest release currently is
-— nothing to fill in, no need to open a browser.
-
 **Pop!_OS / Ubuntu 24.04** — the `.deb` ships both binaries plus an
 autostart entry, so the engine starts with your session:
 ```bash
@@ -102,15 +99,14 @@ wget -O ~/.local/bin/cosmic-wallpaper-gui https://github.com/Kenyon-J/cosmic-wpe
 chmod +x ~/.local/bin/cosmic-wallpaper ~/.local/bin/cosmic-wallpaper-gui
 ~/.local/bin/cosmic-wallpaper-gui
 ```
-That final launch also registers the app icon and app-launcher entry for you
-(skipped automatically for the `.deb`, which already ships its own). FFmpeg
-is LGPL-2.1+: the bundled build is compiled unmodified from
+That final launch also registers the app icon and app-launcher entry
+(the `.deb` already ships its own, so it skips this). FFmpeg is
+LGPL-2.1+: the bundled build is compiled unmodified from
 the [official source](https://github.com/FFmpeg/FFmpeg) at the version
 pinned by `ffmpeg-sys-next` (see `Cargo.lock`), with no GPL components
 enabled.
 
-Want to verify what you're running first? `SHA256SUMS.txt` is signed with
-minisign:
+To verify what you're running, `SHA256SUMS.txt` is signed with minisign:
 ```bash
 wget https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download/SHA256SUMS.txt
 wget https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download/SHA256SUMS.txt.minisig
