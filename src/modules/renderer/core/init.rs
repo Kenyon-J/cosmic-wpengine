@@ -110,33 +110,11 @@ impl Renderer {
             config_format,
         );
         let theme = ThemeLayout::load(&state.config.audio.style);
-        let audio_processing_bins =
-            crate::modules::renderer::utils::build_audio_processing_bins(state.config.audio.bands);
-        let waveform_bin_ranges =
-            crate::modules::renderer::utils::build_waveform_bin_ranges(state.config.audio.bands);
         let is_waveform_style = state.config.audio.style == "waveform";
-
-        // Optimization: Pre-calculate the FFT bin ranges for beat and treble detection
-        // to avoid redundant math on every single audio frame (typically 60-100 times per second).
-        let sample_rate = 48000.0f32;
-        let fft_size = 2048.0f32;
-        let freq_per_bin = sample_rate / fft_size;
-
-        let bass_bin_range = (
-            (20.0 / freq_per_bin).floor() as usize,
-            (120.0 / freq_per_bin).ceil() as usize,
+        let audio = crate::modules::renderer::audio_analysis::AudioAnalysis::new(
+            state.config.audio.bands,
+            state.config.audio.smoothing,
         );
-        let treble_bin_range = (
-            (3000.0 / freq_per_bin).floor() as usize,
-            (8000.0 / freq_per_bin).ceil() as usize,
-        );
-
-        let inv_smoothing = 1.0 - state.config.audio.smoothing;
-        let inv_target_len = if state.config.audio.bands > 0 {
-            1.0 / state.config.audio.bands as f32
-        } else {
-            0.0
-        };
 
         let mut renderer = Self {
             instance,
@@ -184,17 +162,8 @@ impl Renderer {
             frame_duration: Duration::from_secs_f64(1.0 / fps as f64),
             current_fps,
             show_lyrics_tx,
-            bass_moving_average: 0.0,
-            beat_pulse: 0.0,
-            last_beat_time: Instant::now(),
-            treble_moving_average: 0.0,
-            treble_pulse: 0.0,
-            last_treble_time: Instant::now(),
+            audio,
             theme,
-            audio_processing_bins,
-            inv_smoothing,
-            inv_target_len,
-            waveform_bin_ranges,
             lyric_bounce_value: 0.0,
             lyric_bounce_velocity: 0.0,
             pending_art_deadline: None,
@@ -215,11 +184,7 @@ impl Renderer {
             weather_wind_x: 0.1,
             weather_type: 0,
             is_weather_active: false,
-            audio_max_energy: 0.0,
-            audio_base_energy: 0.0,
             is_waveform_style,
-            bass_bin_range,
-            treble_bin_range,
             vis_target_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
             vis_prev_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
             art_target_color: [0.1, 0.1, 0.1],

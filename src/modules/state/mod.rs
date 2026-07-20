@@ -12,8 +12,9 @@ pub struct AppState {
     pub previous_palette: Option<Box<[[f32; 3]]>>,
     pub playback_position: std::time::Duration,
 
-    pub audio_bands: Box<[f32]>,
-    pub audio_waveform: Box<[f32]>,
+    /// Average smoothed band energy, updated from `AudioAnalysis::ingest`
+    /// each `AudioFrame`; the per-band buffers themselves live on the
+    /// renderer's `AudioAnalysis` (`renderer.audio`), not here.
     pub audio_energy: f32,
 
     pub weather: Option<WeatherData>,
@@ -26,7 +27,6 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(config: Config) -> Self {
-        let band_count = config.audio.bands;
         let initial_fade = if config.appearance.transparent_background {
             1.0
         } else {
@@ -39,8 +39,6 @@ impl AppState {
             is_playing: false,
             previous_palette: None,
             playback_position: std::time::Duration::ZERO,
-            audio_bands: vec![0.0; band_count].into_boxed_slice(),
-            audio_waveform: vec![0.0; band_count].into_boxed_slice(),
             audio_energy: 0.0,
             weather: None,
             time_of_day: Self::current_time_of_day(),

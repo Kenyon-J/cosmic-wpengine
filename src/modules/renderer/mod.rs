@@ -1,3 +1,4 @@
+pub(crate) mod audio_analysis;
 pub(crate) mod blur;
 pub mod core;
 pub(crate) mod draw;

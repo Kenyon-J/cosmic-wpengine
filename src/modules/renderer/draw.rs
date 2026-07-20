@@ -202,9 +202,9 @@ pub(crate) fn draw_frame(
 
     if has_audio {
         let audio_data: &[f32] = if renderer.is_waveform_style {
-            &renderer.state.audio_waveform
+            &renderer.audio.waveform
         } else {
-            &renderer.state.audio_bands
+            &renderer.audio.bands
         };
         renderer.queue.write_buffer(
             &renderer.visualiser_pass.bands_buffer,

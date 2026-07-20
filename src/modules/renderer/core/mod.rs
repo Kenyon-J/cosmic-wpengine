@@ -14,6 +14,7 @@ use crate::modules::wayland::{WaylandManager, WaylandOutput};
 
 pub const GLYPH_CACHE_WIDTH: u32 = 2048;
 pub const GLYPH_CACHE_HEIGHT: u32 = 2048;
+use super::audio_analysis::AudioAnalysis;
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer};
 
 use crate::modules::config::{ResolvedBackground, TemperatureUnit, ThemeLayout};
@@ -141,17 +142,8 @@ pub struct Renderer {
     pub(crate) frame_duration: Duration,
     pub(crate) current_fps: u32,
     pub(crate) show_lyrics_tx: tokio::sync::watch::Sender<bool>,
-    pub(crate) bass_moving_average: f32,
-    pub(crate) beat_pulse: f32,
-    pub(crate) last_beat_time: Instant,
-    pub(crate) treble_moving_average: f32,
-    pub(crate) treble_pulse: f32,
-    pub(crate) last_treble_time: Instant,
+    pub(crate) audio: AudioAnalysis,
     pub(crate) theme: ThemeLayout,
-    pub(crate) audio_processing_bins: Vec<(usize, usize, f32)>,
-    pub(crate) inv_smoothing: f32,
-    pub(crate) inv_target_len: f32,
-    pub(crate) waveform_bin_ranges: Vec<(usize, usize)>,
     pub(crate) lyric_bounce_value: f32,
     pub(crate) lyric_bounce_velocity: f32,
     /// While a new track's art is still being fetched in the background, the
@@ -178,11 +170,7 @@ pub struct Renderer {
     pub(crate) weather_wind_x: f32,
     pub(crate) weather_type: u32,
     pub(crate) is_weather_active: bool,
-    pub(crate) audio_max_energy: f32,
-    pub(crate) audio_base_energy: f32,
     pub(crate) is_waveform_style: bool,
-    pub(crate) bass_bin_range: (usize, usize),
-    pub(crate) treble_bin_range: (usize, usize),
     pub(crate) vis_target_colors: ([f32; 3], [f32; 3]),
     pub(crate) vis_prev_colors: ([f32; 3], [f32; 3]),
     pub(crate) art_target_color: [f32; 3],
@@ -340,22 +328,13 @@ impl Renderer {
             self.state.tick_transition(delta);
             last_frame = now;
 
-            // Pre-calculate shared exponential decay factors once per frame to reduce redundant math.
+            // Beat/treble pulse decay, independent of whether an AudioFrame
+            // arrived this tick - they fade out through silence too.
+            self.audio.decay(delta);
+
+            // Shared exponential decay factor for the lyric scroll offset
+            // below (unrelated to the audio pulses' own decay).
             let decay_12 = (-12.0 * delta).exp();
-            let decay_15 = (-15.0 * delta).exp();
-
-            // Exponential decay for the beat pulse so it snaps up and softly falls down
-            self.beat_pulse *= decay_12;
-            // Treble decays slightly faster for snappier, rapid hi-hats
-            self.treble_pulse *= decay_15;
-
-            // Prevent subnormal float degradation which causes massive CPU slowdowns
-            if self.beat_pulse.abs() < 1e-5 {
-                self.beat_pulse = 0.0;
-            }
-            if self.treble_pulse.abs() < 1e-5 {
-                self.treble_pulse = 0.0;
-            }
 
             // Spring physics for organic lyric bounce (Hooke's Law)
             let stiffness = self.theme.effects.lyric_spring_stiffness;
@@ -508,10 +487,10 @@ impl Renderer {
     /// the visualiser is drawn at all.
     fn scene_is_animating(&self) -> bool {
         // Visualiser bars/waveform moving, or beat/treble flashes decaying.
-        let audio_active = self.audio_max_energy > 0.001
+        let audio_active = self.audio.max_energy > 0.001
             || self.state.audio_energy > 0.001
-            || self.beat_pulse != 0.0
-            || self.treble_pulse != 0.0;
+            || self.audio.beat_pulse != 0.0
+            || self.audio.treble_pulse != 0.0;
 
         // Lyric scroll interpolation or spring bounce still settling.
         let lyrics_moving = self.lyric_scroll_offset != 0.0

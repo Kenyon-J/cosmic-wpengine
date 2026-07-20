@@ -109,7 +109,7 @@ impl FrameParams {
         let force_art = renderer.state.config.mode == WallpaperMode::AlbumArt;
 
         let has_audio = has_audio_active(
-            renderer.audio_max_energy,
+            renderer.audio.max_energy,
             &renderer.state.config.mode,
             renderer.state.current_track.is_some(),
         );
@@ -117,7 +117,7 @@ impl FrameParams {
         // Combine the pre-calculated base volume energy with the snappy
         // treble pulse, strictly capped to prevent blown out flashing.
         let audio_energy =
-            (renderer.audio_base_energy * 0.3 + renderer.treble_pulse * 0.4).clamp(0.0, 1.0);
+            (renderer.audio.base_energy * 0.3 + renderer.audio.treble_pulse * 0.4).clamp(0.0, 1.0);
 
         // The state flag and the GPU resources can disagree for a frame
         // around track changes; the GPU resources are what actually draw,
@@ -313,7 +313,7 @@ impl FrameParams {
                 .clone()
                 .or_else(|| renderer.theme.font_family.clone()),
             lyric_bounce: renderer.lyric_bounce_value,
-            beat_pulse_mul: renderer.beat_pulse * 2.0,
+            beat_pulse_mul: renderer.audio.beat_pulse * 2.0,
         }
     }
 }

@@ -19,22 +19,8 @@ impl Renderer {
                 }
 
                 if config.audio.bands != self.state.config.audio.bands {
-                    self.state.audio_bands = vec![0.0; config.audio.bands].into_boxed_slice();
-                    self.state.audio_waveform = vec![0.0; config.audio.bands].into_boxed_slice();
+                    self.audio.reconfigure_bands(config.audio.bands);
                     self.state.audio_energy = 0.0;
-                    self.audio_processing_bins =
-                        crate::modules::renderer::utils::build_audio_processing_bins(
-                            config.audio.bands,
-                        );
-                    self.waveform_bin_ranges =
-                        crate::modules::renderer::utils::build_waveform_bin_ranges(
-                            config.audio.bands,
-                        );
-                    self.inv_target_len = if config.audio.bands > 0 {
-                        1.0 / config.audio.bands as f32
-                    } else {
-                        0.0
-                    };
                 }
 
                 // Always reload the shader pipeline so live WGSL edits apply instantly!
@@ -59,7 +45,7 @@ impl Renderer {
 
                 // Always reload the theme layout so live edits to the .toml apply instantly!
                 self.theme = *theme_layout;
-                self.inv_smoothing = 1.0 - config.audio.smoothing;
+                self.audio.set_smoothing(config.audio.smoothing);
                 self.state.config = *config;
                 self.update_theme_colors();
 
@@ -243,140 +229,16 @@ impl Renderer {
             }
 
             Event::AudioFrame { bands, waveform } => {
-                let inv_smoothing = self.inv_smoothing;
-                let target_len = self.state.audio_bands.len();
-
-                let bands_len = bands.len();
-
-                // --- Smart Beat Detection ---
-                // We focus strictly on the low-end frequencies (e.g. 20Hz - 120Hz)
-                // Using pre-calculated ranges to avoid redundant math.
-                let (bass_min, bass_max) = self.bass_bin_range;
-                let bass_slice = &bands[bass_min..=bass_max.min(bands_len.saturating_sub(1))];
-
-                let current_bass = if !bass_slice.is_empty() {
-                    bass_slice.iter().sum::<f32>() / bass_slice.len() as f32
-                } else {
-                    0.0
-                };
-
-                // Moving average for a local bass energy threshold (~1 second tracker)
-                self.bass_moving_average = self.bass_moving_average * 0.95 + current_bass * 0.05;
-
-                // Trigger a beat if the bass spikes significantly above the recent average
-                if current_bass > self.bass_moving_average * 1.3
-                    && current_bass > 0.005
-                    && self.last_beat_time.elapsed().as_millis() > 200
-                {
-                    // 200ms cooldown prevents double-triggering
-                    self.beat_pulse = 1.0;
-
-                    // Add physical velocity to the lyric spring. The harder the bass spike, the bigger the bounce!
-                    let spike =
-                        (current_bass / self.bass_moving_average.max(0.001)).clamp(1.2, 3.0);
+                // Beat/treble detection, band smoothing, and waveform peak
+                // tracking all live in AudioAnalysis; a detected beat is
+                // reported back as data rather than reaching into the theme
+                // itself, since the lyric-bounce spring it kicks is themed
+                // and owned here.
+                let result = self.audio.ingest(&bands, &waveform);
+                self.state.audio_energy = result.avg_energy;
+                if let Some(spike) = result.beat_spike {
                     self.lyric_bounce_velocity += (15.0 * spike) * self.theme.effects.lyric_bounce;
-                    self.last_beat_time = Instant::now();
                 }
-
-                // --- Smart Treble Detection (Snares / Hi-Hats) ---
-                let (treble_min, treble_max) = self.treble_bin_range;
-                let treble_slice = &bands[treble_min..=treble_max.min(bands_len.saturating_sub(1))];
-
-                let current_treble = if !treble_slice.is_empty() {
-                    treble_slice.iter().sum::<f32>() / treble_slice.len() as f32
-                } else {
-                    0.0
-                };
-
-                self.treble_moving_average =
-                    self.treble_moving_average * 0.90 + current_treble * 0.10;
-
-                if current_treble > self.treble_moving_average * 1.2
-                    && current_treble > 0.002
-                    && self.last_treble_time.elapsed().as_millis() > 50
-                {
-                    // Fast 50ms cooldown for rapid 16th-note hi-hats
-                    self.treble_pulse = 1.0;
-                    self.last_treble_time = Instant::now();
-                }
-
-                let mut total_energy = 0.0;
-                // Optimization: Use zipped iterators instead of manual indexing
-                // to eliminate bounds checking and enable auto-vectorization.
-                for (current, &(bin_lo, bin_hi, combined_weight)) in self
-                    .state
-                    .audio_bands
-                    .iter_mut()
-                    .zip(self.audio_processing_bins.iter())
-                {
-                    let mut max_val = 0.0f32;
-                    // Optimization: Use a simple manual loop for peak search.
-                    // This avoids closure overhead from `fold` and is more easily auto-vectorized by LLVM.
-                    if let Some(slice) = bands.get(bin_lo..bin_hi.min(bands_len)) {
-                        for &val in slice {
-                            if val > max_val {
-                                max_val = val;
-                            }
-                        }
-                    }
-
-                    let target = (max_val * combined_weight).clamp(0.0, 1.0);
-
-                    // Optimization: Use more efficient lerp formula a + (b - a) * t
-                    // and use pre-calculated inv_smoothing.
-                    let diff = target - *current;
-                    if target > *current {
-                        *current += diff * 0.8;
-                    } else {
-                        *current += diff * inv_smoothing;
-                    }
-                    total_energy += *current;
-                }
-
-                // Optimization: Calculate audio_base_energy during the bands loop to avoid a second pass.
-                if target_len > 0 {
-                    let avg_energy = total_energy * self.inv_target_len;
-                    self.audio_base_energy = avg_energy * 5.0;
-                    // Optimization: Cache the average audio energy to make SceneHint detection O(1) in the hot path.
-                    self.state.audio_energy = avg_energy;
-                } else {
-                    self.audio_base_energy = 0.0;
-                    self.state.audio_energy = 0.0;
-                }
-
-                if self.state.audio_waveform.len() != target_len {
-                    self.state.audio_waveform = vec![0.0; target_len].into_boxed_slice();
-                }
-
-                let wave_len = waveform.len();
-                let mut max_energy = 0.0f32;
-                // Optimization: Use zipped iterators for the waveform smoothing loop.
-                for (current, &(start, end)) in self
-                    .state
-                    .audio_waveform
-                    .iter_mut()
-                    .zip(self.waveform_bin_ranges.iter())
-                {
-                    let mut peak = 0.0f32;
-                    let mut peak_abs = 0.0f32;
-                    if let Some(slice) = waveform.get(start..end.min(wave_len)) {
-                        for &val in slice {
-                            let val_abs: f32 = val.abs();
-                            if val_abs > peak_abs {
-                                peak_abs = val_abs;
-                                peak = val;
-                            }
-                        }
-                    }
-
-                    // Optimization: Track max absolute energy during the waveform loop to avoid a separate pass.
-                    if peak_abs > max_energy {
-                        max_energy = peak_abs;
-                    }
-
-                    *current += (peak - *current) * inv_smoothing;
-                }
-                self.audio_max_energy = max_energy;
             }
 
             Event::WeatherUpdated(weather) => {
