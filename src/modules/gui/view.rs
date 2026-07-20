@@ -757,6 +757,15 @@ fn theme_editor_rows<'a>(
         }
     }
 
+    section = section.add(
+        settings::item::builder("Reset this section")
+            .description(format!(
+                "Restores {} to its default values.",
+                THEME_ELEMENTS[app.theme_element]
+            ))
+            .control(button::destructive("Reset").on_press(Message::ResetThemeElement)),
+    );
+
     section.into()
 }
 

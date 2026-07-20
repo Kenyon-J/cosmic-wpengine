@@ -371,6 +371,25 @@ fn apply_theme_edit(layout: &mut config::ThemeLayout, element: usize, edit: Them
     }
 }
 
+/// Restores the element at `element` (same indexing as `apply_theme_edit`
+/// and `view::THEME_ELEMENTS`) to `ThemeLayout::default()`'s values for it -
+/// the plain [0.5, 0.5]/circular/etc. baseline, not any style's own
+/// hand-tuned layout (a custom theme's file *is* the thing being edited, so
+/// reloading "its" defaults would just reload the current, possibly
+/// already-edited values right back).
+fn reset_theme_element(layout: &mut config::ThemeLayout, element: usize) {
+    let defaults = config::ThemeLayout::default();
+    match element {
+        0 => layout.album_art = defaults.album_art,
+        1 => layout.track_info = defaults.track_info,
+        2 => layout.lyrics = defaults.lyrics,
+        3 => layout.visualiser = defaults.visualiser,
+        4 => layout.weather = defaults.weather,
+        5 => layout.effects = defaults.effects,
+        _ => {}
+    }
+}
+
 /// Path to the engine binary: the GUI's sibling first (both binaries
 /// install side by side - ~/.local/bin, /usr/bin, and the .deb all do
 /// this; the updater relies on the same layout), falling back to the
@@ -950,6 +969,9 @@ enum Message {
     /// Index into `view::THEME_ELEMENTS`.
     ThemeElementSelected(usize),
     ThemeEdit(ThemeEditMsg),
+    /// Restores the currently-viewed element (`theme_element`) to
+    /// `ThemeLayout::default()`'s values for it.
+    ResetThemeElement,
     DebouncedThemeSave(u64),
     /// Theme .toml files dropped onto the Layout Themes page.
     ThemeFilesDropped(Option<library::DroppedFiles>),
@@ -1327,6 +1349,13 @@ impl Application for SettingsApp {
                 let element = self.theme_element;
                 if let Some(layout) = &mut self.edit_theme {
                     apply_theme_edit(layout, element, edit);
+                    return self.schedule_theme_save();
+                }
+            }
+            Message::ResetThemeElement => {
+                let element = self.theme_element;
+                if let Some(layout) = &mut self.edit_theme {
+                    reset_theme_element(layout, element);
                     return self.schedule_theme_save();
                 }
             }

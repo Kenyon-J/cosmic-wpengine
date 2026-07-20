@@ -166,3 +166,37 @@ fn issue_body_attaches_recent_engine_errors_when_present() {
     assert!(body.contains("<details>"));
     assert!(body.contains("fetch failed: timed out"));
 }
+
+/// `reset_theme_element` restores the *generic* `ThemeLayout::default()`
+/// baseline for one element, not the style's own hand-tuned layout (a
+/// custom theme's file is the thing being edited, so its own "defaults"
+/// would just be whatever's already on disk) - and leaves every other
+/// element's edits untouched.
+#[test]
+fn reset_theme_element_restores_generic_defaults_for_one_element_only() {
+    let mut layout = cosmic_wallpaper::modules::config::ThemeLayout::load("monstercat");
+    let generic_defaults = cosmic_wallpaper::modules::config::ThemeLayout::default();
+
+    // monstercat's own defaults differ from the generic ones, or this test
+    // wouldn't actually be exercising the distinction the function exists for.
+    assert_ne!(layout.lyrics.position, generic_defaults.lyrics.position);
+
+    super::apply_theme_edit(&mut layout, 2, super::ThemeEditMsg::PosX(0.1));
+    super::apply_theme_edit(&mut layout, 0, super::ThemeEditMsg::Size(0.9));
+
+    super::reset_theme_element(&mut layout, 2);
+
+    assert_eq!(layout.lyrics.position, generic_defaults.lyrics.position);
+    assert_eq!(layout.lyrics.align, generic_defaults.lyrics.align);
+    // The untouched element keeps its edit.
+    assert_eq!(layout.album_art.size, 0.9);
+}
+
+#[test]
+fn reset_theme_element_ignores_out_of_range_index() {
+    let mut layout = cosmic_wallpaper::modules::config::ThemeLayout::load("no-such-theme");
+    let before = toml::to_string_pretty(&layout).unwrap();
+    super::reset_theme_element(&mut layout, 99);
+    let after = toml::to_string_pretty(&layout).unwrap();
+    assert_eq!(before, after);
+}
