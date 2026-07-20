@@ -974,7 +974,10 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         )))
         .add(
             settings::item::builder("Location")
-                .description("Latitude and longitude for the forecast.")
+                .description(
+                    "Latitude and longitude for the forecast. \"Use my location\" estimates \
+                     these from your IP address via ipapi.co.",
+                )
                 .control(
                     Row::new()
                         .push(
@@ -987,6 +990,7 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                                 .on_input(Message::LongitudeChanged)
                                 .width(Length::Fixed(100.0)),
                         )
+                        .push(button::standard("Use my location").on_press(Message::DetectLocation))
                         .spacing(8)
                         .align_y(cosmic::iced::Alignment::Center),
                 ),

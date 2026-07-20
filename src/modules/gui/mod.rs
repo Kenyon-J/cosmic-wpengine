@@ -776,6 +776,39 @@ fn get_http_client() -> Result<&'static reqwest::Client, &'static String> {
         .as_ref()
 }
 
+#[derive(serde::Deserialize)]
+struct IpLocationResponse {
+    latitude: f64,
+    longitude: f64,
+}
+
+/// Estimates the user's location from their public IP via ipapi.co - opt-in
+/// only, fired by the "Use my location" button, never automatically. No
+/// SSRF concern here (unlike the mpris/video fetch paths): the URL is a
+/// fixed constant, not derived from any untrusted input.
+async fn fetch_ip_location() -> Result<(f64, f64), String> {
+    let client = get_http_client().map_err(Clone::clone)?;
+    let resp = client
+        .get("https://ipapi.co/json/")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("location service returned HTTP {}", resp.status()));
+    }
+
+    const MAX_JSON_SIZE: usize = 1024 * 1024;
+    let bytes = cosmic_wallpaper::modules::utils::read_capped(resp, MAX_JSON_SIZE)
+        .await
+        .map_err(|e| e.to_string())?;
+    let data: IpLocationResponse = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+
+    if !(-90.0..=90.0).contains(&data.latitude) || !(-180.0..=180.0).contains(&data.longitude) {
+        return Err("location service returned out-of-range coordinates".to_string());
+    }
+    Ok((data.latitude, data.longitude))
+}
+
 async fn fetch_patch_notes() -> String {
     let url = "https://api.github.com/repos/Kenyon-J/cosmic-wpengine/releases/latest";
 
@@ -904,6 +937,8 @@ enum Message {
     TextColorPicker(ColorPickerUpdate),
     LatitudeChanged(String),
     LongitudeChanged(String),
+    DetectLocation,
+    LocationDetected(Result<(f64, f64), String>),
     /// Index into `view::POLL_MINUTES`.
     PollIntervalSelected(usize),
     /// Index into `view::THEME_ELEMENTS`.
@@ -1236,6 +1271,23 @@ impl Application for SettingsApp {
                         return self.schedule_debounced_save();
                     }
                 }
+            }
+            Message::DetectLocation => {
+                self.status_msg = "Detecting location...".into();
+                return Task::perform(fetch_ip_location(), |result| {
+                    Message::LocationDetected(result).into()
+                });
+            }
+            Message::LocationDetected(Ok((lat, lon))) => {
+                self.lat_input = format!("{lat}");
+                self.lon_input = format!("{lon}");
+                self.wp_config.weather.latitude = lat;
+                self.wp_config.weather.longitude = lon;
+                let _ = self.wp_config.save();
+                self.status_msg = "Location detected.".into();
+            }
+            Message::LocationDetected(Err(e)) => {
+                self.status_msg = format!("Could not detect location: {e}");
             }
             Message::PollIntervalSelected(idx) => {
                 if let Some(&minutes) = view::POLL_MINUTES.get(idx) {
