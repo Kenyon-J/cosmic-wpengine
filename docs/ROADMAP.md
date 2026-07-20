@@ -18,6 +18,19 @@ Fold into the redesign:
   theme's text positions is a possible alternative, but a user override is
   the predictable escape hatch.
 
+## Wallpaper Engine parity features (planned — see PLAN-wallpaper-engine-parity.md)
+
+Four gaps identified 2026-07-20 against Wallpaper Engine (Windows) that fit
+this project's existing architecture without new infrastructure: wallpaper
+rotation/playlist, an independent custom-image picker, pause (throttle) on
+battery via UPower, and per-monitor wallpaper identification (groundwork
+only - the full per-monitor feature is bigger and gets its own plan once
+the identification groundwork lands). See
+[PLAN-wallpaper-engine-parity.md](PLAN-wallpaper-engine-parity.md) for
+phases, file anchors, and why system76-power was considered and rejected
+for the battery detection (not running on non-Pop!_OS COSMIC installs;
+confirmed absent on this project's own dev machine).
+
 ## Renderer decomposition (planned — see PLAN-renderer-decomposition.md)
 
 The ~100-field `Renderer` + ~850-line `draw_frame` split (Phase 9 of
