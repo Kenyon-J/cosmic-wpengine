@@ -182,7 +182,17 @@ impl Renderer {
             }
 
             Event::BackgroundVideoFrame(frame) => {
-                self.update_background_video_frame(&frame);
+                // Instant gate, mirroring CanvasVideoFrame below: the local
+                // decoder's cancel check only runs between frames (see
+                // video::run_local_decoder's loop), so a frame already
+                // mid-pace/mid-send when Live Wallpaper is turned off can
+                // still arrive after ConfigUpdated's forced reload back to
+                // the real desktop background - re-clobbering it with the
+                // stale video frame. Rejecting it here closes the race
+                // regardless of the decoder's own timing.
+                if self.state.config.appearance.video_background_path.is_some() {
+                    self.update_background_video_frame(&frame);
+                }
             }
 
             Event::CanvasVideoFrame(frame) => {
