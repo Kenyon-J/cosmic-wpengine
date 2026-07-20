@@ -1,5 +1,13 @@
 #![cfg(test)]
 
+/// Guards tests in this file that mutate XDG_CONFIG_HOME: `cargo test` runs
+/// tests in parallel threads by default, and env vars are shared process
+/// state. The library crate has its own such mutex
+/// (`modules::utils::test_support::ENV_MUTEX`), but that module is
+/// `#[cfg(test)]` and so isn't compiled in when the library is pulled in as
+/// this binary's dependency - this binary needs its own.
+static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn test_is_safe_path() {
     // Valid paths
@@ -105,4 +113,56 @@ fn stderr_headline_prefers_the_linker_error() {
     // No linker line: first non-empty line wins.
     assert_eq!(super::stderr_headline("\n\npanic: boom\n"), "panic: boom");
     assert_eq!(super::stderr_headline(""), "");
+}
+
+/// The prefilled bug-report body: always carries version/OS context, and
+/// only grows the error-excerpt section when there's actually something to
+/// show - an empty `<details>` block would just be clutter.
+#[test]
+fn issue_body_includes_version_and_omits_empty_error_section() {
+    let _guard = ENV_MUTEX.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let prev = std::env::var("XDG_CONFIG_HOME").ok();
+    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+
+    let body = super::build_issue_body();
+
+    match prev {
+        Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
+
+    assert!(body.contains(env!("CARGO_PKG_VERSION")));
+    assert!(
+        !body.contains("<details>"),
+        "no log files exist, so there's nothing to show"
+    );
+}
+
+/// With a real error line on disk, the body must fold it into the
+/// collapsible section rather than silently dropping it.
+#[test]
+fn issue_body_attaches_recent_engine_errors_when_present() {
+    let _guard = ENV_MUTEX.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let prev = std::env::var("XDG_CONFIG_HOME").ok();
+    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+
+    let log_dir = cosmic_wallpaper::modules::logging::log_dir();
+    std::fs::create_dir_all(&log_dir).unwrap();
+    std::fs::write(
+        log_dir.join("engine.log.2026-07-20"),
+        "2026-07-20T00:00:00Z ERROR cosmic_wallpaper::modules::mpris: fetch failed: timed out\n",
+    )
+    .unwrap();
+
+    let body = super::build_issue_body();
+
+    match prev {
+        Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
+
+    assert!(body.contains("<details>"));
+    assert!(body.contains("fetch failed: timed out"));
 }

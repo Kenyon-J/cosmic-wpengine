@@ -1086,7 +1086,13 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                     }),
             )
             .add(
+                settings::item::builder("Diagnostics")
+                    .description("Version, log tail and GPU info, for pasting into a report.")
+                    .control(button::standard("Copy").on_press(Message::CopyDiagnostics)),
+            )
+            .add(
                 settings::item::builder("Something broken?")
+                    .description("Opens a pre-filled bug report with recent errors attached.")
                     .control(button::standard("Report an Issue").on_press(Message::ReportIssue)),
             )
             .into(),

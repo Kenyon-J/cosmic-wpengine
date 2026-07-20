@@ -449,6 +449,91 @@ fn stderr_headline(stderr: &str) -> String {
         .to_string()
 }
 
+/// `PRETTY_NAME` out of `/etc/os-release` - the one line most useful for
+/// telling apart "which Linux" in a bug report, without parsing the whole
+/// (semi-standardised, but not worth a crate for one field) file format.
+fn distro_pretty_name() -> String {
+    std::fs::read_to_string("/etc/os-release")
+        .ok()
+        .and_then(|contents| {
+            contents.lines().find_map(|line| {
+                line.strip_prefix("PRETTY_NAME=")
+                    .map(|v| v.trim_matches('"').to_string())
+            })
+        })
+        .unwrap_or_else(|| "Unknown Linux distribution".to_string())
+}
+
+/// Full plain-text snapshot for the "Copy Diagnostics" button: version,
+/// distro, engine status, and each binary's recent log tail (including GPU
+/// adapter selection, logged once at engine startup - see
+/// renderer::core::init).
+fn build_diagnostics_text(app: &SettingsApp) -> String {
+    use cosmic_wallpaper::modules::logging;
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "cosmic-wallpaper {}", env!("CARGO_PKG_VERSION"));
+    let _ = writeln!(out, "OS: {}", distro_pretty_name());
+    let _ = writeln!(
+        out,
+        "Engine: {}",
+        match (app.engine_pid, &app.engine_failure) {
+            (Some(pid), _) => format!("running (pid {pid})"),
+            (None, Some(failure)) => failure.clone(),
+            (None, None) => "not running".to_string(),
+        }
+    );
+    let _ = writeln!(out, "Mode: {:?}", app.wp_config.mode);
+    let _ = writeln!(out, "Theme: {}", app.wp_config.audio.style);
+
+    for component in ["engine", "gui"] {
+        let lines = logging::tail_lines(component, 40);
+        let _ = writeln!(
+            out,
+            "\n--- {component} log (last {} lines) ---",
+            lines.len()
+        );
+        if lines.is_empty() {
+            let _ = writeln!(out, "(no log file yet)");
+        }
+        for line in lines {
+            let _ = writeln!(out, "{line}");
+        }
+    }
+
+    out
+}
+
+/// Compact excerpt for the prefilled GitHub issue body: version, distro,
+/// and only the ERROR/WARN lines (not the full diagnostics dump) - long
+/// enough to be useful, short enough to stay a sane URL length.
+fn build_issue_body() -> String {
+    use cosmic_wallpaper::modules::logging;
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "**cosmic-wallpaper {}**", env!("CARGO_PKG_VERSION"));
+    let _ = writeln!(out, "OS: {}", distro_pretty_name());
+    let _ = writeln!(
+        out,
+        "\n<!-- What were you doing when this happened? -->\n\n"
+    );
+
+    let mut errors = logging::tail_error_lines("engine", 12);
+    errors.extend(logging::tail_error_lines("gui", 5));
+    if !errors.is_empty() {
+        let _ = writeln!(out, "<details><summary>Recent errors/warnings</summary>\n");
+        let _ = writeln!(out, "```");
+        for line in errors {
+            let _ = writeln!(out, "{line}");
+        }
+        let _ = writeln!(out, "```\n</details>");
+    }
+
+    out
+}
+
 /// PID of a running wallpaper engine, found by cmdline (comm truncates to
 /// 15 chars, which cannot distinguish the engine from this GUI).
 fn find_engine_pid() -> Option<u32> {
@@ -853,6 +938,7 @@ enum Message {
     PatchNotesLoaded(String),
     ClosePatchNotes,
     ReportIssue,
+    CopyDiagnostics,
     UpdateCheckDone(Option<String>),
     StartUpdate,
     UpdateFinished(Result<String, String>),
@@ -1438,14 +1524,28 @@ impl Application for SettingsApp {
                 self.patch_notes = None;
             }
             Message::ReportIssue => {
+                let body = build_issue_body();
+                // Parsed via `url` rather than hand-formatted so the log
+                // excerpt - which can contain '&', '#', newlines - is
+                // correctly percent-encoded into the query string.
+                let mut url =
+                    url::Url::parse("https://github.com/Kenyon-J/cosmic-wpengine/issues/new")
+                        .expect("static URL is always valid");
+                url.query_pairs_mut().append_pair("body", &body);
+
                 if let Some(xdg_open) = resolve_binary("xdg-open") {
                     let _ = std::process::Command::new(xdg_open)
-                        .arg("https://github.com/Kenyon-J/cosmic-wpengine/issues")
+                        .arg(url.as_str())
                         .spawn();
                 } else {
                     tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
                     self.status_msg = "Failed to open link: xdg-open not found".into();
                 }
+            }
+            Message::CopyDiagnostics => {
+                let text = build_diagnostics_text(self);
+                self.status_msg = "Diagnostics copied to clipboard.".into();
+                return cosmic::iced::clipboard::write(text);
             }
             Message::UpdateCheckDone(version) => {
                 self.update_state = match version {

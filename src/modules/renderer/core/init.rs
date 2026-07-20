@@ -40,6 +40,16 @@ impl Renderer {
             .await
             .map_err(|e| anyhow::anyhow!("No suitable GPU adapter found: {}", e))?;
 
+        // Logged (not just traced at debug) so it lands in the persisted
+        // log file: GPU selection is one of the first things worth checking
+        // when a bug report mentions rendering issues or a hybrid-graphics
+        // laptop picking the wrong adapter.
+        let adapter_info = adapter.get_info();
+        info!(
+            "Selected GPU adapter: {} ({:?}, {:?} backend)",
+            adapter_info.name, adapter_info.device_type, adapter_info.backend
+        );
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("COSMIC Wallpaper Device"),
