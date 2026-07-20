@@ -13,19 +13,40 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
     // only 8 * 8 * 8 = 512 possible buckets. This avoids heap allocations and hashing overhead.
     let mut buckets = [0u32; 512];
 
-    for y in (0..height).step_by(step_y as usize) {
-        for x in (0..width).step_by(step_x as usize) {
-            let Rgba([r, g, b, a]) = image.get_pixel(x, y);
-            if a < 128 {
-                continue;
-            }
+    // Optimization: Extract the underlying Rgba8 reference once to bypass enum matching
+    // overhead of DynamicImage::get_pixel inside nested loops.
+    if let Some(rgba8_img) = image.as_rgba8() {
+        for y in (0..height).step_by(step_y as usize) {
+            for x in (0..width).step_by(step_x as usize) {
+                let Rgba([r, g, b, a]) = *rgba8_img.get_pixel(x, y);
+                if a < 128 {
+                    continue;
+                }
 
-            // Map RGB to 512 buckets: 3 bits per channel (8 levels each)
-            let r_idx = (r / 32) as usize;
-            let g_idx = (g / 32) as usize;
-            let b_idx = (b / 32) as usize;
-            let index = (r_idx << 6) | (g_idx << 3) | b_idx;
-            buckets[index] += 1;
+                // Map RGB to 512 buckets: 3 bits per channel (8 levels each)
+                let r_idx = (r / 32) as usize;
+                let g_idx = (g / 32) as usize;
+                let b_idx = (b / 32) as usize;
+                let index = (r_idx << 6) | (g_idx << 3) | b_idx;
+                buckets[index] += 1;
+            }
+        }
+    } else {
+        // Fallback for other image formats (e.g. RGB8, Luma8, etc.)
+        for y in (0..height).step_by(step_y as usize) {
+            for x in (0..width).step_by(step_x as usize) {
+                let Rgba([r, g, b, a]) = image.get_pixel(x, y);
+                if a < 128 {
+                    continue;
+                }
+
+                // Map RGB to 512 buckets: 3 bits per channel (8 levels each)
+                let r_idx = (r / 32) as usize;
+                let g_idx = (g / 32) as usize;
+                let b_idx = (b / 32) as usize;
+                let index = (r_idx << 6) | (g_idx << 3) | b_idx;
+                buckets[index] += 1;
+            }
         }
     }
 
