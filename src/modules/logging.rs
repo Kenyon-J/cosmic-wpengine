@@ -33,6 +33,37 @@ pub fn log_dir() -> PathBuf {
 /// Must be called at most once per process (a second call would panic on
 /// the already-installed global subscriber), and as early as possible so
 /// no log lines are lost to the pre-init no-op default.
+/// Fallback filter directive, used only when `RUST_LOG` is unset (an
+/// explicit `RUST_LOG` from the user always wins outright - this never
+/// overrides it). Beyond the blanket `info` default, quiets two upstream
+/// sources confirmed harmless rather than symptomatic:
+///
+/// - `winit_wayland` logs a WARN every launch that
+///   `xdg_toplevel_icon_manager_v1` isn't supported by the compositor.
+///   Cosmetic: the window icon is set via a different, working mechanism
+///   (the .desktop file lookup keyed off `Application::APP_ID`, verified
+///   by screenshot after the app_id fix) that doesn't depend on this
+///   protocol at all. Thresholded to `error` rather than fully `off`, in
+///   case the crate ever has something more serious to say.
+/// - `cosmic::theme` logs an ERROR whenever a specific theme config key
+///   (seen: "list_button") is absent, but always falls back to a working
+///   default in that same code path (`get_entry(&helper)
+///   .unwrap_or_else(|(errors, theme)| { ...log...; theme })` in
+///   libcosmic's `theme/mod.rs`) - the app is never actually affected.
+///   Since the noisy message is itself already at ERROR severity, `error`
+///   as a threshold wouldn't suppress it; only `off` does.
+///
+/// Both targets are logged from the GUI binary only (the engine links
+/// neither `iced` nor `cosmic`), so these directives are simply unmatched,
+/// harmless no-ops there.
+///
+/// This matters beyond tidiness: `tail_error_lines` (below) is what feeds
+/// the "Copy Diagnostics" and prefilled-bug-report features, so routine
+/// upstream noise at ERROR/WARN severity would otherwise drown out any
+/// genuine `cosmic_wallpaper`-originated line in exactly the reports this
+/// exists to make useful.
+const FALLBACK_FILTER: &str = "info,winit_wayland=error,cosmic::theme=off";
+
 pub fn init(component: &str) {
     let dir = log_dir();
     let _ = std::fs::create_dir_all(&dir);
@@ -49,7 +80,8 @@ pub fn init(component: &str) {
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
     Box::leak(Box::new(guard));
 
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(FALLBACK_FILTER));
 
     tracing_subscriber::registry()
         .with(env_filter)
@@ -134,6 +166,16 @@ pub fn tail_error_lines(component: &str, max_lines: usize) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::modules::utils::test_support::ENV_MUTEX;
+
+    /// A typo in FALLBACK_FILTER's directive syntax would otherwise only
+    /// surface as `init()` silently falling back to no filtering (or
+    /// panicking, if a future tracing-subscriber version stops tolerating
+    /// a malformed default) the first time RUST_LOG happens to be unset -
+    /// worth catching at build/test time instead.
+    #[test]
+    fn fallback_filter_parses_as_a_valid_directive() {
+        EnvFilter::try_new(FALLBACK_FILTER).expect("FALLBACK_FILTER must be a valid directive");
+    }
 
     fn with_temp_config_dir<R>(f: impl FnOnce() -> R) -> R {
         let _guard = ENV_MUTEX.lock().unwrap();
