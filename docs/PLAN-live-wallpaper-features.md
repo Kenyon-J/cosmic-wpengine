@@ -1,11 +1,11 @@
-# Plan: Wallpaper Engine parity features
+# Plan: Live wallpaper feature additions
 
-Goal: close the four gaps identified 2026-07-20 against Wallpaper Engine
-(Windows) that fit this project's existing architecture cleanly - config.toml
-+ theme system, the video library, the per-output render loop - rather than
-needing new infrastructure. **Each phase is one self-contained commit** and
-leaves the tree green (`cargo fmt --all --check && cargo clippy --all-targets
--- -D warnings && cargo test`), plus a live verification appropriate to that
+Goal: implement four features identified 2026-07-20 that fit this project's
+existing architecture cleanly - config.toml + theme system, the video
+library, the per-output render loop - rather than needing new
+infrastructure. **Each phase is one self-contained commit** and leaves the
+tree green (`cargo fmt --all --check && cargo clippy --all-targets --
+-D warnings && cargo test`), plus a live verification appropriate to that
 phase (see each phase's Verify line).
 
 Anchored against master @ `0e4db32` (post-markdown-patch-notes). Re-grep
@@ -143,9 +143,9 @@ monitor unplug/replug.
 ## Explicitly out of scope
 
 - Workshop/sharing hub - needs a backend service.
-- HTML/JS web wallpapers - needs an embedded browser engine (CEF-class
-  dependency), a different rendering pipeline entirely.
+- Web-based (HTML/JS) wallpapers - needs an embedded browser engine
+  (CEF-class dependency), a different rendering pipeline entirely.
 - Mouse-reactive parallax - already tracked in `ROADMAP.md`'s "Unscheduled
   ideas"; genuinely hard on Wayland specifically (layer-shell background
   surfaces don't receive pointer input by design), not a quick add despite
-  looking like one from the Windows-side feature list.
+  how simple it can look at a glance.
