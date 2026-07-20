@@ -53,7 +53,7 @@ ksni = "0.2"
 # no stable releases and tracking master breaks builds without warning (the
 # COSMIC 1.3 bump removed the no-arg row()/column() helpers, for example).
 # Bump deliberately, rebuild, and re-run the GUI when moving this.
-cosmic = { package = "libcosmic", git = "https://github.com/pop-os/libcosmic.git", rev = "6359a9465b8fe4c3b0ada0cd2b87cddf644ca732" }
+cosmic = { package = "libcosmic", git = "https://github.com/pop-os/libcosmic.git", rev = "6359a9465b8fe4c3b0ada0cd2b87cddf644ca732", features = ["markdown"] }
 iced = { git = "https://github.com/pop-os/libcosmic.git", package = "iced", rev = "6359a9465b8fe4c3b0ada0cd2b87cddf644ca732", features = ["highlighter"] }
 mimalloc = "0.1"
 lru = "0.16"

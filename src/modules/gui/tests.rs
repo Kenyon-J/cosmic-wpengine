@@ -1,12 +1,17 @@
 #![cfg(test)]
 
-/// Guards tests in this file that mutate XDG_CONFIG_HOME: `cargo test` runs
-/// tests in parallel threads by default, and env vars are shared process
-/// state. The library crate has its own such mutex
-/// (`modules::utils::test_support::ENV_MUTEX`), but that module is
-/// `#[cfg(test)]` and so isn't compiled in when the library is pulled in as
-/// this binary's dependency - this binary needs its own.
-static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// Guards every test in this *binary crate* (`cosmic-wallpaper-gui`) that
+/// mutates XDG_CONFIG_HOME: `cargo test` runs tests in parallel threads by
+/// default, and env vars are shared process state. The library crate has
+/// its own such mutex (`modules::utils::test_support::ENV_MUTEX`), but that
+/// module is `#[cfg(test)]` and so isn't compiled in when the library is
+/// pulled in as this binary's regular dependency - this binary needs its
+/// own, and it must be exactly one: library.rs's tests used to declare a
+/// second, independent `static ENV_MUTEX`, which raced against this one
+/// (two unsynchronized locks "guarding" the same env var) and intermittently
+/// poisoned whichever one lost. Any file in this crate that needs to set
+/// XDG_CONFIG_HOME in a test must lock *this* one, via `crate::tests::ENV_MUTEX`.
+pub(crate) static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
 fn test_is_safe_path() {

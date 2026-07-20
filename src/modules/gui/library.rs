@@ -224,13 +224,12 @@ impl cosmic::iced::clipboard::mime::AllowedMimeTypes for DroppedFiles {
 mod tests {
     use super::*;
 
-    /// Guards this file's XDG_CONFIG_HOME-mutating tests. See the identical
-    /// pattern (and the reason each file needs its own) in
-    /// bootstrap.rs's DATA_HOME_MUTEX.
-    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn with_temp_config_dir<R>(f: impl FnOnce() -> R) -> R {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        // XDG_CONFIG_HOME is shared process state; every test in this
+        // binary that mutates it locks the one shared mutex in
+        // gui/tests.rs, not a file-local one - see that static's doc
+        // comment for why a second lock here previously raced against it.
+        let _guard = crate::tests::ENV_MUTEX.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let prev = std::env::var("XDG_CONFIG_HOME").ok();
         std::env::set_var("XDG_CONFIG_HOME", tmp.path());

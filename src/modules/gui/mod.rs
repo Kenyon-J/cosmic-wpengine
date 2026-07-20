@@ -45,7 +45,9 @@ struct SettingsApp {
     autostart: bool,
     update_state: UpdateState,
     /// Fetched release notes, shown on the General page when present.
-    patch_notes: Option<String>,
+    /// Pre-parsed once on arrival (`markdown::Item` owns its data - no
+    /// lifetime tie to the source text) rather than reparsed on every view.
+    patch_notes: Option<Vec<cosmic::widget::markdown::Item>>,
     /// Wallpaper snapshots for the Wallpaper page previews; loaded async at
     /// startup from the same background resolution the engine uses.
     wallpaper_preview: Option<WallpaperPreview>,
@@ -1000,6 +1002,8 @@ enum Message {
     ShowPatchNotes,
     PatchNotesLoaded(String),
     ClosePatchNotes,
+    /// A link inside the rendered patch notes was clicked.
+    PatchNotesLinkClicked(cosmic::widget::markdown::Uri),
     ReportIssue,
     CopyDiagnostics,
     UpdateCheckDone(Option<String>),
@@ -1621,8 +1625,16 @@ impl Application for SettingsApp {
                 });
             }
             Message::PatchNotesLoaded(notes) => {
-                self.patch_notes = Some(notes);
+                self.patch_notes = Some(cosmic::widget::markdown::parse(&notes).collect());
                 self.status_msg = "Ready.".into();
+            }
+            Message::PatchNotesLinkClicked(url) => {
+                if let Some(xdg_open) = resolve_binary("xdg-open") {
+                    let _ = std::process::Command::new(xdg_open).arg(url).spawn();
+                } else {
+                    tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
+                    self.status_msg = "Failed to open link: xdg-open not found".into();
+                }
             }
             Message::ClosePatchNotes => {
                 self.patch_notes = None;

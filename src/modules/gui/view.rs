@@ -1127,12 +1127,27 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     }
 
     if let Some(notes) = &app.patch_notes {
+        // markdown::Settings has no From<cosmic::Theme> (only iced's own
+        // Theme enum gets that shortcut) - COSMIC's Theme instead bridges
+        // via the iced::theme::Base trait's palette(), the same colours
+        // (accent/success/warning/destructive/bg/on_bg) every other themed
+        // widget in this app already follows.
+        use cosmic::iced::theme::Base as _;
+        let palette = cosmic::theme::active()
+            .palette()
+            .unwrap_or(cosmic::iced::theme::Palette::LIGHT);
+        let markdown_settings = cosmic::widget::markdown::Settings::with_style(
+            cosmic::widget::markdown::Style::from_palette(palette),
+        );
         sections.push(
             settings::section()
                 .title("Patch Notes")
                 .add(
                     Column::new()
-                        .push(text::body(notes.as_str()))
+                        .push(
+                            cosmic::widget::markdown::view(notes, markdown_settings)
+                                .map(Message::PatchNotesLinkClicked),
+                        )
                         .width(Length::Fill)
                         .padding(8),
                 )
