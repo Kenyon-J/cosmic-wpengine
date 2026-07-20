@@ -68,6 +68,12 @@ struct SettingsApp {
     /// knows: shown on the General page's engine row so a binary that dies
     /// before main() stops failing invisibly.
     engine_failure: Option<String>,
+    /// `None` when the app is properly registered with the desktop's
+    /// launcher (or a packaged install, whose job that isn't ours);
+    /// `Some(reason)` surfaces a "Setup" section on General - the app
+    /// silently missing from the launcher was itself a real, only
+    /// discovered-by-chance gap (see bootstrap.rs).
+    launcher_issue: Option<String>,
     /// Monotonic counter pairing each slider change with its debounce timer;
     /// a DebouncedSave only writes to disk if its generation is still the
     /// newest (i.e. the slider settled for the full window).
@@ -1092,6 +1098,11 @@ impl Application for SettingsApp {
                 theme_save_generation: 0,
                 engine_pid,
                 engine_failure,
+                // Not computed here: bootstrap::ensure_desktop_integration()
+                // was just spawned on a background thread by `main` and
+                // hasn't necessarily finished yet. Refreshed for real the
+                // first time the user visits General, by which point it has.
+                launcher_issue: None,
                 wp_config,
                 save_generation: 0,
             },
@@ -1111,9 +1122,11 @@ impl Application for SettingsApp {
 
     fn on_nav_select(&mut self, id: nav_bar::Id) -> Task<cosmic::Action<Self::Message>> {
         self.nav.activate(id);
-        // Keep the engine row honest whenever General comes into view.
+        // Keep the engine row (and the Setup section) honest whenever
+        // General comes into view.
         if self.nav.active_data::<Page>() == Some(&Page::General) {
             self.refresh_engine_status();
+            self.launcher_issue = bootstrap::launcher_issue();
         }
         Task::none()
     }

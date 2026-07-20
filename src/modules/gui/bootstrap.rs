@@ -81,6 +81,37 @@ pub(crate) fn ensure_desktop_integration() {
     install(&data_dir(), &exe);
 }
 
+/// Explains why the app might not be showing up in the desktop's launcher -
+/// `None` when everything's in order (including "not our job here", for a
+/// packaged install), `Some(reason)` when the entry `ensure_desktop_integration`
+/// should have written is missing. Read-only: never installs anything, so
+/// it's safe to call from the General page's status row on every visit
+/// without racing the startup install (itself backgrounded - see `main`).
+pub(crate) fn launcher_issue() -> Option<String> {
+    if Path::new("/.flatpak-info").exists() {
+        return None;
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return None;
+    };
+    if exe.starts_with("/usr") {
+        return None;
+    }
+    let desktop_path = data_dir()
+        .join("applications")
+        .join(format!("{APP_ID}.desktop"));
+    if desktop_path.exists() {
+        None
+    } else {
+        Some(
+            "The app isn't registered with your desktop's launcher yet. This is normally set \
+             up automatically the first time Settings runs - if it's still missing, check that \
+             ~/.local/share/applications is writable, then restart Settings."
+                .to_string(),
+        )
+    }
+}
+
 fn data_dir() -> PathBuf {
     std::env::var("XDG_DATA_HOME")
         .map(PathBuf::from)
@@ -234,5 +265,38 @@ mod tests {
         install(tmp.path(), &exe);
 
         assert_eq!(std::fs::read(&icon).unwrap(), ICONS[5].1);
+    }
+
+    /// Guards this file's XDG_DATA_HOME-mutating test. `launcher_issue`
+    /// (unlike `install`) reads the real environment rather than taking an
+    /// injected path, since the General page calls it directly.
+    static DATA_HOME_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn launcher_issue_reports_missing_then_clears_once_installed() {
+        let _guard = DATA_HOME_MUTEX.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let prev = std::env::var("XDG_DATA_HOME").ok();
+        std::env::set_var("XDG_DATA_HOME", tmp.path());
+
+        let before = launcher_issue();
+
+        std::fs::create_dir_all(tmp.path().join("applications")).unwrap();
+        std::fs::write(
+            tmp.path()
+                .join("applications")
+                .join(format!("{APP_ID}.desktop")),
+            "[Desktop Entry]\n",
+        )
+        .unwrap();
+        let after = launcher_issue();
+
+        match prev {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+
+        assert!(before.is_some(), "no entry yet: should report an issue");
+        assert!(after.is_none(), "entry now present: should clear");
     }
 }

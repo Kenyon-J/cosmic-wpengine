@@ -1102,6 +1102,21 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .into(),
     ];
 
+    // Self-hiding: only appears when there's actually something to fix, so
+    // it doesn't clutter the page once setup is in good shape.
+    if let Some(issue) = &app.launcher_issue {
+        sections.insert(
+            0,
+            settings::section()
+                .title("Setup")
+                .add(settings::item(
+                    "Not in your app launcher",
+                    text::body(issue.clone()),
+                ))
+                .into(),
+        );
+    }
+
     if let Some(notes) = &app.patch_notes {
         sections.push(
             settings::section()
