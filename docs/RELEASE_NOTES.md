@@ -1,3 +1,54 @@
+# cosmic-wallpaper 1.3.0
+
+Diagnostics and quality-of-life additions, plus a handful of bugs found
+and fixed along the way.
+
+## Added
+
+- **Copy Diagnostics, and pre-filled bug reports.** The General page gets
+  a "Copy Diagnostics" button (version, distro, engine status, GPU
+  adapter, recent log tail) for pasting into a report, and "Report an
+  Issue" now opens a GitHub issue pre-filled with your version and recent
+  errors instead of just the bare issues page.
+- **Patch notes render as actual Markdown.** Headings, bold text and
+  links on the General page now render properly instead of showing raw
+  `##`/`**` syntax.
+- **"Use my location" on the Weather page.** Estimates your latitude and
+  longitude from your IP address instead of requiring manual entry.
+- **"Reset to defaults" in the theme editor.** Each element — album art,
+  lyrics, visualiser, and so on — can now be reset to its default layout
+  individually.
+- **A persistent log file.** Both the engine and Settings now write
+  rotating daily logs to `~/.config/cosmic-wallpaper/logs/` in addition
+  to the terminal — this is what powers Copy Diagnostics and pre-filled
+  bug reports above.
+- **A notice when the app isn't in your launcher.** Surfaces
+  automatically on the General page if the desktop entry failed to
+  install, rather than leaving you to wonder why it's tray/terminal-only.
+- **Simpler install instructions.** The README's install steps are now
+  copy-pasteable one-liners (`wget` + `sudo apt install`, or `wget` +
+  `chmod` for other distros) instead of a trip to the Releases page.
+
+## Fixed
+
+- **The Settings window now shows the correct icon in your taskbar.** It
+  was using a leftover template identifier that didn't match the
+  installed desktop entry, so the taskbar fell back to a generic icon
+  (the app launcher itself was unaffected, since it reads desktop files
+  directly).
+- **Two harmless-but-noisy upstream log lines are now filtered out**, so
+  they don't drown out real errors in the new diagnostics/bug-report
+  tooling above.
+- **Two small sources of files that could accumulate over time are now
+  cleaned up**: orphaned video thumbnails left behind after deleting a
+  video, and a leftover temp file if an update ever fails partway
+  through.
+- **The statically-linked standalone binaries now ship a proper
+  third-party license notice for the bundled FFmpeg**, as required by
+  its license — see `THIRD-PARTY-LICENSES.md`.
+
+---
+
 # cosmic-wallpaper 1.2.2
 
 Fixes the release binaries themselves: v1.2.0 and v1.2.1's downloads were
