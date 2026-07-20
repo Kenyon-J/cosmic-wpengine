@@ -1014,7 +1014,17 @@ impl Application for SettingsApp {
     type Executor = cosmic::iced::executor::Default;
     type Flags = ();
     type Message = Message;
-    const APP_ID: &'static str = "com.system76.CosmicWallpaperSettings";
+    // Must match the shipped/installed .desktop file's name
+    // (io.github.kenyon_j.cosmic_wpengine.desktop) and its Icon= key: this
+    // constant becomes the window's live Wayland app_id, which the panel's
+    // taskbar uses to look up a matching .desktop entry for the running
+    // window's icon. A mismatch here (this was
+    // "com.system76.CosmicWallpaperSettings" - a leftover template ID,
+    // referenced nowhere else in the repo) left the app launcher showing
+    // the right icon (it reads installed .desktop files directly) while
+    // the taskbar fell back to a generic one (it couldn't find a
+    // .desktop file for this app_id).
+    const APP_ID: &'static str = "io.github.kenyon_j.cosmic_wpengine";
 
     fn core(&self) -> &Core {
         &self.core
