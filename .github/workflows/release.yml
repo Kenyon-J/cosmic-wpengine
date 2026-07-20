@@ -181,6 +181,15 @@ jobs:
             fi
           done
 
+      # A version-free copy alongside the versioned one: cargo-deb names its
+      # output with the version baked in (Debian convention), which can't
+      # be resolved by GitHub's /releases/latest/download/<name> route -
+      # that needs to know the exact filename ahead of time. This lets
+      # install instructions use one stable URL instead of the user
+      # visiting the Releases page to find the current filename.
+      - name: Copy .deb to a stable, version-free filename
+        run: cp target/debian/*.deb target/debian/cosmic-wallpaper_amd64.deb
+
       - name: Publish .deb to release
         uses: softprops/action-gh-release@v2
         with:

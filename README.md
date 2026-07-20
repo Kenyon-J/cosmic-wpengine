@@ -83,23 +83,43 @@ cosmic-wallpaper/
 
 ## Installation
 
-Grab the latest release from the [Releases page](https://github.com/Kenyon-J/cosmic-wpengine/releases):
+Every command below always fetches whatever the latest release currently is
+— nothing to fill in, no need to open a browser.
 
-- **Pop!_OS / Ubuntu 24.04**: download the `.deb` and install it — it ships both
-  binaries plus an autostart entry, so the engine starts with your session:
-  ```bash
-  sudo apt install ./cosmic-wallpaper_*.deb
-  ```
-- **Other distros**: download the prebuilt `cosmic-wallpaper-x86_64-linux-gnu`
-  and `cosmic-wallpaper-gui-x86_64-linux-gnu` binaries. `SHA256SUMS.txt` is
-  signed with minisign (`SHA256SUMS.txt.minisig`) so you can verify what you run.
-  These binaries bundle FFmpeg statically so they run regardless of your
-  distro's ffmpeg version. FFmpeg is LGPL-2.1+: the bundled build is compiled
-  unmodified from the [official source](https://github.com/FFmpeg/FFmpeg) at
-  the version pinned by `ffmpeg-sys-next` (see `Cargo.lock`), with no GPL
-  components enabled.
-- Once installed, future updates are one click in the settings app: it checks
-  GitHub Releases, verifies the signed checksums, and swaps the binaries in place.
+**Pop!_OS / Ubuntu 24.04** — the `.deb` ships both binaries plus an
+autostart entry, so the engine starts with your session:
+```bash
+wget https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download/cosmic-wallpaper_amd64.deb
+sudo apt install ./cosmic-wallpaper_amd64.deb
+```
+
+**Other distros** — the standalone binaries bundle FFmpeg statically, so
+they run regardless of your distro's ffmpeg version:
+```bash
+mkdir -p ~/.local/bin
+wget -O ~/.local/bin/cosmic-wallpaper https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download/cosmic-wallpaper-x86_64-linux-gnu
+wget -O ~/.local/bin/cosmic-wallpaper-gui https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download/cosmic-wallpaper-gui-x86_64-linux-gnu
+chmod +x ~/.local/bin/cosmic-wallpaper ~/.local/bin/cosmic-wallpaper-gui
+~/.local/bin/cosmic-wallpaper-gui
+```
+That final launch also registers the app icon and app-launcher entry for you
+(skipped automatically for the `.deb`, which already ships its own). FFmpeg
+is LGPL-2.1+: the bundled build is compiled unmodified from
+the [official source](https://github.com/FFmpeg/FFmpeg) at the version
+pinned by `ffmpeg-sys-next` (see `Cargo.lock`), with no GPL components
+enabled.
+
+Want to verify what you're running first? `SHA256SUMS.txt` is signed with
+minisign:
+```bash
+wget https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download/SHA256SUMS.txt
+wget https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download/SHA256SUMS.txt.minisig
+minisign -Vm SHA256SUMS.txt -P RWTuwhv3rLFRkAR/0Jr+VAgT1YN+Y+Tu76AUUI3m9sVYOlEAztfseXnS
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
+
+Once installed, future updates are one click in the settings app: it checks
+GitHub Releases, verifies the signed checksums, and swaps the binaries in place.
 
 Or build from source — see [Building](#building).
 
