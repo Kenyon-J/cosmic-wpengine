@@ -38,13 +38,45 @@ pub(crate) fn is_video_file(path: &Path) -> bool {
         .is_some_and(|ext| VIDEO_EXTENSIONS.iter().any(|v| ext.eq_ignore_ascii_case(v)))
 }
 
-/// Scans the library, extracting any missing thumbnails. Blocking (ffmpeg
-/// decode) - run under `spawn_blocking`.
+/// Removes cached thumbnails whose source video no longer exists in
+/// `videos_dir()` - the only way a thumbnail goes stale, since it's
+/// generated once per video and never re-derived (no dynamic re-fetch, so
+/// there's no "keep the last N" history to prune: exactly one thumbnail
+/// per currently-existing video is both the minimum and the maximum this
+/// cache ever holds). A video deleted from outside the app (a file
+/// manager, `rm`, ...) previously left its thumbnail behind forever.
+fn prune_orphaned_thumbnails(current_videos: &[String]) {
+    let Ok(entries) = std::fs::read_dir(thumbs_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        // Thumbnails are named "<video file name>.png"; strip that suffix
+        // to recover the video name it was generated for.
+        let Some(video_name) = name
+            .to_string_lossy()
+            .strip_suffix(".png")
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        if !current_videos.contains(&video_name) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// Scans the library, extracting any missing thumbnails and pruning
+/// thumbnails for videos that no longer exist. Blocking (ffmpeg decode) -
+/// run under `spawn_blocking`.
 pub(crate) fn scan() -> Vec<VideoEntry> {
     let _ = std::fs::create_dir_all(thumbs_dir());
     let _ = ffmpeg::init();
 
-    Config::available_videos()
+    let available = Config::available_videos();
+    prune_orphaned_thumbnails(&available);
+
+    available
         .into_iter()
         .filter_map(|file_name| {
             let path = videos_dir().join(&file_name);
@@ -185,5 +217,63 @@ impl TryFrom<(Vec<u8>, String)> for DroppedFiles {
 impl cosmic::iced::clipboard::mime::AllowedMimeTypes for DroppedFiles {
     fn allowed() -> Cow<'static, [String]> {
         Cow::Owned(vec!["text/uri-list".to_string()])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Guards this file's XDG_CONFIG_HOME-mutating tests. See the identical
+    /// pattern (and the reason each file needs its own) in
+    /// bootstrap.rs's DATA_HOME_MUTEX.
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_temp_config_dir<R>(f: impl FnOnce() -> R) -> R {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let prev = std::env::var("XDG_CONFIG_HOME").ok();
+        std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+        let result = f();
+        match prev {
+            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        result
+    }
+
+    #[test]
+    fn prune_removes_thumbnails_for_videos_that_no_longer_exist() {
+        with_temp_config_dir(|| {
+            std::fs::create_dir_all(thumbs_dir()).unwrap();
+            std::fs::write(thumbs_dir().join("gone.mp4.png"), b"stale").unwrap();
+            std::fs::write(thumbs_dir().join("still-here.mp4.png"), b"current").unwrap();
+
+            prune_orphaned_thumbnails(&["still-here.mp4".to_string()]);
+
+            assert!(!thumbs_dir().join("gone.mp4.png").exists());
+            assert!(thumbs_dir().join("still-here.mp4.png").exists());
+        });
+    }
+
+    #[test]
+    fn prune_is_a_no_op_when_thumbs_dir_does_not_exist_yet() {
+        with_temp_config_dir(|| {
+            // No create_dir_all call: must not panic on a missing directory.
+            prune_orphaned_thumbnails(&["anything.mp4".to_string()]);
+        });
+    }
+
+    #[test]
+    fn prune_ignores_non_png_entries_in_the_thumbs_dir() {
+        with_temp_config_dir(|| {
+            std::fs::create_dir_all(thumbs_dir()).unwrap();
+            let stray = thumbs_dir().join(".gitkeep");
+            std::fs::write(&stray, b"").unwrap();
+
+            prune_orphaned_thumbnails(&[]);
+
+            assert!(stray.exists(), "non-thumbnail files must be left alone");
+        });
     }
 }

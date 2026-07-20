@@ -108,10 +108,18 @@ async fn download_and_verify(
 fn install_binary(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let tmp = dest.with_extension("update-tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
-    std::fs::rename(&tmp, dest)?;
-    Ok(())
+    let result = (|| {
+        std::fs::write(&tmp, bytes)?;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
+        std::fs::rename(&tmp, dest)
+    })();
+    // A fixed filename means this can never accumulate across attempts
+    // (each retry overwrites the same path), but leaving it behind after a
+    // failed permissions/rename step is still untidy - clean it up.
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 /// Finds the PID of the process currently running `engine_path`, if any, by
@@ -339,6 +347,25 @@ mod tests {
         install_binary(&dest, b"new contents").unwrap();
 
         assert_eq!(std::fs::read(&dest).unwrap(), b"new contents");
+    }
+
+    /// Forces the final rename step to fail (renaming a regular file onto
+    /// an existing directory is rejected by the kernel) and confirms the
+    /// temp file it wrote along the way doesn't linger.
+    #[test]
+    fn test_install_binary_cleans_up_temp_file_on_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("some-binary");
+        std::fs::create_dir(&dest).unwrap();
+
+        let result = install_binary(&dest, b"new contents");
+
+        assert!(result.is_err());
+        let tmp = dest.with_extension("update-tmp");
+        assert!(
+            !tmp.exists(),
+            "temp file must not be left behind after a failed install"
+        );
     }
 
     #[test]
