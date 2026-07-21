@@ -282,17 +282,36 @@ impl SettingsApp {
     /// Writes an imported pack's theme (and, when present, its background
     /// video and/or shader) to disk, then selects it - the shared tail end
     /// of both the no-shader-review import path and `ConfirmPackImport`.
+    /// Returns the name actually written under, which differs from `name`
+    /// when a theme by that name already existed - see `write_pack_to_disk`.
     fn finalize_pack_import(
         &mut self,
         name: &str,
         theme_toml: &str,
         background: Option<(String, Vec<u8>)>,
         shader: Option<(String, Vec<u8>)>,
-    ) -> Result<(), String> {
-        write_pack_to_disk(name, theme_toml, background, shader)?;
-        self.selected_theme = Some(name.to_string());
+    ) -> Result<String, String> {
+        let written_as = write_pack_to_disk(name, theme_toml, background, shader)?;
+        self.selected_theme = Some(written_as.clone());
         self.load_edit_theme();
-        Ok(())
+        Ok(written_as)
+    }
+}
+
+/// The first of `name`, `name-1`, `name-2`, ... that isn't already a theme
+/// file - `name` itself, unless that collides.
+fn unique_theme_name(name: &str) -> String {
+    let shaders_dir = config::Config::config_dir().join("shaders");
+    if !shaders_dir.join(format!("{name}.toml")).exists() {
+        return name.to_string();
+    }
+    let mut n = 1;
+    loop {
+        let candidate = format!("{name}-{n}");
+        if !shaders_dir.join(format!("{candidate}.toml")).exists() {
+            return candidate;
+        }
+        n += 1;
     }
 }
 
@@ -336,12 +355,21 @@ fn build_pack_bytes(name: &str, video_background_path: Option<&str>) -> anyhow::
 /// and/or shader) to disk. A background video already present in the
 /// library is left alone rather than overwritten. A free function (rather
 /// than a `SettingsApp` method) so it's testable without a live `Core`.
+///
+/// `name` is never overwritten if a theme by that name already exists -
+/// built-in style names (`bars`, `monstercat`, ...) are very plausible pack
+/// names, and a pack landing on top of the importer's own customized theme
+/// with no warning would be a real way to lose work. Instead the write goes
+/// to `name`, `name-1`, `name-2`, ... (mirrors `export_pack`'s own dedup
+/// convention) and the actual name used is returned so the caller can tell
+/// the user their import got renamed.
 fn write_pack_to_disk(
     name: &str,
     theme_toml: &str,
     background: Option<(String, Vec<u8>)>,
     shader: Option<(String, Vec<u8>)>,
-) -> Result<(), String> {
+) -> Result<String, String> {
+    let name = unique_theme_name(name);
     let rel = format!("shaders/{name}.toml");
     if !is_safe_path(&rel) {
         return Err(format!("unsafe theme name '{name}'"));
@@ -367,8 +395,8 @@ fn write_pack_to_disk(
     // Recorded regardless of whether this pack bundled a video, so the
     // Packs gallery lists every import - a layout-only or shader-only pack
     // is still one click away next time, not just the ones with video.
-    library::record_installed_pack(name, background_file.as_deref()).map_err(|e| e.to_string())?;
-    Ok(())
+    library::record_installed_pack(&name, background_file.as_deref()).map_err(|e| e.to_string())?;
+    Ok(name)
 }
 
 /// The file `Create Theme` writes: the complete default layout with every
@@ -1958,9 +1986,15 @@ impl Application for SettingsApp {
                                     background,
                                     None,
                                 ) {
-                                    Ok(()) => {
+                                    Ok(written_as) => {
                                         imported += 1;
                                         imported_a_background |= has_background;
+                                        if written_as != parsed.name {
+                                            messages.push(format!(
+                                                "'{}' already existed - imported as '{}'.",
+                                                parsed.name, written_as
+                                            ));
+                                        }
                                     }
                                     Err(e) => messages.push(format!("'{}': {}", parsed.name, e)),
                                 }
@@ -2002,7 +2036,7 @@ impl Application for SettingsApp {
                         pending.background,
                         Some(pending.shader),
                     ) {
-                        Ok(()) => {
+                        Ok(written_as) => {
                             self.available_themes = load_themes();
                             self.installed_packs = library::scan_installed_packs();
                             let detail = if has_video {
@@ -2010,7 +2044,13 @@ impl Application for SettingsApp {
                             } else {
                                 "with a custom shader"
                             };
-                            self.status_msg = format!("Imported pack '{name}' ({detail}).");
+                            self.status_msg = if written_as == name {
+                                format!("Imported pack '{name}' ({detail}).")
+                            } else {
+                                format!(
+                                    "'{name}' already existed - imported as '{written_as}' ({detail})."
+                                )
+                            };
                             if has_video {
                                 return scan_library_task();
                             }
@@ -2034,6 +2074,16 @@ impl Application for SettingsApp {
                 self.wp_config.audio.style = name.clone();
                 let has_video = background.is_some();
                 if let Some(file) = background {
+                    // Mirrors BackgroundMode::Video's own reset in
+                    // Message::BackgroundModeSelected: setting the video
+                    // path alone, without clearing the other background
+                    // flags, could leave a combination the Wallpaper page's
+                    // own mode switch never produces (e.g. Album Colour's
+                    // flag still on underneath the newly-active video).
+                    self.wp_config.appearance.disable_blur = false;
+                    self.wp_config.appearance.transparent_background = false;
+                    self.wp_config.appearance.album_art_background = false;
+                    self.wp_config.appearance.album_color_background = false;
                     self.wp_config.appearance.video_background_path = Some(file);
                 }
                 self.selected_theme = Some(name.clone());

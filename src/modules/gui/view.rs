@@ -906,16 +906,28 @@ fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         .as_ref()
         .and_then(|t| app.available_themes.iter().position(|name| name == t));
 
+    // The background video isn't tied to a specific theme - it's whatever
+    // is currently active - so the export description names it explicitly
+    // rather than implying "this theme's video", which could be a
+    // completely unrelated clip to the theme you're about to bundle.
+    let export_description = match app.wp_config.appearance.video_background_path.as_deref() {
+        Some(file) => format!(
+            "Bundles this theme's layout, its custom shader if set, and your currently \
+             active background video ({file}) - videos aren't tied to a specific theme, \
+             so double check this is the one you want to share."
+        ),
+        None => "Bundles this theme's layout and its custom shader, if set. No background \
+                  video is currently active, so the pack won't include one."
+            .to_string(),
+    };
+
     let sections = vec![
         pack_gallery_section(app),
         settings::section()
             .title("Export")
             .add(
                 settings::item::builder("Theme to bundle")
-                    .description(
-                        "Packs the theme's layout with your current background video and \
-                         custom visualiser shader, if either is set.",
-                    )
+                    .description(export_description)
                     .control(
                         Row::new()
                             .push(dropdown(
@@ -936,12 +948,11 @@ fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                     .control(button::standard("Open Folder").on_press(Message::OpenPacksFolder)),
             )
             .into(),
-        settings::item::builder("Import")
-            .description("Drop a .cwtheme file anywhere on this page to add it.")
-            .control(text::caption(
-                "A pack with a custom shader asks you to review it before it's enabled.",
-            ))
-            .into(),
+        settings::item(
+            "Import",
+            text::body("Drop a .cwtheme file anywhere on this page to add it."),
+        )
+        .into(),
     ];
 
     let content = page(

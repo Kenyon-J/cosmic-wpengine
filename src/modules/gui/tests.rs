@@ -305,7 +305,7 @@ fn export_then_import_round_trip_recovers_theme_video_and_shader() {
         std::fs::remove_file(shaders_dir.join("cool.wgsl")).unwrap();
         std::fs::remove_file(videos_dir.join("clip.mp4")).unwrap();
 
-        super::write_pack_to_disk(
+        let written_as = super::write_pack_to_disk(
             &parsed.name,
             &parsed.theme_toml,
             parsed.background.clone(),
@@ -313,6 +313,7 @@ fn export_then_import_round_trip_recovers_theme_video_and_shader() {
         )
         .unwrap();
 
+        assert_eq!(written_as, "my-look");
         assert!(shaders_dir.join("my-look.toml").exists());
         assert_eq!(
             std::fs::read(shaders_dir.join("cool.wgsl")).unwrap(),
@@ -353,6 +354,52 @@ fn write_pack_to_disk_rejects_a_path_traversing_theme_name() {
         None => std::env::remove_var("XDG_CONFIG_HOME"),
     }
     assert!(result.is_err());
+}
+
+/// A pack named after a theme that already exists must not silently
+/// clobber it - very plausible in practice, since built-in style names
+/// (`bars`, `monstercat`, ...) are exactly the kind of name an exported
+/// pack keeps by default. It should land under a de-duplicated name
+/// instead, the same convention `export_pack` already uses for output
+/// files, and the caller must be told the actual name used.
+#[test]
+fn write_pack_to_disk_does_not_clobber_an_existing_theme_of_the_same_name() {
+    let _guard = crate::tests::ENV_MUTEX.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let prev = std::env::var("XDG_CONFIG_HOME").ok();
+    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+
+    {
+        let shaders_dir = cosmic_wallpaper::modules::config::Config::config_dir().join("shaders");
+        std::fs::create_dir_all(&shaders_dir).unwrap();
+        std::fs::write(shaders_dir.join("bars.toml"), "font_family = \"MyOwnEdit\"").unwrap();
+
+        let written_as =
+            super::write_pack_to_disk("bars", "font_family = \"SomeoneElses\"", None, None)
+                .unwrap();
+
+        assert_eq!(written_as, "bars-1");
+        assert_eq!(
+            std::fs::read_to_string(shaders_dir.join("bars.toml")).unwrap(),
+            "font_family = \"MyOwnEdit\"",
+            "the importer's own bars.toml must be untouched"
+        );
+        assert_eq!(
+            std::fs::read_to_string(shaders_dir.join("bars-1.toml")).unwrap(),
+            "font_family = \"SomeoneElses\""
+        );
+
+        // A second same-name import doesn't collide with the first
+        // dedup either.
+        let written_as_again =
+            super::write_pack_to_disk("bars", "font_family = \"AThirdOne\"", None, None).unwrap();
+        assert_eq!(written_as_again, "bars-2");
+    }
+
+    match prev {
+        Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
 }
 
 /// A background entry that isn't actually a video file must be dropped

@@ -35,6 +35,15 @@ const MAX_ENTRY_BYTES: u64 = 512 * 1024 * 1024;
 pub struct PackManifest {
     pub schema_version: u32,
     pub name: String,
+    /// This app's version string (`CARGO_PKG_VERSION`) at export time.
+    /// Purely informational - `schema_version` is what actually gates
+    /// whether a pack is safe to attempt (see `SUPPORTED_SCHEMA_VERSION`'s
+    /// doc comment). This just lets a theme.toml that fails to parse for
+    /// an unrelated reason (say, a newer `VisShape` variant an older build
+    /// has never heard of) say which version produced it, instead of
+    /// surfacing a bare TOML error with no context. Empty on a pack built
+    /// before this field existed.
+    pub app_version: String,
     pub background: Option<PackBackground>,
     pub shader: Option<PackShader>,
 }
@@ -73,6 +82,7 @@ pub fn build(contents: &PackContents) -> Result<Vec<u8>> {
     let manifest = PackManifest {
         schema_version: SUPPORTED_SCHEMA_VERSION,
         name: contents.name.clone(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
         background: contents
             .background
             .as_ref()
@@ -151,12 +161,12 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
             let text = read_capped(&mut entry)?;
             manifest = Some(toml::from_str(&text).context("parsing pack.toml")?);
         } else if path_str == "theme.toml" {
-            let text = read_capped(&mut entry)?;
-            // Validated by the caller's toml::from_str::<ThemeLayout> pass
-            // too, but a syntax error should fail the whole import loudly
-            // rather than land a bad theme file no one asked for.
-            toml::from_str::<ThemeLayout>(&text).context("parsing theme.toml")?;
-            theme_toml = Some(text);
+            // Not validated here: doing that only after the schema-version
+            // check below means an unsupported-schema pack is rejected by
+            // that check's clearer message even when the entries happen to
+            // appear in an unusual order, and lets a theme parse failure
+            // below name the app version that produced the pack.
+            theme_toml = Some(read_capped(&mut entry)?);
         } else if let Some(name) = path_str.strip_prefix("background/") {
             // Only the file name is trusted (strips any directory
             // component a crafted archive might smuggle in); this crate
@@ -193,6 +203,17 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
         );
     }
     let theme_toml = theme_toml.context("pack is missing theme.toml")?;
+    if let Err(e) = toml::from_str::<ThemeLayout>(&theme_toml) {
+        return Err(if manifest.app_version.is_empty() {
+            anyhow::Error::new(e).context("parsing theme.toml")
+        } else {
+            anyhow::anyhow!(
+                "parsing theme.toml (this pack was made with cosmic-wallpaper {} - you may need \
+                 to update): {e}",
+                manifest.app_version
+            )
+        });
+    }
 
     Ok(ParsedPack {
         name: manifest.name,
@@ -258,11 +279,11 @@ mod tests {
         let manifest = PackManifest {
             schema_version: SUPPORTED_SCHEMA_VERSION,
             name: "evil".to_string(),
-            background: None,
             shader: Some(PackShader {
                 file: "evil.wgsl".to_string(),
                 replaces: "visualiser".to_string(),
             }),
+            ..Default::default()
         };
         let manifest_toml = toml::to_string_pretty(&manifest).unwrap();
         let theme_toml = toml::to_string_pretty(&ThemeLayout::default()).unwrap();
@@ -301,8 +322,7 @@ mod tests {
         let manifest = PackManifest {
             schema_version: SUPPORTED_SCHEMA_VERSION + 1,
             name: "future".to_string(),
-            background: None,
-            shader: None,
+            ..Default::default()
         };
         let manifest_toml = toml::to_string_pretty(&manifest).unwrap();
         let theme_toml = toml::to_string_pretty(&ThemeLayout::default()).unwrap();
@@ -339,8 +359,7 @@ mod tests {
         let manifest = PackManifest {
             schema_version: SUPPORTED_SCHEMA_VERSION,
             name: "broken".to_string(),
-            background: None,
-            shader: None,
+            ..Default::default()
         };
         let gz = GzEncoder::new(Vec::new(), Compression::default());
         let mut tar = tar::Builder::new(gz);
@@ -353,6 +372,84 @@ mod tests {
         append_file(&mut tar, "theme.toml", b"this is not valid toml {{{").unwrap();
         let bytes = tar.into_inner().unwrap().finish().unwrap();
 
+        assert!(parse(&bytes).is_err());
+    }
+
+    /// When a pack's `theme.toml` fails to parse - e.g. a future app
+    /// version added a `VisShape`/`VisAlign` variant this build has never
+    /// heard of - and the pack does carry an `app_version`, the error
+    /// should name it rather than surface a bare TOML error with no
+    /// context for what the user should actually do about it.
+    #[test]
+    fn a_broken_theme_toml_names_the_app_version_that_made_the_pack() {
+        let manifest = PackManifest {
+            schema_version: SUPPORTED_SCHEMA_VERSION,
+            name: "future-theme".to_string(),
+            app_version: "1.9.9".to_string(),
+            ..Default::default()
+        };
+        let gz = GzEncoder::new(Vec::new(), Compression::default());
+        let mut tar = tar::Builder::new(gz);
+        append_file(
+            &mut tar,
+            "pack.toml",
+            toml::to_string_pretty(&manifest).unwrap().as_bytes(),
+        )
+        .unwrap();
+        append_file(
+            &mut tar,
+            "theme.toml",
+            b"[visualiser]\nshape = \"hexagonal\"\n",
+        )
+        .unwrap();
+        let bytes = tar.into_inner().unwrap().finish().unwrap();
+
+        let err = parse(&bytes).unwrap_err();
+        assert!(err.to_string().contains("1.9.9"));
+    }
+
+    /// The drop handler only checks the `.cwtheme` extension before calling
+    /// `parse` - nothing stops a user renaming an arbitrary file. These
+    /// prove garbage input is rejected cleanly (an `Err`, never a panic),
+    /// covering the shapes a renamed random file could plausibly take:
+    /// nothing at all, noise that's neither gzip nor tar, a real gzip
+    /// stream of unrelated data, and a real tar with no gzip layer at all.
+    #[test]
+    fn empty_input_is_rejected_not_panicked() {
+        assert!(parse(&[]).is_err());
+    }
+
+    #[test]
+    fn random_bytes_are_rejected_not_panicked() {
+        let garbage: Vec<u8> = (0u32..4096).map(|i| (i % 251) as u8).collect();
+        assert!(parse(&garbage).is_err());
+    }
+
+    #[test]
+    fn a_valid_gzip_stream_of_unrelated_data_is_rejected_not_panicked() {
+        use std::io::Write as _;
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(b"just some unrelated gzipped text, not a tar at all")
+            .unwrap();
+        let bytes = gz.finish().unwrap();
+        assert!(parse(&bytes).is_err());
+    }
+
+    #[test]
+    fn an_uncompressed_tar_with_no_gzip_layer_is_rejected_not_panicked() {
+        // A real, well-formed tar - just missing the gzip wrapper `parse`
+        // expects. Exercises the "valid tar, wrong container" case
+        // distinctly from plain noise.
+        let mut tar = tar::Builder::new(Vec::new());
+        append_file(
+            &mut tar,
+            "theme.toml",
+            toml::to_string_pretty(&ThemeLayout::default())
+                .unwrap()
+                .as_bytes(),
+        )
+        .unwrap();
+        let bytes = tar.into_inner().unwrap();
         assert!(parse(&bytes).is_err());
     }
 }

@@ -94,7 +94,13 @@ Engine workshop item bundles everything a wallpaper needs.
   that *does* include a shader stops first and shows you the actual WGSL
   source - a bundled shader is arbitrary GPU code from whoever made the
   pack, so nothing is written to disk until you've looked at it and
-  clicked "Enable anyway".
+  clicked "Enable anyway". If a theme by the same name already exists, the
+  import doesn't overwrite it - it lands as `<name>-1` instead, and the
+  status line tells you.
+- **Your Packs**: every import shows up in this list on the Packs page
+  with a one-click *Apply* button, which sets the layout and (if the pack
+  had one) its background video together - no need to separately visit
+  Layout Themes and Live Wallpapers.
 
 A `.cwtheme` is a plain gzipped tar - `tar tzf` (or an archive manager)
 opens it like any other, so you can inspect a pack, including reading its
