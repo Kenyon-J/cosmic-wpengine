@@ -1,11 +1,11 @@
 use super::core::{ArtLayer, BackgroundLayer};
 use super::frame_params::{get_uv_transform, FrameParams};
-use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
+use super::text::TextRenderer;
 use super::types::{AmbUniforms, ArtUniforms, VisUniforms};
 use crate::modules::visualiser_pass::VisualiserPass;
 use crate::modules::wayland::WaylandManager;
 use anyhow::Result;
-use cosmic_text::{self, Attrs, Family, Metrics, Shaping};
+use cosmic_text::{Attrs, Family};
 use tracing::warn;
 
 /// Writes this frame's uniform buffers (visualiser, album art, background/
@@ -282,106 +282,6 @@ pub(crate) fn encode_frame(
     queue.submit(std::iter::once(encoder.finish()));
 }
 
-/// Builds (or refreshes from cache) a shaped text buffer for one on-screen
-/// text element, applies this frame's alignment, and appends the result to
-/// `renderer.text_buffers`. Shared by the lyric, track-info, and weather
-/// blocks in `draw_frame`, which differ only in font metrics, position, and
-/// source text.
-///
-/// `set_align` resets a line's shaped layout as a side effect, so we track
-/// whether it actually changed and only re-shape when it did: reshaping
-/// unconditionally is wasted work, and skipping it after a real alignment
-/// change leaves `layout_runs()` empty and the text invisible.
-/// Takes the three `Renderer` fields it needs individually, rather than
-/// `&mut Renderer`, so callers inside the per-output loop (which already
-/// holds `renderer.outputs` mutably borrowed via its iterator) can still
-/// call this: borrowing disjoint fields is fine, but a function taking the
-/// whole struct is opaque to the borrow checker and would conflict.
-#[allow(clippy::too_many_arguments)]
-fn prepare_text_buffer(
-    text_buffer_cache: &mut std::collections::HashMap<
-        TextCacheKey,
-        cosmic_text::Buffer,
-        rustc_hash::FxBuildHasher,
-    >,
-    font_system: &mut cosmic_text::FontSystem,
-    text_key: TextCacheKey,
-    text: &str,
-    attrs: &Attrs,
-    metrics: Metrics,
-    align: cosmic_text::Align,
-    width_f: f32,
-    height_f: f32,
-) -> cosmic_text::Buffer {
-    let mut buffer = text_buffer_cache.remove(&text_key).unwrap_or_else(|| {
-        let mut b = cosmic_text::Buffer::new(font_system, metrics);
-        b.set_metrics(font_system, metrics);
-        b.set_size(font_system, Some(width_f), Some(height_f));
-        b.set_text(font_system, text, attrs, Shaping::Advanced, Some(align));
-        b
-    });
-
-    // Re-apply metrics/size even for a cached buffer: a monitor swap can
-    // change DPI/resolution without changing the text content or its cache key.
-    buffer.set_metrics(font_system, metrics);
-    buffer.set_size(font_system, Some(width_f), Some(height_f));
-
-    let mut realigned = false;
-    buffer
-        .lines
-        .iter_mut()
-        .for_each(|line: &mut cosmic_text::BufferLine| {
-            realigned |= line.set_align(Some(align));
-        });
-    if realigned {
-        buffer.shape_until_scroll(font_system, false);
-    }
-
-    buffer
-}
-
-#[expect(clippy::too_many_arguments)]
-fn push_text_buffer(
-    text_buffer_cache: &mut std::collections::HashMap<
-        TextCacheKey,
-        cosmic_text::Buffer,
-        rustc_hash::FxBuildHasher,
-    >,
-    font_system: &mut cosmic_text::FontSystem,
-    text_buffers: &mut Vec<PositionedBuffer>,
-    text_key: TextCacheKey,
-    text: &str,
-    attrs: &Attrs,
-    metrics: Metrics,
-    align: cosmic_text::Align,
-    width_f: f32,
-    height_f: f32,
-    pos: [f32; 2],
-    color: [f32; 4],
-    scale: f32,
-) {
-    let buffer = prepare_text_buffer(
-        text_buffer_cache,
-        font_system,
-        text_key,
-        text,
-        attrs,
-        metrics,
-        align,
-        width_f,
-        height_f,
-    );
-
-    text_buffers.push(PositionedBuffer {
-        buffer,
-        text_key,
-        pos,
-        color,
-        scale,
-        align,
-    });
-}
-
 pub(crate) fn draw_frame(
     renderer: &mut super::Renderer,
     wayland_manager: &mut WaylandManager,
@@ -490,19 +390,14 @@ pub(crate) fn draw_frame(
     }
 
     // The owned family from FrameParams rebuilt into a borrow-free Attrs:
-    // push_text_buffer() below needs `&mut renderer` and `&attrs` in the
-    // same call, which a borrow through renderer would reject.
+    // TextSubsystem::prepare() below needs `&mut renderer.text` and `&attrs`
+    // in the same call, which a borrow through renderer would reject.
     let family = font_family
         .as_deref()
         .map_or(Family::SansSerif, Family::Name);
     let attrs = Attrs::new().family(family);
 
-    // Prevent unbound memory growth for weather/ambient setups left running for days.
-    // The cache limit is 500 to accommodate multi-monitor setups; no
-    // shrink_to_fit() in the hot path to avoid expensive reallocations.
-    if renderer.text_buffer_cache.len() > 500 {
-        renderer.text_buffer_cache.clear();
-    }
+    renderer.text.evict_stale_cache();
 
     let mut last_text_params = None;
     let mut last_uniform_res = None;
@@ -589,7 +484,6 @@ pub(crate) fn draw_frame(
             .get(i as usize)
             .map(|w| w.scale_factor as f32)
             .unwrap_or(1.0);
-        let logical_height = height_f / scale_factor;
 
         let current_text_params = (
             gpu_out.config.width,
@@ -598,19 +492,14 @@ pub(crate) fn draw_frame(
         );
 
         if last_text_params != Some(current_text_params) {
-            for p_buf in renderer.text_buffers.drain(..) {
+            // Clone the small (~5-line) active window of lyric text up
+            // front, ending the borrow through renderer.state.current_track
+            // before renderer.text.prepare() below needs `&mut renderer.text`
+            // alongside other renderer fields. This block only runs on
+            // resolution/DPI change, so the clones are rare, not a
+            // per-frame cost.
+            let lyric_window = if renderer.state.config.audio.show_lyrics {
                 renderer
-                    .text_buffer_cache
-                    .insert(p_buf.text_key, p_buf.buffer);
-            }
-
-            if renderer.state.config.audio.show_lyrics {
-                // Clone the small (~5-line) active window of lyric text up front,
-                // ending the borrow through renderer.state.current_track before
-                // push_text_buffer() below needs `&mut renderer`. This block only
-                // runs on resolution/DPI change, so the clones are rare, not a
-                // per-frame cost.
-                let lyric_window: Option<Vec<(usize, Box<str>, u64)>> = renderer
                     .state
                     .current_track
                     .as_ref()
@@ -621,279 +510,54 @@ pub(crate) fn draw_frame(
                                 let l = &lyrics[line_idx - 1];
                                 (line_idx, l.text.clone(), l.text_hash)
                             })
-                            .collect()
-                    });
-
-                if let Some(lyric_window) = lyric_window {
-                    let base_font_size = (logical_height * 0.04).clamp(16.0, 48.0)
-                        * scale_factor
-                        * renderer.theme.lyrics.size.clamp(0.25, 4.0);
-                    let active_font_size = base_font_size * 1.5;
-                    let inv_active_font_size = 1.0 / active_font_size;
-                    let line_spacing = active_font_size * 1.2;
-
-                    // Bound wrapping to the space actually visible between the
-                    // lyrics anchor point and this monitor's own edge. Themes
-                    // like "monstercat" anchor lyrics off-center (x=0.49, left
-                    // aligned), so shaping against the full monitor width let
-                    // long lines run past the right edge before cosmic-text
-                    // ever wrapped them. Each monitor renders as an
-                    // independent surface here (no cross-monitor spanning),
-                    // so bounding to this monitor's own visible span is
-                    // always correct, whether or not another display sits
-                    // next to it.
-                    let lyrics_anchor_x = renderer.theme.lyrics.position[0] * width_f;
-                    let lyrics_wrap_width = match lyrics_align {
-                        cosmic_text::Align::Left => width_f - lyrics_anchor_x,
-                        cosmic_text::Align::Right => lyrics_anchor_x,
-                        _ => 2.0 * lyrics_anchor_x.min(width_f - lyrics_anchor_x),
-                    }
-                    .max(active_font_size * 3.0);
-
-                    // Pre-calculate bounce scalars for the current monitor's scale factor
-                    let bounce_8_scaled = lyric_bounce * 8.0 * scale_factor;
-                    let bounce_12_scaled = lyric_bounce * 12.0 * scale_factor;
-
-                    let metrics = Metrics::new(active_font_size, active_font_size * 1.2);
-
-                    // First pass: shape (or fetch from cache) each visible line and
-                    // measure how many rows it wrapped to. A wrapped line occupies
-                    // more than its one line_spacing slot, so the second pass shifts
-                    // its neighbours apart to keep rows from overlapping.
-                    struct ShapedLyric {
-                        dist: f32,
-                        render_scale: f32,
-                        color: [f32; 4],
-                        y_base: f32,
-                        /// Vertical overflow beyond the line's nominal slot:
-                        /// (rows - 1) * line height at this line's drawn scale.
-                        extra: f32,
-                        text_key: TextCacheKey,
-                        buffer: cosmic_text::Buffer,
-                    }
-                    let mut shaped_lines: Vec<ShapedLyric> = Vec::with_capacity(5);
-
-                    for (line_idx, text, text_hash) in lyric_window {
-                        // Compute exactly how far this string is from the "current active string"
-                        let dist = (line_idx as f32)
-                            - (renderer.current_lyric_idx as f32)
-                            - renderer.lyric_scroll_offset;
-                        let abs_dist = dist.abs();
-
-                        if abs_dist > 2.0 {
-                            continue;
-                        }
-
-                        let center_weight = (1.0 - abs_dist).clamp(0.0, 1.0);
-
-                        let scale =
-                            base_font_size + (active_font_size - base_font_size) * center_weight;
-                        let final_scale = scale + bounce_8_scaled * center_weight;
-
-                        // The buffer was shaped/wrapped assuming font_size == active_font_size
-                        // (see `metrics` above), so a render_scale above 1.0 - which the
-                        // beat-reactive bounce can produce, since lyric_bounce_value is an
-                        // unclamped spring - would draw the active line larger than the box it
-                        // was just wrapped to fit, spilling back past the screen edge. Clamp to
-                        // the shaped size; the pulse still reads clearly on the way up to it.
-                        let render_scale = (final_scale * inv_active_font_size).min(1.0);
-                        let bounce_y = bounce_12_scaled * center_weight;
-                        let y_base = (dist * line_spacing) - bounce_y;
-
-                        // Optimization: Use cached color difference to replace 4 subtractions with 1 multiply-add
-                        let color = [
-                            secondary_text[0] + text_color_diff[0] * center_weight,
-                            secondary_text[1] + text_color_diff[1] * center_weight,
-                            secondary_text[2] + text_color_diff[2] * center_weight,
-                            secondary_text[3] + text_color_diff[3] * center_weight,
-                        ];
-
-                        // Fade out gracefully to prevent popping strings at top/bottom
-                        let alpha_fade = (1.5 - abs_dist).clamp(0.0, 1.0);
-                        let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
-
-                        if final_color[3] > 0.01 {
-                            let text_key = TextCacheKey::Lyric {
-                                monitor: i,
-                                line: line_idx as u32,
-                                content_hash: text_hash,
-                            };
-                            let buffer = prepare_text_buffer(
-                                &mut renderer.text_buffer_cache,
-                                &mut renderer.font_system,
-                                text_key,
-                                &text,
-                                &attrs,
-                                metrics,
-                                lyrics_align,
-                                lyrics_wrap_width,
-                                height_f,
-                            );
-                            let rows = buffer.layout_runs().count().max(1);
-                            let extra = (rows - 1) as f32 * line_spacing * render_scale;
-                            shaped_lines.push(ShapedLyric {
-                                dist,
-                                render_scale,
-                                color: final_color,
-                                y_base,
-                                extra,
-                                text_key,
-                                buffer,
-                            });
-                        }
-                    }
-
-                    // Second pass: place the lines (already in top-to-bottom order).
-                    // The weights keep the layout continuous while lines scroll:
-                    // a wrapped line pushes everything below it down while it is at
-                    // or below the active slot (weight fades in over dist -1 -> 0),
-                    // and pulls itself plus everything above it up once it scrolls
-                    // above the active slot, so its overflow never collides with
-                    // the anchored active line.
-                    let anchor_x = renderer.theme.lyrics.position[0] * width_f;
-                    let anchor_y = renderer.theme.lyrics.position[1] * height_f;
-                    let shifts: Vec<f32> = (0..shaped_lines.len())
-                        .map(|idx| {
-                            let mut shift = 0.0;
-                            for line in &shaped_lines[..idx] {
-                                shift += line.extra * (line.dist + 1.0).clamp(0.0, 1.0);
-                            }
-                            for line in &shaped_lines[idx..] {
-                                shift -= line.extra * (-line.dist).clamp(0.0, 1.0);
-                            }
-                            shift
-                        })
-                        .collect();
-
-                    for (line, shift) in shaped_lines.into_iter().zip(shifts) {
-                        renderer.text_buffers.push(PositionedBuffer {
-                            buffer: line.buffer,
-                            text_key: line.text_key,
-                            pos: [anchor_x, anchor_y + line.y_base + shift],
-                            color: line.color,
-                            scale: line.render_scale,
-                            align: lyrics_align,
-                        });
-                    }
-                }
+                            .collect::<Vec<_>>()
+                    })
+            } else {
+                None
             }
+            .map(|window| {
+                (
+                    window,
+                    super::core::LyricPhysics {
+                        current_lyric_idx: renderer.current_lyric_idx,
+                        lyric_scroll_offset: renderer.lyric_scroll_offset,
+                        lyric_bounce,
+                    },
+                )
+            });
 
-            if renderer.state.current_track.is_some() && !renderer.cached_track_str.is_empty() {
-                let text = renderer.cached_track_str.clone();
-                let info_scale = (logical_height * 0.025).clamp(16.0, 36.0)
-                    * scale_factor
-                    * renderer.theme.track_info.size.clamp(0.25, 4.0);
-                let metrics = Metrics::new(info_scale, info_scale * 1.2);
-                let text_key = TextCacheKey::Track {
-                    monitor: i,
-                    content_hash: track_hash,
-                };
-                let pos = [
-                    renderer.theme.track_info.position[0] * width_f,
-                    renderer.theme.track_info.position[1] * height_f,
-                ];
-                push_text_buffer(
-                    &mut renderer.text_buffer_cache,
-                    &mut renderer.font_system,
-                    &mut renderer.text_buffers,
-                    text_key,
-                    &text,
-                    &attrs,
-                    metrics,
-                    track_info_align,
-                    width_f,
-                    height_f,
-                    pos,
-                    secondary_text,
-                    1.0,
-                );
-            }
+            let track_text = (renderer.state.current_track.is_some()
+                && !renderer.cached_track_str.is_empty())
+            .then_some((renderer.cached_track_str.as_str(), track_hash));
 
-            if renderer.state.config.weather.enabled
+            let weather_text = (renderer.state.config.weather.enabled
                 && renderer.state.weather.is_some()
-                && !renderer.cached_weather_str.is_empty()
-            {
-                let text = renderer.cached_weather_str.clone();
-                let weather_scale = (logical_height * 0.02).clamp(14.0, 24.0)
-                    * scale_factor
-                    * renderer.theme.weather.size.clamp(0.25, 4.0);
-                let metrics = Metrics::new(weather_scale, weather_scale * 1.2);
-                let text_key = TextCacheKey::Weather {
-                    monitor: i,
-                    content_hash: weather_hash,
-                };
-                let pos = [
-                    renderer.theme.weather.position[0] * width_f,
-                    renderer.theme.weather.position[1] * height_f,
-                ];
-                push_text_buffer(
-                    &mut renderer.text_buffer_cache,
-                    &mut renderer.font_system,
-                    &mut renderer.text_buffers,
-                    text_key,
-                    &text,
-                    &attrs,
-                    metrics,
-                    weather_align,
-                    width_f,
-                    height_f,
-                    pos,
-                    secondary_text,
-                    1.0,
-                );
-            }
+                && !renderer.cached_weather_str.is_empty())
+            .then_some((renderer.cached_weather_str.as_str(), weather_hash));
 
-            // Prepare text vertices
-            TextRenderer::prepare_text(
-                &mut renderer.text_renderer,
+            renderer.text.prepare(
+                &renderer.device,
                 &renderer.queue,
-                &mut renderer.font_system,
-                &mut renderer.swash_cache,
-                renderer.text_buffers.as_mut(),
+                i,
                 width_f,
                 height_f,
+                scale_factor,
+                &attrs,
+                lyric_window,
+                renderer.theme.lyrics.size,
+                renderer.theme.lyrics.position,
+                lyrics_align,
+                secondary_text,
+                text_color_diff,
+                track_text,
+                renderer.theme.track_info.size,
+                renderer.theme.track_info.position,
+                track_info_align,
+                weather_text,
+                renderer.theme.weather.size,
+                renderer.theme.weather.position,
+                weather_align,
             );
-
-            let vertices_bytes: &[u8] = bytemuck::cast_slice(&renderer.text_renderer.cpu_vertices);
-            let indices_bytes: &[u8] = bytemuck::cast_slice(&renderer.text_renderer.cpu_indices);
-
-            if renderer.text_renderer.vertex_capacity < renderer.text_renderer.cpu_vertices.len() {
-                renderer.text_renderer.vertex_capacity = renderer
-                    .text_renderer
-                    .cpu_vertices
-                    .len()
-                    .next_power_of_two();
-                renderer.text_renderer.vertices =
-                    renderer.device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("Text Vertex Buffer"),
-                        size: (renderer.text_renderer.vertex_capacity
-                            * std::mem::size_of::<TextVertex>())
-                            as u64,
-                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    });
-            }
-            if renderer.text_renderer.index_capacity < renderer.text_renderer.cpu_indices.len() {
-                renderer.text_renderer.index_capacity =
-                    renderer.text_renderer.cpu_indices.len().next_power_of_two();
-                renderer.text_renderer.indices =
-                    renderer.device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("Text Index Buffer"),
-                        size: (renderer.text_renderer.index_capacity * std::mem::size_of::<u32>())
-                            as u64,
-                        usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    });
-            }
-
-            renderer
-                .queue
-                .write_buffer(&renderer.text_renderer.vertices, 0, vertices_bytes);
-
-            renderer
-                .queue
-                .write_buffer(&renderer.text_renderer.indices, 0, indices_bytes);
-            renderer.text_renderer.num_indices = renderer.text_renderer.cpu_indices.len() as u32;
         }
 
         last_text_params = Some(current_text_params);
@@ -914,7 +578,7 @@ pub(crate) fn draw_frame(
             &renderer.weather_render_pipeline,
             &renderer.weather_render_bind_group,
             &renderer.visualiser_pass,
-            &renderer.text_renderer,
+            &renderer.text.text_renderer,
             clear_colour,
             show_art_bg,
             show_color_bg,
@@ -928,11 +592,7 @@ pub(crate) fn draw_frame(
         renderer.queue.present(output);
     }
 
-    for p_buf in renderer.text_buffers.drain(..) {
-        renderer
-            .text_buffer_cache
-            .insert(p_buf.text_key, p_buf.buffer);
-    }
+    renderer.text.recycle_buffers();
 
     Ok(())
 }

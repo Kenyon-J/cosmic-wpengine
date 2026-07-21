@@ -124,7 +124,7 @@ pub async fn render_frame_to_png(out_path: &Path, compare_path: Option<&Path>) -
         &renderer.weather_render_pipeline,
         &renderer.weather_render_bind_group,
         &renderer.visualiser_pass,
-        &renderer.text_renderer,
+        &renderer.text.text_renderer,
         params.clear_colour,
         params.show_art_bg,
         params.show_color_bg,

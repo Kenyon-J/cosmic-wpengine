@@ -31,7 +31,7 @@ phases, file anchors, and why system76-power was considered and rejected
 for the battery detection (not running on non-Pop!_OS COSMIC installs;
 confirmed absent on this project's own dev machine).
 
-## Renderer decomposition (in progress — see PLAN-renderer-decomposition.md)
+## Renderer decomposition (done — see PLAN-renderer-decomposition.md)
 
 The ~100-field `Renderer` + ~850-line `draw_frame` split (Phase 9 of
 [PLAN-v1-hardening.md](PLAN-v1-hardening.md)). Graduated to
@@ -73,10 +73,36 @@ still only called from the live per-output loop), a self-compare passes
 fails with a nonzero exit code - plus `fmt`/`clippy`/`test` all green and a
 live smoke test on the real desktop.
 
-Phase 5 (split the per-output loop so `draw_frame` becomes orchestration) is
-the remaining work - the prerequisite for runtime shader loading (see
-"theme packs" below), reprioritized 2026-07-21 to land before that feature
-rather than after.
+Phase 5 (split the per-output loop) landed 2026-07-21, completing the plan:
+text shaping/caching/rendering state (`font_system`, `swash_cache`,
+`text_renderer`, the buffer cache, and the pending-buffers list) is now its
+own `TextSubsystem` (new `core/text_subsystem.rs`), replacing
+`prepare_text_buffer`'s three-separate-fields workaround with `&mut
+TextSubsystem` as the plan called for. The ~230-line lyric/track-info/
+weather shaping block that used to live inline in `draw_frame` is now
+`TextSubsystem::prepare()`; `draw_frame`'s per-output loop calls it
+alongside `write_frame_uniforms()`/`encode_frame()` rather than containing
+the logic itself. Verified the strongest way available: rendered a frame
+with the harness *before* this change, rendered again *after*, and
+`--compare`d them - mean 0.0000/255, zero pixels different - plus
+`fmt`/`clippy`/`test` all green and a live smoke test (steady operation
+through real MPRIS track changes, which exercise the exact code path
+feeding `TextSubsystem::prepare()`, though a visual screenshot of the text
+itself was blocked both attempts by occluding windows on the live desktop -
+worth a manual glance).
+
+Not fully hit: the plan's line-count targets (`draw.rs` under ~300 lines,
+no function over ~100). It landed at 655 lines - `draw_frame` itself is
+~330 and `write_frame_uniforms` ~170, both still above the ~100 target.
+Splitting `write_frame_uniforms` into per-buffer-kind functions
+(visualiser/album-art/background) would close most of that gap; not done
+here for risk/effort reasons given the architectural goals (borrow-checker-
+friendly decomposition, the offscreen harness, `TextSubsystem`) were already
+achieved and pixel-verified. Fair game for a future pass if it's worth
+doing on its own.
+
+With all five phases done, runtime shader loading (see "theme packs"
+below) is unblocked.
 
 ## 1.2.x — first-run desktop integration (in progress)
 

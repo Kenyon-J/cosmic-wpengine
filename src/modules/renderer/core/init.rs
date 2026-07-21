@@ -161,9 +161,7 @@ impl Renderer {
         .await?;
 
         // --- Text Rendering Setup ---
-        let font_system = FontSystem::new();
-        let swash_cache = SwashCache::new();
-        let text_renderer = TextRenderer::new(&device, config_format)?;
+        let text = TextSubsystem::new(&device, config_format)?;
 
         let (
             album_art_pipeline,
@@ -210,11 +208,7 @@ impl Renderer {
             queue,
             outputs,
             surface_format: config_format,
-            font_system,
-            swash_cache,
-            text_renderer,
-            text_buffer_cache: std::collections::HashMap::with_hasher(rustc_hash::FxBuildHasher),
-            text_buffers: Vec::new(),
+            text,
             current_outputs_cache: Vec::new(),
             visualiser_pass,
             album_art_pipeline,

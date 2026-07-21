@@ -2,12 +2,13 @@ mod art_layer;
 mod background_layer;
 mod events;
 mod init;
+mod text_subsystem;
 mod updates;
 use anyhow::Result;
 pub(crate) use art_layer::ArtLayer;
 pub(crate) use background_layer::BackgroundLayer;
-use cosmic_text::{self, Buffer, FontSystem, SwashCache};
 use std::time::{Duration, Instant};
+pub(crate) use text_subsystem::{LyricPhysics, TextSubsystem};
 use tokio::sync::mpsc::Receiver;
 use tracing::{info, warn};
 
@@ -19,7 +20,6 @@ use crate::modules::wayland::{WaylandManager, WaylandOutput};
 pub const GLYPH_CACHE_WIDTH: u32 = 2048;
 pub const GLYPH_CACHE_HEIGHT: u32 = 2048;
 use super::audio_analysis::AudioAnalysis;
-use super::text::{PositionedBuffer, TextCacheKey, TextRenderer};
 
 use crate::modules::config::{ResolvedBackground, TemperatureUnit, ThemeLayout};
 use crate::modules::event::WeatherCondition;
@@ -103,12 +103,7 @@ pub struct Renderer {
     /// disconnected (`outputs` empty), and the visualiser reload still needs a
     /// format to rebuild against.
     pub(crate) surface_format: wgpu::TextureFormat,
-    pub(crate) font_system: FontSystem,
-    pub(crate) swash_cache: SwashCache,
-    pub(crate) text_renderer: TextRenderer,
-    pub(crate) text_buffer_cache:
-        std::collections::HashMap<TextCacheKey, Buffer, rustc_hash::FxBuildHasher>,
-    pub(crate) text_buffers: Vec<PositionedBuffer>,
+    pub(crate) text: TextSubsystem,
     pub(crate) current_outputs_cache: Vec<WaylandOutput>,
     pub(crate) visualiser_pass: VisualiserPass,
     pub(crate) album_art_pipeline: wgpu::RenderPipeline,

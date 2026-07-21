@@ -1,4 +1,5 @@
 use super::*;
+use cosmic_text::SwashCache;
 impl Renderer {
     pub(crate) async fn handle_event(&mut self, event: Event) {
         use crate::modules::renderer::utils::hash_str;
@@ -56,7 +57,7 @@ impl Renderer {
                 // Optimization: Clear the text buffer cache on config updates to ensure
                 // changes like font family or size are applied immediately.
                 // We omit shrink_to_fit() to preserve allocated capacity for subsequent lyrics.
-                self.text_buffer_cache.clear();
+                self.text.clear_cache();
 
                 self.is_waveform_style = self.state.config.audio.style == "waveform";
                 self.update_weather_state();
@@ -64,16 +65,16 @@ impl Renderer {
                 info!("Live settings applied!");
             }
             Event::TrackChanged(mut track) => {
-                self.text_buffer_cache.clear(); // Free old shaped lyrics from memory!
+                self.text.clear_cache(); // Free old shaped lyrics from memory!
 
                 // Optimization: Don't shrink staging buffers to fit on track changes;
                 // keep the allocations ready for the next track's album art or video loops.
                 // Recreate SwashCache to flush its internal rasterized glyph memory
-                self.swash_cache = SwashCache::new();
-                self.text_renderer.glyph_cache.clear();
-                self.text_renderer.cache_x = 0;
-                self.text_renderer.cache_y = 0;
-                self.text_renderer.cache_row_height = 0;
+                self.text.swash_cache = SwashCache::new();
+                self.text.text_renderer.glyph_cache.clear();
+                self.text.text_renderer.cache_x = 0;
+                self.text.text_renderer.cache_y = 0;
+                self.text.text_renderer.cache_row_height = 0;
 
                 info!("Now playing: {} - {}", track.artist, track.title);
                 // take() strips the massive image payload out of TrackInfo so we don't hoard it in RAM permanently!
@@ -206,7 +207,7 @@ impl Renderer {
             Event::PlayerShutDown => {
                 self.cached_track_str.clear();
                 self.cached_track_hash = 0;
-                self.text_buffer_cache.clear();
+                self.text.clear_cache();
                 self.state.previous_palette = self
                     .state
                     .current_track
