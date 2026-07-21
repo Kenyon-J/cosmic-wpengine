@@ -402,6 +402,149 @@ fn write_pack_to_disk_does_not_clobber_an_existing_theme_of_the_same_name() {
     }
 }
 
+/// Re-dropping a pack you've already imported (identical bytes throughout)
+/// must be a no-op that reuses the same name, not a `-1`/`-2`/... clutter
+/// generator - a real risk given how easy it is to fumble a drag-and-drop
+/// into landing twice.
+#[test]
+fn re_importing_the_identical_pack_does_not_create_a_duplicate() {
+    let _guard = crate::tests::ENV_MUTEX.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let prev = std::env::var("XDG_CONFIG_HOME").ok();
+    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+
+    {
+        let first =
+            super::write_pack_to_disk("sunset", "font_family = \"Inter\"", None, None).unwrap();
+        let second =
+            super::write_pack_to_disk("sunset", "font_family = \"Inter\"", None, None).unwrap();
+        assert_eq!(first, "sunset");
+        assert_eq!(second, "sunset");
+
+        let shaders_dir = cosmic_wallpaper::modules::config::Config::config_dir().join("shaders");
+        assert!(!shaders_dir.join("sunset-1.toml").exists());
+    }
+
+    match prev {
+        Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
+}
+
+/// Two unrelated packs bundling *different* shaders under the same file
+/// name must not clobber each other - the second import's shader lands
+/// under a deduped name, and its theme.toml is repointed to match so the
+/// imported theme doesn't end up referencing a file that isn't actually
+/// the one sitting next to it.
+#[test]
+fn colliding_shader_names_are_deduped_and_the_theme_is_repointed() {
+    let _guard = crate::tests::ENV_MUTEX.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let prev = std::env::var("XDG_CONFIG_HOME").ok();
+    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+
+    {
+        let mut layout_a = cosmic_wallpaper::modules::config::ThemeLayout::load("no-such-theme");
+        layout_a.visualiser.shader = Some("cool.wgsl".to_string());
+        let mut layout_b = layout_a.clone();
+
+        super::write_pack_to_disk(
+            "pack-a",
+            &toml::to_string_pretty(&layout_a).unwrap(),
+            None,
+            Some(("cool.wgsl".to_string(), b"// pack a's shader".to_vec())),
+        )
+        .unwrap();
+
+        // A different pack, unrelated to pack-a, whose own shader happens
+        // to share the exact same file name but has different content.
+        layout_b.visualiser.shader = Some("cool.wgsl".to_string());
+        super::write_pack_to_disk(
+            "pack-b",
+            &toml::to_string_pretty(&layout_b).unwrap(),
+            None,
+            Some((
+                "cool.wgsl".to_string(),
+                b"// pack b's DIFFERENT shader".to_vec(),
+            )),
+        )
+        .unwrap();
+
+        let shaders_dir = cosmic_wallpaper::modules::config::Config::config_dir().join("shaders");
+        assert_eq!(
+            std::fs::read(shaders_dir.join("cool.wgsl")).unwrap(),
+            b"// pack a's shader",
+            "pack-a's shader must be untouched"
+        );
+        assert_eq!(
+            std::fs::read(shaders_dir.join("cool-1.wgsl")).unwrap(),
+            b"// pack b's DIFFERENT shader"
+        );
+
+        let theme_b: cosmic_wallpaper::modules::config::ThemeLayout =
+            toml::from_str(&std::fs::read_to_string(shaders_dir.join("pack-b.toml")).unwrap())
+                .unwrap();
+        assert_eq!(theme_b.visualiser.shader.as_deref(), Some("cool-1.wgsl"));
+    }
+
+    match prev {
+        Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
+}
+
+/// The video counterpart of the shader-collision test: two unrelated packs
+/// bundling different videos under the same file name must not result in
+/// the second pack's install record silently pointing at the first
+/// pack's (unrelated) video bytes.
+#[test]
+fn colliding_video_names_are_deduped_not_silently_shadowed() {
+    let _guard = crate::tests::ENV_MUTEX.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let prev = std::env::var("XDG_CONFIG_HOME").ok();
+    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+
+    {
+        super::write_pack_to_disk(
+            "pack-a",
+            "font_family = \"Inter\"",
+            Some(("clip.mp4".to_string(), b"pack a's video".to_vec())),
+            None,
+        )
+        .unwrap();
+        super::write_pack_to_disk(
+            "pack-b",
+            "font_family = \"Inter\"",
+            Some(("clip.mp4".to_string(), b"pack b's DIFFERENT video".to_vec())),
+            None,
+        )
+        .unwrap();
+
+        let videos_dir = super::library::videos_dir();
+        assert_eq!(
+            std::fs::read(videos_dir.join("clip.mp4")).unwrap(),
+            b"pack a's video"
+        );
+        assert_eq!(
+            std::fs::read(videos_dir.join("clip-1.mp4")).unwrap(),
+            b"pack b's DIFFERENT video"
+        );
+
+        let installed = super::library::scan_installed_packs();
+        let entry_b = installed.iter().find(|p| p.name == "pack-b").unwrap();
+        assert_eq!(
+            entry_b.background.as_deref(),
+            Some("clip-1.mp4"),
+            "pack-b's record must point at its own video, not pack-a's"
+        );
+    }
+
+    match prev {
+        Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
+}
+
 /// A background entry that isn't actually a video file must be dropped
 /// rather than imported - this is the GUI's job (not `config::pack::parse`,
 /// which has no notion of what a video is), exercised the same way

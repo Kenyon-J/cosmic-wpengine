@@ -298,21 +298,57 @@ impl SettingsApp {
     }
 }
 
-/// The first of `name`, `name-1`, `name-2`, ... that isn't already a theme
-/// file - `name` itself, unless that collides.
-fn unique_theme_name(name: &str) -> String {
-    let shaders_dir = config::Config::config_dir().join("shaders");
-    if !shaders_dir.join(format!("{name}.toml")).exists() {
-        return name.to_string();
-    }
-    let mut n = 1;
+/// Writes `bytes` under `dir/<filename>` - or, only when a *different*
+/// file already claims that exact name, a numbered variant instead
+/// (`stem-1.ext`, `stem-2.ext`, ...). Two unrelated packs that happen to
+/// share a theme/shader/video file name can't silently clobber (or be
+/// silently shadowed by) each other this way. Writing the *same* bytes
+/// under a name that already holds them is a no-op that reuses the
+/// existing name, so re-dropping a pack you've already imported doesn't
+/// clutter the folder with numbered duplicates every time. Returns the
+/// file name actually used.
+fn write_deduped(dir: &std::path::Path, filename: &str, bytes: &[u8]) -> std::io::Result<String> {
+    let (stem, ext) = match filename.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem.to_string(), Some(ext.to_string())),
+        _ => (filename.to_string(), None),
+    };
+    let mut n = 0u32;
     loop {
-        let candidate = format!("{name}-{n}");
-        if !shaders_dir.join(format!("{candidate}.toml")).exists() {
-            return candidate;
+        let candidate = match (n, &ext) {
+            (0, _) => filename.to_string(),
+            (n, Some(ext)) => format!("{stem}-{n}.{ext}"),
+            (n, None) => format!("{stem}-{n}"),
+        };
+        let path = dir.join(&candidate);
+        if !path.exists() {
+            std::fs::write(&path, bytes)?;
+            return Ok(candidate);
+        }
+        if std::fs::read(&path).is_ok_and(|existing| existing == bytes) {
+            return Ok(candidate);
         }
         n += 1;
     }
+}
+
+/// Rewrites `theme_toml`'s `[visualiser] shader` field from `old_name` to
+/// `new_name`, after `write_deduped` had to rename the shader file to
+/// avoid clobbering an unrelated existing one under the same name. Round-
+/// trips through `ThemeLayout` rather than string-patching so this can't
+/// drift from the format's actual shape; on the rare pack whose theme.toml
+/// no longer parses, or whose `shader` field doesn't match, the text is
+/// left untouched instead. Any hand-written comments in the original file
+/// are lost in this rename path, an accepted tradeoff against silently
+/// pointing at the wrong shader.
+fn repoint_theme_shader(theme_toml: &str, old_name: &str, new_name: &str) -> String {
+    let Ok(mut layout) = toml::from_str::<config::ThemeLayout>(theme_toml) else {
+        return theme_toml.to_string();
+    };
+    if layout.visualiser.shader.as_deref() != Some(old_name) {
+        return theme_toml.to_string();
+    }
+    layout.visualiser.shader = Some(new_name.to_string());
+    toml::to_string_pretty(&layout).unwrap_or_else(|_| theme_toml.to_string())
 }
 
 /// Reads `name`'s layout plus (when set) `video_background_path`'s bytes
@@ -352,51 +388,63 @@ fn build_pack_bytes(name: &str, video_background_path: Option<&str>) -> anyhow::
 }
 
 /// Writes a parsed pack's theme (and, when present, its background video
-/// and/or shader) to disk. A background video already present in the
-/// library is left alone rather than overwritten. A free function (rather
-/// than a `SettingsApp` method) so it's testable without a live `Core`.
+/// and/or shader) to disk. A free function (rather than a `SettingsApp`
+/// method) so it's testable without a live `Core`.
 ///
-/// `name` is never overwritten if a theme by that name already exists -
+/// Nothing here overwrites an unrelated file that happens to share a name -
 /// built-in style names (`bars`, `monstercat`, ...) are very plausible pack
-/// names, and a pack landing on top of the importer's own customized theme
-/// with no warning would be a real way to lose work. Instead the write goes
-/// to `name`, `name-1`, `name-2`, ... (mirrors `export_pack`'s own dedup
-/// convention) and the actual name used is returned so the caller can tell
-/// the user their import got renamed.
+/// names, and a shared shader/video name is equally plausible, so silently
+/// clobbering (or being silently shadowed by) an existing file would be a
+/// real way to lose or corrupt someone's unrelated theme with no warning.
+/// `write_deduped` handles the theme, shader and video writes alike; the
+/// actual theme name used is returned so the caller can tell the user when
+/// their import landed under a different name than the pack's own.
 fn write_pack_to_disk(
     name: &str,
     theme_toml: &str,
     background: Option<(String, Vec<u8>)>,
     shader: Option<(String, Vec<u8>)>,
 ) -> Result<String, String> {
-    let name = unique_theme_name(name);
-    let rel = format!("shaders/{name}.toml");
-    if !is_safe_path(&rel) {
+    if !is_safe_path(&format!("shaders/{name}.toml")) {
         return Err(format!("unsafe theme name '{name}'"));
     }
     let shaders_dir = config::Config::config_dir().join("shaders");
     std::fs::create_dir_all(&shaders_dir).map_err(|e| e.to_string())?;
-    std::fs::write(shaders_dir.join(format!("{name}.toml")), theme_toml)
-        .map_err(|e| e.to_string())?;
 
-    let background_file = background.as_ref().map(|(file, _)| file.clone());
-    if let Some((file, bytes)) = background {
-        let dir = library::videos_dir();
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let dest = dir.join(&file);
-        if !dest.exists() {
-            std::fs::write(&dest, bytes).map_err(|e| e.to_string())?;
+    // Shader goes first: if it needs a dedup rename, theme.toml's own
+    // `shader` field must be repointed to match before theme.toml is
+    // written, or the imported theme would reference a file that isn't
+    // the one actually sitting next to it.
+    let mut theme_toml = theme_toml.to_string();
+    if let Some((file, bytes)) = shader {
+        let written = write_deduped(&shaders_dir, &file, &bytes).map_err(|e| e.to_string())?;
+        if written != file {
+            theme_toml = repoint_theme_shader(&theme_toml, &file, &written);
         }
     }
-    if let Some((file, bytes)) = shader {
-        std::fs::write(shaders_dir.join(&file), bytes).map_err(|e| e.to_string())?;
-    }
+
+    let theme_file = write_deduped(&shaders_dir, &format!("{name}.toml"), theme_toml.as_bytes())
+        .map_err(|e| e.to_string())?;
+    let written_as = theme_file
+        .strip_suffix(".toml")
+        .unwrap_or(&theme_file)
+        .to_string();
+
+    let background_file = match background {
+        Some((file, bytes)) => {
+            let dir = library::videos_dir();
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            Some(write_deduped(&dir, &file, &bytes).map_err(|e| e.to_string())?)
+        }
+        None => None,
+    };
 
     // Recorded regardless of whether this pack bundled a video, so the
     // Packs gallery lists every import - a layout-only or shader-only pack
     // is still one click away next time, not just the ones with video.
-    library::record_installed_pack(&name, background_file.as_deref()).map_err(|e| e.to_string())?;
-    Ok(name)
+    library::record_installed_pack(&written_as, background_file.as_deref())
+        .map_err(|e| e.to_string())?;
+    Ok(written_as)
 }
 
 /// The file `Create Theme` writes: the complete default layout with every
@@ -2066,11 +2114,22 @@ impl Application for SettingsApp {
                 self.status_msg = "Cancelled - nothing was imported.".into();
             }
             Message::ApplyPack(name) => {
-                let background = self
-                    .installed_packs
-                    .iter()
-                    .find(|p| p.name == name)
-                    .and_then(|p| p.background.clone());
+                let entry = self.installed_packs.iter().find(|p| p.name == name);
+                // A record whose background no longer exists in
+                // videos_dir() (deleted by hand since importing) is still
+                // listed in the gallery - only apply the video setting
+                // when the file is actually still there, so Apply can't
+                // silently point the config at a missing file.
+                let background = entry
+                    .and_then(|p| p.background.clone())
+                    .filter(|file| library::videos_dir().join(file).exists());
+                let video_missing =
+                    entry.is_some_and(|p| p.background.is_some()) && background.is_none();
+                let theme_missing = !config::Config::config_dir()
+                    .join("shaders")
+                    .join(format!("{name}.toml"))
+                    .exists();
+
                 self.wp_config.audio.style = name.clone();
                 let has_video = background.is_some();
                 if let Some(file) = background {
@@ -2090,10 +2149,15 @@ impl Application for SettingsApp {
                 self.load_edit_theme();
                 match self.wp_config.save() {
                     Ok(()) => {
-                        self.status_msg = if has_video {
-                            format!("Applied pack '{name}' and its background video.")
-                        } else {
-                            format!("Applied pack '{name}'.")
+                        self.status_msg = match (has_video, video_missing, theme_missing) {
+                            (true, _, _) => format!("Applied pack '{name}' and its background video."),
+                            (false, true, _) => format!(
+                                "Applied pack '{name}' - its background video is missing; re-import the pack to restore it."
+                            ),
+                            (false, false, true) => format!(
+                                "Applied pack '{name}' - its theme file is missing, so generic defaults were used instead."
+                            ),
+                            (false, false, false) => format!("Applied pack '{name}'."),
                         };
                     }
                     Err(e) => self.status_msg = format!("Error applying pack: {e}"),
