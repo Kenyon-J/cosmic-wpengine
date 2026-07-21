@@ -10,8 +10,8 @@
 //! a human eyeballing `cosmic-screenshot` output.
 //!
 //! Invoked via the engine binary's hidden `--render-frame <out.png>
-//! [--compare <baseline.png>]` flag; never reachable from the normal
-//! startup path.
+//! [--compare <baseline.png>] [--style <name>]` flag; never reachable from
+//! the normal startup path.
 
 use super::core::Renderer;
 use super::draw;
@@ -31,13 +31,23 @@ const HEIGHT: u32 = 1080;
 /// `out_path`. When `compare_path` is given, also diffs the render against
 /// that baseline PNG and reports pass/fail (mean-absolute-difference per
 /// channel under 1/255, matching the frosted-glass live-verification
-/// threshold this harness replaces).
-pub async fn render_frame_to_png(out_path: &Path, compare_path: Option<&Path>) -> Result<()> {
+/// threshold this harness replaces). `style` overrides which theme
+/// (`audio.style`) the scene is rendered with - e.g. to exercise a theme
+/// with a custom visualiser shader set, without needing a real saved theme.
+pub async fn render_frame_to_png(
+    out_path: &Path,
+    compare_path: Option<&Path>,
+    style: Option<&str>,
+) -> Result<()> {
     let mut config = Config::default();
     // Config::default() already matches the acceptance recipe (fps 30,
     // weather off, blur on); audio.style is left at its default so the
-    // harness exercises a real theme, not a hand-rolled stand-in.
+    // harness exercises a real theme, not a hand-rolled stand-in, unless
+    // the caller asked for a specific one.
     config.weather.enabled = false;
+    if let Some(style) = style {
+        config.audio.style = style.to_string();
+    }
 
     let state = AppState::new(config);
     let (show_lyrics_tx, _show_lyrics_rx) = tokio::sync::watch::channel(true);

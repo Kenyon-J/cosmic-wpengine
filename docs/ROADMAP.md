@@ -101,8 +101,11 @@ friendly decomposition, the offscreen harness, `TextSubsystem`) were already
 achieved and pixel-verified. Fair game for a future pass if it's worth
 doing on its own.
 
-With all five phases done, runtime shader loading (see "theme packs"
-below) is unblocked.
+With all five phases done, the renderer's own architecture no longer blocks
+anything on the "theme packs" roadmap below - though see the correction in
+that section: runtime shader loading turned out to already exist
+independently of this work, so it was never actually the blocker it was
+first thought to be.
 
 ## 1.2.x — first-run desktop integration (in progress)
 
@@ -188,14 +191,33 @@ from Joshua 2026-07-21; agreed direction, not yet scheduled/planned.
   bundlable asset later (fonts, a colour palette, per-monitor variants...)
   is one new optional table plus one new match arm, not a format redesign.
 
-**Sequencing decision (2026-07-21):** ship custom-shader support in the
-first version of packs rather than staging a shader-less v1 first. Every
-shader today is `include_str!`'d at compile time — there is no runtime
-shader-loading path at all — so this depends on the renderer decomposition
-above landing first (phases 3–5), followed by a runtime shader-loading
-capability built on the decomposed structure, before pack format work
-starts. Order: renderer decomposition (phases 3–5) → runtime shader loading
-→ theme packs (full format, custom shader included from the start).
+**Correction (2026-07-21, later the same day):** the "every shader is
+`include_str!`'d at compile time, no runtime loading exists" claim above
+was wrong. `VisualiserPass` (`src/modules/visualiser_pass.rs`) has loaded
+the visualiser shader from `ThemeLayout.visualiser.shader` at runtime since
+March 2026 (`8ec4a2c` onward) - reads `shaders/<name>.wgsl` (path-traversal
+hardened, `e3fefff`/`fec5e11`), falls back to the compiled-in default on a
+missing file or a wgpu validation failure (never crashes on bad WGSL,
+logs and keeps the previous/default pipeline instead), and `reload()`
+already hot-swaps it on a live theme edit. Documented all along in
+`docs/THEMES.md`'s `shader` field and the theme template's commented-out
+`# shader = "my_custom_shader.wgsl"` line - missed during the original
+investigation, which only checked `pipelines.rs` (album art/ambient/weather,
+still compile-time-only) and never looked at `visualiser_pass.rs`.
+Re-verified today with the offscreen harness's new `--style <name>` flag:
+pointed a scratch theme at a deliberately-obvious custom shader (solid
+magenta fill) and got exactly that back in the render; pointed another at
+deliberately-invalid WGSL and got the logged validation error plus a clean
+fallback to the default shader, no crash.
+
+Net effect: custom-shader support for theme packs was **never actually
+blocked on the renderer decomposition** - that work was valuable in its own
+right (see above) but ran on a separate code path from
+`visualiser_pass.rs`, which the decomposition didn't touch. The only
+genuinely new work theme packs still needs on the shader front is the
+import-flow UX (the `custom_shader` manifest flag + "review before
+enabling" prompt below) - the loading mechanism it hangs off of already
+exists and is already hardened.
 
 ## Known upstream issue — libcosmic's ColorPickerModel (pinned rev 6359a94)
 

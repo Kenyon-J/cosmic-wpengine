@@ -19,8 +19,13 @@ async fn main() -> Result<()> {
     // and docs/PLAN-renderer-decomposition.md (phase 4) for why this exists -
     // it's the renderer decomposition's acceptance harness, letting a
     // refactor's before/after be diffed without a live desktop session.
-    if let Some((out_path, compare_path)) = render_frame_harness_args() {
-        return modules::renderer::render_frame_to_png(&out_path, compare_path.as_deref()).await;
+    if let Some((out_path, compare_path, style)) = render_frame_harness_args() {
+        return modules::renderer::render_frame_to_png(
+            &out_path,
+            compare_path.as_deref(),
+            style.as_deref(),
+        )
+        .await;
     }
 
     info!("Starting cosmic-wallpaper...");
@@ -107,9 +112,17 @@ async fn main() -> Result<()> {
         .await
 }
 
-/// Parses `--render-frame <out.png> [--compare <baseline.png>]` out of the
-/// process args. `None` for any normal launch (no such flag present).
-fn render_frame_harness_args() -> Option<(std::path::PathBuf, Option<std::path::PathBuf>)> {
+/// Parses `--render-frame <out.png> [--compare <baseline.png>] [--style
+/// <name>]` out of the process args. `None` for any normal launch (no
+/// `--render-frame` present). `--style` overrides the harness's default
+/// synthetic scene's theme/audio style - e.g. to render against a theme
+/// with a custom visualiser shader set, without touching a real saved
+/// theme file.
+fn render_frame_harness_args() -> Option<(
+    std::path::PathBuf,
+    Option<std::path::PathBuf>,
+    Option<String>,
+)> {
     let args: Vec<String> = std::env::args().collect();
     let out_path = args
         .iter()
@@ -121,7 +134,12 @@ fn render_frame_harness_args() -> Option<(std::path::PathBuf, Option<std::path::
         .position(|a| a == "--compare")
         .and_then(|i| args.get(i + 1))
         .map(std::path::PathBuf::from);
-    Some((out_path, compare_path))
+    let style = args
+        .iter()
+        .position(|a| a == "--style")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+    Some((out_path, compare_path, style))
 }
 
 fn start_video_decoder(
