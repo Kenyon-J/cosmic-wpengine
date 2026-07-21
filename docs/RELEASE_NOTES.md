@@ -1,3 +1,39 @@
+# cosmic-wallpaper 1.4.0
+
+Theme packs: share a full look — layout, background video, and a custom
+visualiser shader — as one file. Plus a couple of longstanding bugs found
+and fixed along the way.
+
+## Added
+
+- **Theme packs.** A new Packs page lets you bundle a theme's layout with
+  your background video and custom visualiser shader into one `.cwtheme`
+  file (`Export Pack`), and import one someone else made by dropping it
+  onto the page. It's a plain gzipped tar — `tar tzf` opens it like any
+  other archive, so you can inspect a shader before ever pointing this app
+  at it. A pack with a custom shader stops first and shows you the actual
+  source, since that's arbitrary GPU code from whoever made it — nothing
+  is written to disk until you review it and click "Enable anyway".
+  Every import also lands in a "Your Packs" gallery on the same page with
+  a one-click Apply that sets the layout and background video together.
+
+## Fixed
+
+- **Album art could occasionally lag one track behind.** The check
+  deciding whether a slow-arriving art fetch still belonged to what's on
+  screen compared only title/artist/album — two distinct plays (a
+  remaster, a repeat-mode replay some players re-announce under a fresh
+  identity) can share that verbatim, so the fetch for the track actually
+  showing could get matched against the wrong one and dropped, leaving
+  the previous track's art stuck on screen. Now compared by a stable
+  per-track identity instead.
+- **"Square" in the Layout Themes visualiser editor didn't do anything.**
+  It rendered as an oversized circular ring — the shader never actually
+  implemented it. Removed from the picker until it gets a real
+  implementation, rather than leaving a broken option selectable.
+
+---
+
 # cosmic-wallpaper 1.3.2
 
 Fixes the release binaries themselves, again: v1.3.1's standalone downloads
