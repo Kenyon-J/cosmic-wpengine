@@ -50,20 +50,33 @@ test on the real desktop (real MPRIS track, album art, lyrics, visualiser,
 weather all rendering correctly - no offscreen harness exists yet, so this
 was eyeballed via `cosmic-screenshot`, not a pixel diff).
 
-Phase 4 (render-target abstraction + offscreen harness) started 2026-07-21:
-the render-target half is done — `draw.rs`'s encode block is now
-`encode_frame()`, taking a bare `&wgpu::TextureView` and every GPU resource
-it draws with individually (device/queue/pipelines/bind groups), not
-`&Renderer` (same borrow-checker reason as `prepare_text_buffer`: the
-per-output loop already holds `renderer.outputs` mutably borrowed via its
-iterator). Presenting stays the caller's job, so the same function can
-drive both the live per-monitor loop and a future offscreen path. Still
-missing: the actual `--render-frame <out.png>` dev harness (building a
-`Renderer` without Wayland, a synthetic scene, and the perceptual-diff
-`--compare` mode) - that and phase 5 (split the per-output loop) are the
-remaining work, the prerequisite for runtime shader loading (see "theme
-packs" below), reprioritized 2026-07-21 to land before that feature rather
-than after.
+Phase 4 (render-target abstraction + offscreen harness) landed 2026-07-21:
+`draw.rs`'s per-output loop body is now two standalone functions -
+`write_frame_uniforms()` and `encode_frame()` - taking individual GPU
+resources and a bare `&wgpu::TextureView`/`(width, height)` instead of
+`&Renderer` and a live surface (same borrow-checker reason as
+`prepare_text_buffer`: the per-output loop already holds `renderer.outputs`
+mutably borrowed via its iterator). `Renderer::new_headless()` builds a
+renderer with no Wayland surfaces at all (adapter requested with no
+`compatible_surface`, a fixed render-target format); the new hidden
+`--render-frame <out.png> [--compare <baseline.png>]` engine flag
+(`modules::renderer::render_frame_to_png`, `renderer/harness.rs`) uses it to
+render one frame against a fixed synthetic scene (a known track with a
+synthetic checkerboard album art, a fixed audio spectrum) and writes it to a
+PNG, diffing against a baseline when `--compare` is given
+(mean-absolute-difference per channel, matching the live-verification
+threshold this replaces). Verified for real: the harness's own rendered PNG
+shows the expected scene (checkerboard art + visualiser bars over the
+ambient sky - text isn't drawn yet, since `TextRenderer::prepare_text` is
+still only called from the live per-output loop), a self-compare passes
+(mean 0.0000/255), and a compare against a deliberately-different image
+fails with a nonzero exit code - plus `fmt`/`clippy`/`test` all green and a
+live smoke test on the real desktop.
+
+Phase 5 (split the per-output loop so `draw_frame` becomes orchestration) is
+the remaining work - the prerequisite for runtime shader loading (see
+"theme packs" below), reprioritized 2026-07-21 to land before that feature
+rather than after.
 
 ## 1.2.x — first-run desktop integration (in progress)
 

@@ -12,6 +12,17 @@ use modules::{
 #[tokio::main]
 async fn main() -> Result<()> {
     modules::logging::init("engine");
+
+    // Hidden dev-only path, never reachable from a normal launch: renders
+    // one frame against a fixed synthetic scene and exits, instead of
+    // starting the engine proper. See modules::renderer::render_frame_to_png
+    // and docs/PLAN-renderer-decomposition.md (phase 4) for why this exists -
+    // it's the renderer decomposition's acceptance harness, letting a
+    // refactor's before/after be diffed without a live desktop session.
+    if let Some((out_path, compare_path)) = render_frame_harness_args() {
+        return modules::renderer::render_frame_to_png(&out_path, compare_path.as_deref()).await;
+    }
+
     info!("Starting cosmic-wallpaper...");
 
     let local = tokio::task::LocalSet::new();
@@ -94,6 +105,23 @@ async fn main() -> Result<()> {
             Ok(())
         })
         .await
+}
+
+/// Parses `--render-frame <out.png> [--compare <baseline.png>]` out of the
+/// process args. `None` for any normal launch (no such flag present).
+fn render_frame_harness_args() -> Option<(std::path::PathBuf, Option<std::path::PathBuf>)> {
+    let args: Vec<String> = std::env::args().collect();
+    let out_path = args
+        .iter()
+        .position(|a| a == "--render-frame")
+        .and_then(|i| args.get(i + 1))
+        .map(std::path::PathBuf::from)?;
+    let compare_path = args
+        .iter()
+        .position(|a| a == "--compare")
+        .and_then(|i| args.get(i + 1))
+        .map(std::path::PathBuf::from);
+    Some((out_path, compare_path))
 }
 
 fn start_video_decoder(

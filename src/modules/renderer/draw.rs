@@ -8,6 +8,171 @@ use anyhow::Result;
 use cosmic_text::{self, Attrs, Family, Metrics, Shaping};
 use tracing::warn;
 
+/// Writes this frame's uniform buffers (visualiser, album art, background/
+/// ambient) for a render target of `width`x`height` - the other half of
+/// what the per-output loop below does before calling `encode_frame`, and
+/// the dev-only offscreen harness's fixed-scene counterpart to it (real
+/// per-monitor uniforms are res/aspect-dependent, so the harness can't just
+/// skip this the way it can skip `last_uniform_res`/`last_text_params`
+/// dedup - there's no cache to reuse on a first and only frame). Same
+/// borrow-checker reasoning as `encode_frame`: individual resources, not
+/// `&Renderer`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn write_frame_uniforms(
+    queue: &wgpu::Queue,
+    visualiser_uniform_buffer: &wgpu::Buffer,
+    art: &ArtLayer,
+    background: &BackgroundLayer,
+    width: u32,
+    height: u32,
+    has_audio: bool,
+    has_track: bool,
+    transition_progress: f32,
+    audio_bands: u32,
+    beat_pulse_mul: f32,
+    top_col: [f32; 4],
+    bottom_col: [f32; 4],
+    vis_pos_size_rot: [f32; 4],
+    visualiser_amplitude: f32,
+    vis_shape_u32: u32,
+    elapsed: f32,
+    vis_align_u32: u32,
+    is_waveform_u32: u32,
+    show_art_fg: bool,
+    show_art_bg: bool,
+    show_color_bg: bool,
+    art_tint_color: [f32; 3],
+    album_art_aspect: f32,
+    album_art_bg_mode: u32,
+    audio_energy: f32,
+    album_art_bg_alpha: f32,
+    blur_opacity: f32,
+    fg_k1: f32,
+    fg_k2: f32,
+    fg_k3: f32,
+    fg_scale_y: f32,
+    fg_offset_y: f32,
+    album_art_fg_pos: [f32; 2],
+    album_art_fg_size: f32,
+    album_art_fg_shape: u32,
+    custom_bg_aspect: f32,
+    custom_bg_mode: u32,
+    custom_bg_alpha: f32,
+    sky_color_data: Option<(f32, u32, [f32; 3])>,
+) {
+    let screen_res_f = [width as f32, height as f32];
+    let screen_aspect = screen_res_f[0] / screen_res_f[1];
+
+    // 1. Process visualizer uniforms
+    if has_audio {
+        let vis_uniforms = VisUniforms {
+            res: screen_res_f,
+            bands: audio_bands,
+            pulse: beat_pulse_mul, // Multiplier guarantees visible beat effects
+            top: top_col,
+            bottom: bottom_col,
+            pos_size_rot: vis_pos_size_rot,
+            amplitude: visualiser_amplitude,
+            shape: vis_shape_u32,
+            time: elapsed,
+            align: vis_align_u32,
+            is_waveform: is_waveform_u32,
+            _padding: [0; 3],
+        };
+        queue.write_buffer(
+            visualiser_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&vis_uniforms),
+        );
+    }
+
+    // 2. Process album art uniforms
+    if (show_art_fg || show_art_bg || show_color_bg) && has_track {
+        let color = art_tint_color;
+
+        let bg_uv_transform = get_uv_transform(0, screen_aspect, album_art_aspect);
+
+        let bg_uniforms = ArtUniforms {
+            color_and_transition: [color[0], color[1], color[2], transition_progress],
+            uv_transform: bg_uv_transform,
+            art_position: [0.5, 0.5],
+            blur_step: [0.0, 0.0], // retired: the blur is pre-rendered offscreen
+            audio_energy,
+            mode: album_art_bg_mode,
+            bg_alpha: album_art_bg_alpha,
+            art_size: 1.0,
+            shape: 0,
+            blur_opacity,
+            screen_aspect,
+            _padding: 0,
+        };
+        queue.write_buffer(&art.bg_uniform_buffer, 0, bytemuck::bytes_of(&bg_uniforms));
+
+        // Optimization: Use pre-calculated constants to minimize arithmetic in the monitor loop
+        let fg_scale_x = screen_aspect * fg_k1;
+        let fg_offset_x = fg_k2 - screen_aspect * fg_k3;
+        let fg_uv_transform = [fg_scale_x, fg_scale_y, fg_offset_x, fg_offset_y];
+
+        let fg_uniforms = ArtUniforms {
+            color_and_transition: [color[0], color[1], color[2], transition_progress],
+            uv_transform: fg_uv_transform,
+            art_position: album_art_fg_pos,
+            blur_step: [0.0, 0.0], // FG art is never blurred
+            audio_energy,
+            mode: 1,
+            // The sharp foreground art only fades when stale art is
+            // being eased out after the fetch grace period expires.
+            bg_alpha: art.fade,
+            art_size: album_art_fg_size,
+            shape: album_art_fg_shape,
+            blur_opacity: 1.0,
+            screen_aspect,
+            _padding: 0,
+        };
+        queue.write_buffer(&art.fg_uniform_buffer, 0, bytemuck::bytes_of(&fg_uniforms));
+    }
+
+    if background.bind_group().is_some() {
+        let bg_uv_transform = get_uv_transform(0, screen_aspect, custom_bg_aspect);
+
+        // 4. Process custom background uniforms
+        let custom_bg_uniforms = ArtUniforms {
+            color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
+            uv_transform: bg_uv_transform,
+            art_position: [0.5, 0.5],
+            blur_step: [0.0, 0.0], // retired: the blur is pre-rendered offscreen
+            audio_energy,
+            mode: custom_bg_mode,
+            bg_alpha: custom_bg_alpha,
+            art_size: 1.0,
+            shape: 0,
+            blur_opacity,
+            screen_aspect,
+            _padding: 0,
+        };
+        queue.write_buffer(
+            &background.custom_bg_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&custom_bg_uniforms),
+        );
+    } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
+        // 3. Process ambient uniforms
+        let amb_uniforms = AmbUniforms {
+            res: screen_res_f,
+            time: elapsed,
+            weather: weather_type,
+            sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
+            bg_alpha: custom_bg_alpha, // Can reuse the same bg_alpha logic
+            _padding: [0.0; 3],
+        };
+        queue.write_buffer(
+            &background.ambient_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&amb_uniforms),
+        );
+    }
+}
+
 /// Encodes and submits one frame's render pass against `view` - phase 4 of
 /// the renderer decomposition (`docs/PLAN-renderer-decomposition.md`).
 /// Takes a bare `&wgpu::TextureView` rather than acquiring one from a
@@ -366,141 +531,54 @@ pub(crate) fn draw_frame(
         wayland_manager.mark_frame_rendered(i as usize); // Request the next frame callback
 
         let current_res = (gpu_out.config.width, gpu_out.config.height);
-        let screen_res_f = [gpu_out.config.width as f32, gpu_out.config.height as f32];
-        let screen_aspect = screen_res_f[0] / screen_res_f[1];
 
-        // 1. Process visualizer uniforms
-        if has_audio && last_uniform_res != Some(current_res) {
-            let vis_uniforms = VisUniforms {
-                res: screen_res_f,
-                bands: renderer.state.config.audio.bands as u32,
-                pulse: beat_pulse_mul, // Multiplier guarantees visible beat effects
-                top: top_col,
-                bottom: bottom_col,
-                pos_size_rot: vis_pos_size_rot,
-                amplitude: renderer.theme.visualiser.amplitude,
-                shape: vis_shape_u32,
-                time: elapsed,
-                align: vis_align_u32,
-                is_waveform: is_waveform_u32,
-                _padding: [0; 3],
-            };
-            renderer.queue.write_buffer(
+        if last_uniform_res != Some(current_res) {
+            write_frame_uniforms(
+                &renderer.queue,
                 &renderer.visualiser_pass.uniform_buffer,
-                0,
-                bytemuck::bytes_of(&vis_uniforms),
+                &renderer.art,
+                &renderer.background,
+                current_res.0,
+                current_res.1,
+                has_audio,
+                renderer.state.current_track.is_some(),
+                renderer.state.transition_progress,
+                renderer.state.config.audio.bands as u32,
+                beat_pulse_mul,
+                top_col,
+                bottom_col,
+                vis_pos_size_rot,
+                renderer.theme.visualiser.amplitude,
+                vis_shape_u32,
+                elapsed,
+                vis_align_u32,
+                is_waveform_u32,
+                show_art_fg,
+                show_art_bg,
+                show_color_bg,
+                art_tint_color,
+                album_art_aspect,
+                album_art_bg_mode,
+                audio_energy,
+                album_art_bg_alpha,
+                blur_opacity,
+                fg_k1,
+                fg_k2,
+                fg_k3,
+                fg_scale_y,
+                fg_offset_y,
+                album_art_fg_pos,
+                album_art_fg_size,
+                album_art_fg_shape,
+                custom_bg_aspect,
+                custom_bg_mode,
+                custom_bg_alpha,
+                sky_color_data,
             );
         }
 
-        // 2. Process album art uniforms
-        if (show_art_fg || show_art_bg || show_color_bg) && last_uniform_res != Some(current_res) {
-            if let Some(_track) = &renderer.state.current_track {
-                let color = art_tint_color;
-
-                let bg_uv_transform = get_uv_transform(0, screen_aspect, album_art_aspect);
-
-                let bg_uniforms = ArtUniforms {
-                    color_and_transition: [
-                        color[0],
-                        color[1],
-                        color[2],
-                        renderer.state.transition_progress,
-                    ],
-                    uv_transform: bg_uv_transform,
-                    art_position: [0.5, 0.5],
-                    blur_step: [0.0, 0.0], // retired: the blur is pre-rendered offscreen
-                    audio_energy,
-                    mode: album_art_bg_mode,
-                    bg_alpha: album_art_bg_alpha,
-                    art_size: 1.0,
-                    shape: 0,
-                    blur_opacity,
-                    screen_aspect,
-                    _padding: 0,
-                };
-                renderer.queue.write_buffer(
-                    &renderer.art.bg_uniform_buffer,
-                    0,
-                    bytemuck::bytes_of(&bg_uniforms),
-                );
-
-                // Optimization: Use pre-calculated constants to minimize arithmetic in the monitor loop
-                let fg_scale_x = screen_aspect * fg_k1;
-                let fg_offset_x = fg_k2 - screen_aspect * fg_k3;
-                let fg_uv_transform = [fg_scale_x, fg_scale_y, fg_offset_x, fg_offset_y];
-
-                let fg_uniforms = ArtUniforms {
-                    color_and_transition: [
-                        color[0],
-                        color[1],
-                        color[2],
-                        renderer.state.transition_progress,
-                    ],
-                    uv_transform: fg_uv_transform,
-                    art_position: album_art_fg_pos,
-                    blur_step: [0.0, 0.0], // FG art is never blurred
-                    audio_energy,
-                    mode: 1,
-                    // The sharp foreground art only fades when stale art is
-                    // being eased out after the fetch grace period expires.
-                    bg_alpha: renderer.art.fade,
-                    art_size: album_art_fg_size,
-                    shape: album_art_fg_shape,
-                    blur_opacity: 1.0,
-                    screen_aspect,
-                    _padding: 0,
-                };
-                renderer.queue.write_buffer(
-                    &renderer.art.fg_uniform_buffer,
-                    0,
-                    bytemuck::bytes_of(&fg_uniforms),
-                );
-            }
-        }
-
-        if last_uniform_res != Some(current_res) {
-            if renderer.background.bind_group().is_some() {
-                let bg_uv_transform = get_uv_transform(0, screen_aspect, custom_bg_aspect);
-
-                // 4. Process custom background uniforms
-                let custom_bg_uniforms = ArtUniforms {
-                    color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
-                    uv_transform: bg_uv_transform,
-                    art_position: [0.5, 0.5],
-                    blur_step: [0.0, 0.0], // retired: the blur is pre-rendered offscreen
-                    audio_energy,
-                    mode: custom_bg_mode,
-                    bg_alpha: custom_bg_alpha,
-                    art_size: 1.0,
-                    shape: 0,
-                    blur_opacity,
-                    screen_aspect,
-                    _padding: 0,
-                };
-                renderer.queue.write_buffer(
-                    &renderer.background.custom_bg_uniform_buffer,
-                    0,
-                    bytemuck::bytes_of(&custom_bg_uniforms),
-                );
-            } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
-                // 3. Process ambient uniforms
-                let amb_uniforms = AmbUniforms {
-                    res: screen_res_f,
-                    time: elapsed,
-                    weather: weather_type,
-                    sky: [final_sky[0], final_sky[1], final_sky[2], 1.0],
-                    bg_alpha: custom_bg_alpha, // Can reuse the same bg_alpha logic
-                    _padding: [0.0; 3],
-                };
-                renderer.queue.write_buffer(
-                    &renderer.background.ambient_uniform_buffer,
-                    0,
-                    bytemuck::bytes_of(&amb_uniforms),
-                );
-            }
-        }
-
         last_uniform_res = Some(current_res);
+        let screen_res_f = [gpu_out.config.width as f32, gpu_out.config.height as f32];
 
         // --- Prepare Text for Rendering ---
         let width_f = screen_res_f[0];

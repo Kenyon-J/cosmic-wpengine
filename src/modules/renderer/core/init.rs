@@ -1,15 +1,36 @@
 use super::*;
+
+/// Shared by `new` and `new_headless`: requests a device with the fixed
+/// descriptor this renderer always wants, and logs the chosen adapter (not
+/// just traced at debug, so it lands in the persisted log file - GPU
+/// selection is one of the first things worth checking when a bug report
+/// mentions rendering issues or a hybrid-graphics laptop picking the wrong
+/// adapter).
+async fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue)> {
+    let adapter_info = adapter.get_info();
+    info!(
+        "Selected GPU adapter: {} ({:?}, {:?} backend)",
+        adapter_info.name, adapter_info.device_type, adapter_info.backend
+    );
+
+    Ok(adapter
+        .request_device(&wgpu::DeviceDescriptor {
+            label: Some("COSMIC Wallpaper Device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            memory_hints: wgpu::MemoryHints::default(),
+            trace: wgpu::Trace::Off,
+        })
+        .await?)
+}
+
 impl Renderer {
     pub async fn new(
         wayland_manager: &WaylandManager,
         state: AppState,
         show_lyrics_tx: tokio::sync::watch::Sender<bool>,
     ) -> Result<Self> {
-        // .max(1) mirrors Config::sanitise: fps = 0 would panic in
-        // Duration::from_secs_f64(inf) below.
-        let fps = state.config.fps.max(1);
-        let current_fps = fps;
-
         info!("Initialising wgpu self...");
 
         let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
@@ -40,26 +61,7 @@ impl Renderer {
             .await
             .map_err(|e| anyhow::anyhow!("No suitable GPU adapter found: {}", e))?;
 
-        // Logged (not just traced at debug) so it lands in the persisted
-        // log file: GPU selection is one of the first things worth checking
-        // when a bug report mentions rendering issues or a hybrid-graphics
-        // laptop picking the wrong adapter.
-        let adapter_info = adapter.get_info();
-        info!(
-            "Selected GPU adapter: {} ({:?}, {:?} backend)",
-            adapter_info.name, adapter_info.device_type, adapter_info.backend
-        );
-
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: Some("COSMIC Wallpaper Device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                experimental_features: wgpu::ExperimentalFeatures::disabled(),
-                memory_hints: wgpu::MemoryHints::default(),
-                trace: wgpu::Trace::Off,
-            })
-            .await?;
+        let (device, queue) = request_device(&adapter).await?;
 
         let mut outputs = Vec::new();
         for (info, surface) in outputs_info.into_iter().zip(surfaces) {
@@ -73,6 +75,81 @@ impl Renderer {
         }
 
         let config_format = outputs[0].config.format;
+
+        Self::from_gpu(
+            instance,
+            adapter,
+            device,
+            queue,
+            outputs,
+            config_format,
+            state,
+            show_lyrics_tx,
+        )
+        .await
+    }
+
+    /// Builds a renderer with no Wayland surfaces at all - the dev-only
+    /// offscreen render harness's entry point (`super::super::harness`).
+    /// Requests an adapter with no `compatible_surface` (valid for
+    /// offscreen-only rendering) and picks a fixed render-target format,
+    /// since there's no real surface to dictate one.
+    pub(crate) async fn new_headless(
+        state: AppState,
+        show_lyrics_tx: tokio::sync::watch::Sender<bool>,
+    ) -> Result<Self> {
+        info!("Initialising wgpu self (headless)...");
+
+        let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        instance_desc.backends = wgpu::Backends::VULKAN | wgpu::Backends::GL;
+        let instance = wgpu::Instance::new(instance_desc);
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+                apply_limit_buckets: false,
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("No suitable GPU adapter found: {}", e))?;
+
+        let (device, queue) = request_device(&adapter).await?;
+
+        const HEADLESS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+        Self::from_gpu(
+            instance,
+            adapter,
+            device,
+            queue,
+            Vec::new(),
+            HEADLESS_FORMAT,
+            state,
+            show_lyrics_tx,
+        )
+        .await
+    }
+
+    /// Shared setup once a device/queue and render-target format are in
+    /// hand: pipelines, subsystems, and the initial background load - the
+    /// same regardless of whether the caller has real Wayland surfaces
+    /// (`new`) or none at all (`new_headless`).
+    #[allow(clippy::too_many_arguments)]
+    async fn from_gpu(
+        instance: wgpu::Instance,
+        adapter: wgpu::Adapter,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        outputs: Vec<GpuOutput>,
+        config_format: wgpu::TextureFormat,
+        state: AppState,
+        show_lyrics_tx: tokio::sync::watch::Sender<bool>,
+    ) -> Result<Self> {
+        // .max(1) mirrors Config::sanitise: fps = 0 would panic in
+        // Duration::from_secs_f64(inf) below.
+        let fps = state.config.fps.max(1);
+        let current_fps = fps;
 
         // --- Visualiser Pipeline Setup ---
         let visualiser_pass = VisualiserPass::new(
