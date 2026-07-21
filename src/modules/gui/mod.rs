@@ -80,6 +80,23 @@ struct SettingsApp {
     /// a DebouncedSave only writes to disk if its generation is still the
     /// newest (i.e. the slider settled for the full window).
     save_generation: u64,
+    /// Which theme the Packs page's Export button bundles up.
+    pack_export_theme: Option<String>,
+    /// A dropped pack that bundles a custom shader, waiting on the user to
+    /// review its source and either confirm or cancel via `fn dialog()`.
+    /// Nothing from it is written to disk until confirmed.
+    pending_pack_import: Option<PendingPackImport>,
+}
+
+/// A parsed `.cwtheme` pack whose shader hasn't been reviewed yet - see
+/// `Message::ConfirmPackImport`/`CancelPackImport`.
+struct PendingPackImport {
+    name: String,
+    theme_toml: String,
+    /// (file name, bytes)
+    background: Option<(String, Vec<u8>)>,
+    /// (file name, bytes)
+    shader: (String, Vec<u8>),
 }
 
 /// Pre-rendered wallpaper snapshots for the Wallpaper page: a wide 3:1
@@ -123,6 +140,7 @@ enum Page {
     Wallpaper,
     LiveWallpapers,
     Themes,
+    Packs,
     NowPlaying,
     Visualiser,
     Weather,
@@ -235,6 +253,113 @@ impl SettingsApp {
             self.engine_failure = engine_autostart_failure();
         }
     }
+
+    /// Bundles `name`'s layout - plus the currently-configured background
+    /// video and/or custom visualiser shader, when set - into a `.cwtheme`
+    /// file under `library::packs_dir()`, de-duplicating with a numeric
+    /// suffix. Returns the written path.
+    fn export_pack(&self, name: &str) -> anyhow::Result<std::path::PathBuf> {
+        let bytes = build_pack_bytes(
+            name,
+            self.wp_config.appearance.video_background_path.as_deref(),
+        )?;
+
+        let dir = library::packs_dir();
+        std::fs::create_dir_all(&dir)?;
+        let mut path = dir.join(format!("{name}.cwtheme"));
+        let mut n = 1;
+        while path.exists() {
+            path = dir.join(format!("{name}-{n}.cwtheme"));
+            n += 1;
+        }
+        std::fs::write(&path, &bytes)?;
+        Ok(path)
+    }
+
+    /// Writes an imported pack's theme (and, when present, its background
+    /// video and/or shader) to disk, then selects it - the shared tail end
+    /// of both the no-shader-review import path and `ConfirmPackImport`.
+    fn finalize_pack_import(
+        &mut self,
+        name: &str,
+        theme_toml: &str,
+        background: Option<(String, Vec<u8>)>,
+        shader: Option<(String, Vec<u8>)>,
+    ) -> Result<(), String> {
+        write_pack_to_disk(name, theme_toml, background, shader)?;
+        self.selected_theme = Some(name.to_string());
+        self.load_edit_theme();
+        Ok(())
+    }
+}
+
+/// Reads `name`'s layout plus (when set) `video_background_path`'s bytes
+/// from the video library and the visualiser's custom shader bytes from the
+/// shaders dir, and packs them into a `.cwtheme` archive's raw bytes. A free
+/// function (rather than a `SettingsApp` method) so it's testable without a
+/// live `Core`.
+fn build_pack_bytes(name: &str, video_background_path: Option<&str>) -> anyhow::Result<Vec<u8>> {
+    let layout = config::ThemeLayout::load(name);
+    let theme_toml = toml::to_string_pretty(&layout)?;
+
+    let background = video_background_path.and_then(|file| {
+        let bytes = std::fs::read(library::videos_dir().join(file)).ok()?;
+        Some((file.to_string(), bytes))
+    });
+    let shader = layout.visualiser.shader.as_ref().and_then(|file| {
+        let file_name = std::path::Path::new(file)
+            .file_name()?
+            .to_str()?
+            .to_string();
+        let bytes = std::fs::read(
+            config::Config::config_dir()
+                .join("shaders")
+                .join(&file_name),
+        )
+        .ok()?;
+        Some((file_name, bytes))
+    });
+
+    let contents = config::pack::PackContents {
+        name: name.to_string(),
+        theme_toml,
+        background,
+        shader,
+    };
+    config::pack::build(&contents)
+}
+
+/// Writes a parsed pack's theme (and, when present, its background video
+/// and/or shader) to disk. A background video already present in the
+/// library is left alone rather than overwritten. A free function (rather
+/// than a `SettingsApp` method) so it's testable without a live `Core`.
+fn write_pack_to_disk(
+    name: &str,
+    theme_toml: &str,
+    background: Option<(String, Vec<u8>)>,
+    shader: Option<(String, Vec<u8>)>,
+) -> Result<(), String> {
+    let rel = format!("shaders/{name}.toml");
+    if !is_safe_path(&rel) {
+        return Err(format!("unsafe theme name '{name}'"));
+    }
+    let shaders_dir = config::Config::config_dir().join("shaders");
+    std::fs::create_dir_all(&shaders_dir).map_err(|e| e.to_string())?;
+    std::fs::write(shaders_dir.join(format!("{name}.toml")), theme_toml)
+        .map_err(|e| e.to_string())?;
+
+    if let Some((file, bytes)) = background {
+        let dir = library::videos_dir();
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let dest = dir.join(&file);
+        if !dest.exists() {
+            std::fs::write(&dest, bytes).map_err(|e| e.to_string())?;
+        }
+    }
+    if let Some((file, bytes)) = shader {
+        std::fs::write(shaders_dir.join(&file), bytes).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// The file `Create Theme` writes: the complete default layout with every
@@ -1014,6 +1139,16 @@ enum Message {
     OpenUpdateLink,
     OpenConfigFolder,
     OpenVideosFolder,
+    /// Index into `available_themes`, for the Packs page's export picker.
+    PackExportThemeSelected(usize),
+    ExportPack,
+    OpenPacksFolder,
+    /// `.cwtheme` files dropped onto the Packs page.
+    PackFilesDropped(Option<library::DroppedFiles>),
+    /// "Enable anyway" on the custom-shader review dialog.
+    ConfirmPackImport,
+    /// "Cancel" on the custom-shader review dialog - nothing was written.
+    CancelPackImport,
 }
 
 impl Application for SettingsApp {
@@ -1072,6 +1207,11 @@ impl Application for SettingsApp {
                     .data(Page::Themes)
             })
             .insert(|b| {
+                b.text("Packs")
+                    .icon(icon::from_name("package-x-generic-symbolic"))
+                    .data(Page::Packs)
+            })
+            .insert(|b| {
                 b.text("Now Playing")
                     .icon(icon::from_name("emblem-music-symbolic"))
                     .data(Page::NowPlaying)
@@ -1104,6 +1244,7 @@ impl Application for SettingsApp {
         } else {
             engine_autostart_failure()
         };
+        let pack_export_theme = selected_theme.clone();
 
         (
             SettingsApp {
@@ -1141,6 +1282,8 @@ impl Application for SettingsApp {
                 // hasn't necessarily finished yet. Refreshed for real the
                 // first time the user visits General, by which point it has.
                 launcher_issue: None,
+                pack_export_theme,
+                pending_pack_import: None,
                 wp_config,
                 save_generation: 0,
             },
@@ -1734,11 +1877,169 @@ impl Application for SettingsApp {
                     self.status_msg = "Failed to open folder: xdg-open not found".into();
                 }
             }
+            Message::PackExportThemeSelected(idx) => {
+                self.pack_export_theme = self.available_themes.get(idx).cloned();
+            }
+            Message::ExportPack => {
+                let Some(name) = self.pack_export_theme.clone() else {
+                    self.status_msg = "Select a theme to export.".into();
+                    return Task::none();
+                };
+                match self.export_pack(&name) {
+                    Ok(path) => {
+                        self.status_msg = format!("Exported pack to {}", path.display());
+                    }
+                    Err(e) => {
+                        self.status_msg = format!("Error exporting pack: {e}");
+                    }
+                }
+            }
+            Message::OpenPacksFolder => {
+                let dir = library::packs_dir();
+                let _ = std::fs::create_dir_all(&dir);
+                if let Some(xdg_open) = resolve_binary("xdg-open") {
+                    let _ = std::process::Command::new(xdg_open).arg(dir).spawn();
+                } else {
+                    tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
+                    self.status_msg = "Failed to open folder: xdg-open not found".into();
+                }
+            }
+            Message::PackFilesDropped(files) => {
+                self.drop_hover = false;
+                let paths = files.map(|f| f.0).unwrap_or_default();
+                let mut imported = 0;
+                let mut messages: Vec<String> = Vec::new();
+                for path in paths
+                    .iter()
+                    .filter(|p| p.extension().is_some_and(|e| e == "cwtheme"))
+                {
+                    let Ok(bytes) = std::fs::read(path) else {
+                        messages.push("Could not read a dropped file.".into());
+                        continue;
+                    };
+                    match config::pack::parse(&bytes) {
+                        Ok(parsed) => {
+                            let background = parsed.background.filter(|(name, _)| {
+                                library::is_video_file(std::path::Path::new(name))
+                            });
+                            if let Some(shader) = parsed.shader {
+                                if self.pending_pack_import.is_some() {
+                                    messages.push(format!(
+                                        "Skipped '{}' - import one shader pack at a time.",
+                                        parsed.name
+                                    ));
+                                    continue;
+                                }
+                                self.pending_pack_import = Some(PendingPackImport {
+                                    name: parsed.name,
+                                    theme_toml: parsed.theme_toml,
+                                    background,
+                                    shader,
+                                });
+                            } else {
+                                match self.finalize_pack_import(
+                                    &parsed.name,
+                                    &parsed.theme_toml,
+                                    background,
+                                    None,
+                                ) {
+                                    Ok(()) => imported += 1,
+                                    Err(e) => messages.push(format!("'{}': {}", parsed.name, e)),
+                                }
+                            }
+                        }
+                        Err(e) => messages.push(format!("Not a valid pack: {e}")),
+                    }
+                }
+                if imported > 0 {
+                    self.available_themes = load_themes();
+                    messages.insert(
+                        0,
+                        format!(
+                            "Imported {imported} pack{}.",
+                            if imported == 1 { "" } else { "s" }
+                        ),
+                    );
+                }
+                if self.pending_pack_import.is_some() {
+                    messages.push("A pack includes a custom shader - review it above.".into());
+                }
+                if !messages.is_empty() {
+                    self.status_msg = messages.join(" ");
+                } else if self.status_msg.starts_with("Ready") {
+                    self.status_msg = "Nothing imported - drop .cwtheme pack files.".into();
+                }
+            }
+            Message::ConfirmPackImport => {
+                if let Some(pending) = self.pending_pack_import.take() {
+                    let name = pending.name.clone();
+                    let has_video = pending.background.is_some();
+                    match self.finalize_pack_import(
+                        &pending.name,
+                        &pending.theme_toml,
+                        pending.background,
+                        Some(pending.shader),
+                    ) {
+                        Ok(()) => {
+                            self.available_themes = load_themes();
+                            let detail = if has_video {
+                                "with video and a custom shader"
+                            } else {
+                                "with a custom shader"
+                            };
+                            self.status_msg = format!("Imported pack '{name}' ({detail}).");
+                        }
+                        Err(e) => {
+                            self.status_msg = format!("Error importing pack: {e}");
+                        }
+                    }
+                }
+            }
+            Message::CancelPackImport => {
+                self.pending_pack_import = None;
+                self.status_msg = "Cancelled - nothing was imported.".into();
+            }
         }
         Task::none()
     }
 
     fn view(&self) -> cosmic::Element<'_, Self::Message> {
         view::view_app(self)
+    }
+
+    /// A pending shader-bearing pack import blocks on this native modal: the
+    /// bundled `.wgsl` is arbitrary GPU code from a stranger, so nothing
+    /// from the pack is written to disk until the user has actually looked
+    /// at the source and clicked through.
+    fn dialog(&self) -> Option<cosmic::Element<'_, Self::Message>> {
+        let pending = self.pending_pack_import.as_ref()?;
+        let (shader_file, shader_bytes) = &pending.shader;
+        let shader_source = String::from_utf8_lossy(shader_bytes).into_owned();
+        let body = format!(
+            "The pack '{}' includes a custom visualiser shader ({}). Review the source below - \
+             it runs as GPU code with no sandboxing beyond this check.",
+            pending.name, shader_file
+        );
+        Some(
+            cosmic::widget::dialog()
+                .title("This pack includes a custom shader")
+                .body(body)
+                .control(
+                    cosmic::iced::widget::scrollable(
+                        cosmic::widget::text::monotext(shader_source)
+                            .size(11)
+                            .width(cosmic::iced::Length::Fill),
+                    )
+                    .height(cosmic::iced::Length::Fixed(240.0)),
+                )
+                .secondary_action(
+                    cosmic::widget::button::standard("Cancel").on_press(Message::CancelPackImport),
+                )
+                .primary_action(
+                    cosmic::widget::button::destructive("Enable anyway")
+                        .on_press(Message::ConfirmPackImport),
+                )
+                .into(),
+        )
     }
 }

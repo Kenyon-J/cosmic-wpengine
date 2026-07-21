@@ -1,3 +1,4 @@
+pub mod pack;
 pub mod types;
 pub use types::*;
 mod tests;

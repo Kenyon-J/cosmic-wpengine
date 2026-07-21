@@ -67,6 +67,11 @@ libc = "0.2"
 # Verifies the minisign signature on release SHA256SUMS before the updater
 # trusts any hash in it. Pure-Rust, verification-only.
 minisign-verify = "0.2"
+# Theme packs (.cwtheme): a plain gzipped tar, deliberately not a bespoke
+# container, so a pack can be inspected with the standard `tar` CLI before
+# ever being pointed at by this app. Both pure-Rust, no new toolchain need.
+tar = "0.4"
+flate2 = "1"
 
 # Upstream's native-build path unconditionally passes -march=native
 # -mtune=native to FFmpeg's configure, baking in whatever SIMD extensions the

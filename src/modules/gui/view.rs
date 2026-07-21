@@ -27,6 +27,7 @@ pub(crate) fn view_app(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         Page::Wallpaper => wallpaper(app),
         Page::LiveWallpapers => live_wallpapers(app),
         Page::Themes => themes(app),
+        Page::Packs => packs(app),
         Page::NowPlaying => now_playing(app),
         Page::Visualiser => visualiser(app),
         Page::Weather => weather(app),
@@ -859,6 +860,65 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     cosmic::widget::dnd_destination::dnd_destination_for_data(
         content,
         |data: Option<super::library::DroppedFiles>, _action| Message::ThemeFilesDropped(data),
+    )
+    .into()
+}
+
+// ------------------------------------------------------------------- Packs
+
+fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    let export_selected = app
+        .pack_export_theme
+        .as_ref()
+        .and_then(|t| app.available_themes.iter().position(|name| name == t));
+
+    let sections = vec![
+        settings::section()
+            .title("Export")
+            .add(
+                settings::item::builder("Theme to bundle")
+                    .description(
+                        "Packs the theme's layout with your current background video and \
+                         custom visualiser shader, if either is set.",
+                    )
+                    .control(
+                        Row::new()
+                            .push(dropdown(
+                                &app.available_themes[..],
+                                export_selected,
+                                Message::PackExportThemeSelected,
+                            ))
+                            .push(button::suggested("Export Pack").on_press(Message::ExportPack))
+                            .spacing(8)
+                            .align_y(cosmic::iced::Alignment::Center),
+                    ),
+            )
+            .add(
+                settings::item::builder("Packs folder")
+                    .description(
+                        "Exported .cwtheme files land in ~/.config/cosmic-wallpaper/packs.",
+                    )
+                    .control(button::standard("Open Folder").on_press(Message::OpenPacksFolder)),
+            )
+            .into(),
+        settings::item::builder("Import")
+            .description("Drop a .cwtheme file anywhere on this page to add it.")
+            .control(text::caption(
+                "A pack with a custom shader asks you to review it before it's enabled.",
+            ))
+            .into(),
+    ];
+
+    let content = page(
+        app,
+        "Packs",
+        "Share a full look - layout, background video, and a custom visualiser shader - as one file.",
+        sections,
+    );
+
+    cosmic::widget::dnd_destination::dnd_destination_for_data(
+        content,
+        |data: Option<super::library::DroppedFiles>, _action| Message::PackFilesDropped(data),
     )
     .into()
 }

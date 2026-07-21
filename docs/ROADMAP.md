@@ -154,13 +154,30 @@ the desktop itself is the theme editor's preview. Approved direction
    Start/Stop button (gap found 2026-07-18: GUI had no way to restart a
    quit engine).
 
-## 1.3 candidate — theme packs (bundle sharing)
+## Theme packs (bundle sharing) — SHIPPED 2026-07-21
 
-Extend the 1.2 Themes Release's "Import Theme" / gallery model from a bare
-layout TOML into a full pack: background image/video, visualiser settings,
-and (optionally) a custom `.wgsl` shader, bundled so a pack works like a
+Extends the 1.2 Themes Release's "Import Theme" / gallery model from a bare
+layout TOML into a full pack: background video, visualiser layout, and
+(optionally) a custom `.wgsl` shader, bundled so a pack works like a
 Wallpaper Engine workshop item — one file to install a whole look. Idea
-from Joshua 2026-07-21; agreed direction, not yet scheduled/planned.
+from Joshua 2026-07-21; built the same day, full shader support from the
+start (see the correction below on why no staging was needed).
+
+Lives on its own **Packs** page (Joshua asked for this mid-implementation
+rather than folding it into Layout Themes, to keep that page from getting
+cluttered) with an Export section (pick a theme, `Export Pack` writes
+`~/.config/cosmic-wallpaper/packs/<name>.cwtheme`) and an Import drop
+zone. `src/modules/config/pack.rs` holds the format: `PackManifest`/
+`PackContents`/`ParsedPack`, `build()`/`parse()`. A pack with a shader
+routes through `pending_pack_import` and `Application::dialog()` - a
+native modal showing the actual WGSL source with Cancel/"Enable anyway" -
+before anything is written; a pack without one imports immediately, same
+as a plain theme-file drop.
+
+One deviation from the original design notes below: the video is embedded
+directly (bytes in the archive) rather than left as a path/URL reference,
+since a self-contained one-file share was worth the size tradeoff for a
+first version.
 
 - **Format: plain tar, not a custom container.** A manifest TOML (reusing
   the existing `ThemeLayout` schema) plus the media file(s) alongside.
@@ -214,10 +231,9 @@ Net effect: custom-shader support for theme packs was **never actually
 blocked on the renderer decomposition** - that work was valuable in its own
 right (see above) but ran on a separate code path from
 `visualiser_pass.rs`, which the decomposition didn't touch. The only
-genuinely new work theme packs still needs on the shader front is the
-import-flow UX (the `custom_shader` manifest flag + "review before
-enabling" prompt below) - the loading mechanism it hangs off of already
-exists and is already hardened.
+genuinely new work theme packs needed on the shader front was the
+import-flow UX (the review-before-enabling prompt) - the loading mechanism
+it hangs off of already existed and was already hardened.
 
 ## Known upstream issue — libcosmic's ColorPickerModel (pinned rev 6359a94)
 

@@ -257,3 +257,111 @@ fn reset_theme_element_ignores_out_of_range_index() {
     let after = toml::to_string_pretty(&layout).unwrap();
     assert_eq!(before, after);
 }
+
+// ------------------------------------------------------------------ Packs
+
+/// Full export-then-import round trip: `build_pack_bytes` reads a theme's
+/// video and shader off disk into a pack, `config::pack::parse` recovers
+/// them, and `write_pack_to_disk` lands them back in the same folders a
+/// plain (non-pack) theme drop or a video import would use.
+#[test]
+fn export_then_import_round_trip_recovers_theme_video_and_shader() {
+    let _guard = crate::tests::ENV_MUTEX.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let prev = std::env::var("XDG_CONFIG_HOME").ok();
+    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+
+    {
+        let shaders_dir = cosmic_wallpaper::modules::config::Config::config_dir().join("shaders");
+        std::fs::create_dir_all(&shaders_dir).unwrap();
+        let mut layout = cosmic_wallpaper::modules::config::ThemeLayout::load("my-look");
+        layout.visualiser.shader = Some("cool.wgsl".to_string());
+        std::fs::write(
+            shaders_dir.join("my-look.toml"),
+            toml::to_string_pretty(&layout).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(shaders_dir.join("cool.wgsl"), b"// a custom shader").unwrap();
+
+        let videos_dir = super::library::videos_dir();
+        std::fs::create_dir_all(&videos_dir).unwrap();
+        std::fs::write(videos_dir.join("clip.mp4"), b"fake video bytes").unwrap();
+
+        let bytes = super::build_pack_bytes("my-look", Some("clip.mp4")).unwrap();
+        let parsed = cosmic_wallpaper::modules::config::pack::parse(&bytes).unwrap();
+
+        assert_eq!(parsed.name, "my-look");
+        assert_eq!(
+            parsed.background.as_ref().map(|(f, _)| f.as_str()),
+            Some("clip.mp4")
+        );
+        assert_eq!(
+            parsed.shader.as_ref().map(|(f, _)| f.as_str()),
+            Some("cool.wgsl")
+        );
+
+        // Import into a clean folder (as if a different machine).
+        std::fs::remove_file(shaders_dir.join("my-look.toml")).unwrap();
+        std::fs::remove_file(shaders_dir.join("cool.wgsl")).unwrap();
+        std::fs::remove_file(videos_dir.join("clip.mp4")).unwrap();
+
+        super::write_pack_to_disk(
+            &parsed.name,
+            &parsed.theme_toml,
+            parsed.background.clone(),
+            parsed.shader.clone(),
+        )
+        .unwrap();
+
+        assert!(shaders_dir.join("my-look.toml").exists());
+        assert_eq!(
+            std::fs::read(shaders_dir.join("cool.wgsl")).unwrap(),
+            b"// a custom shader"
+        );
+        assert_eq!(
+            std::fs::read(videos_dir.join("clip.mp4")).unwrap(),
+            b"fake video bytes"
+        );
+    }
+
+    match prev {
+        Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
+}
+
+/// `write_pack_to_disk` must refuse a pack whose theme name would escape
+/// the shaders directory, the same guard `is_safe_path` gives every other
+/// disk-writing entry point in this file.
+#[test]
+fn write_pack_to_disk_rejects_a_path_traversing_theme_name() {
+    let _guard = crate::tests::ENV_MUTEX.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let prev = std::env::var("XDG_CONFIG_HOME").ok();
+    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+
+    let result = super::write_pack_to_disk("../../evil", "font_family = \"x\"", None, None);
+
+    match prev {
+        Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
+    assert!(result.is_err());
+}
+
+/// A background entry that isn't actually a video file must be dropped
+/// rather than imported - this is the GUI's job (not `config::pack::parse`,
+/// which has no notion of what a video is), exercised the same way
+/// `Message::PackFilesDropped`'s handler applies the filter.
+#[test]
+fn a_non_video_background_entry_is_filtered_out_before_writing() {
+    let background = Some(("notes.txt".to_string(), b"not a video".to_vec()));
+    let filtered =
+        background.filter(|(name, _)| super::library::is_video_file(std::path::Path::new(name)));
+    assert!(filtered.is_none());
+
+    let background = Some(("clip.mp4".to_string(), b"fake video bytes".to_vec()));
+    let filtered =
+        background.filter(|(name, _)| super::library::is_video_file(std::path::Path::new(name)));
+    assert!(filtered.is_some());
+}

@@ -28,6 +28,12 @@ pub(crate) fn videos_dir() -> PathBuf {
     Config::config_dir().join("videos")
 }
 
+/// Where exported `.cwtheme` packs are written - mirrors the `videos`/
+/// `shaders` folder convention.
+pub(crate) fn packs_dir() -> PathBuf {
+    Config::config_dir().join("packs")
+}
+
 fn thumbs_dir() -> PathBuf {
     videos_dir().join(".thumbs")
 }

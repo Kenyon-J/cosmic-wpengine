@@ -80,6 +80,26 @@ Leave the colours unset and the bars follow each track's album palette.
 | --- | --- | --- |
 | `font_family` | *(system)* | Font for this theme's text; the user's global font setting wins when set |
 
+## Sharing a look as a pack
+
+A theme file alone is just the layout. If you've also set a background
+video or a custom `shader`, Settings → Packs bundles the whole look -
+layout, video and shader - into one `.cwtheme` file, the way a Wallpaper
+Engine workshop item bundles everything a wallpaper needs.
+
+- **Export**: pick a theme and click *Export Pack*. The file lands in
+  `~/.config/cosmic-wallpaper/packs/`.
+- **Import**: drop a `.cwtheme` file onto the Packs page. A pack with no
+  custom shader imports immediately, same as a plain theme file. A pack
+  that *does* include a shader stops first and shows you the actual WGSL
+  source - a bundled shader is arbitrary GPU code from whoever made the
+  pack, so nothing is written to disk until you've looked at it and
+  clicked "Enable anyway".
+
+A `.cwtheme` is a plain gzipped tar - `tar tzf` (or an archive manager)
+opens it like any other, so you can inspect a pack, including reading its
+shader, before ever pointing this app at it.
+
 ## Examples
 
 Ready-made themes live in [`themes/`](../themes/) in the repository — copy
