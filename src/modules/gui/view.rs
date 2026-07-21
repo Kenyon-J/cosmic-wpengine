@@ -827,18 +827,48 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .add(
                 settings::item::builder("Create new theme")
                     .description("Starts from a fully-commented template layout.")
-                    .control(
+                    .control({
+                        let name = app.new_theme_name.trim();
+                        let is_empty = name.is_empty();
+                        let already_exists = app.available_themes.iter().any(|t| t == name);
+
+                        let mut name_input = text_input("Theme name", &app.new_theme_name)
+                            .on_input(Message::NewThemeNameChanged)
+                            .width(Length::Fixed(180.0));
+
+                        let mut create_btn = button::standard("Create");
+
+                        let tooltip_msg = if is_empty {
+                            Some("Theme name cannot be empty")
+                        } else if already_exists {
+                            Some("A theme with this name already exists")
+                        } else {
+                            None
+                        };
+
+                        if tooltip_msg.is_none() {
+                            name_input = name_input.on_submit(|_| Message::CreateTheme);
+                            create_btn = create_btn.on_press(Message::CreateTheme);
+                        }
+
+                        let create_control: cosmic::Element<'_, Message> =
+                            if let Some(msg) = tooltip_msg {
+                                cosmic::iced::widget::tooltip(
+                                    create_btn,
+                                    msg,
+                                    cosmic::iced::widget::tooltip::Position::Top,
+                                )
+                                .into()
+                            } else {
+                                create_btn.into()
+                            };
+
                         Row::new()
-                            .push(
-                                text_input("Theme name", &app.new_theme_name)
-                                    .on_input(Message::NewThemeNameChanged)
-                                    .on_submit(|_| Message::CreateTheme)
-                                    .width(Length::Fixed(180.0)),
-                            )
-                            .push(button::standard("Create").on_press(Message::CreateTheme))
+                            .push(name_input)
+                            .push(create_control)
                             .spacing(8)
-                            .align_y(cosmic::iced::Alignment::Center),
-                    ),
+                            .align_y(cosmic::iced::Alignment::Center)
+                    }),
             )
             .add(
                 settings::item::builder("Import")
