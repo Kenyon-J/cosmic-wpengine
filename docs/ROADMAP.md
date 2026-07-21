@@ -33,79 +33,23 @@ confirmed absent on this project's own dev machine).
 
 ## Renderer decomposition (done — see PLAN-renderer-decomposition.md)
 
-The ~100-field `Renderer` + ~850-line `draw_frame` split (Phase 9 of
-[PLAN-v1-hardening.md](PLAN-v1-hardening.md)). Graduated to
-[PLAN-renderer-decomposition.md](PLAN-renderer-decomposition.md) 2026-07-19:
-five phases, frame-capture harness in phase 4, each phase one green commit.
+The ~100-field `Renderer` + ~850-line `draw_frame` split into five phases
+(`FrameParams`, `AudioAnalysis`, `ArtLayer`/`BackgroundLayer`, a headless
+render-target + offscreen `--render-frame` harness, and a `TextSubsystem`
+carved out of the per-output loop) — all landed 2026-07-19/21, each phase
+pixel-verified via the harness against its own before/after baseline. Full
+phase-by-phase history is in the git log and
+[PLAN-renderer-decomposition.md](PLAN-renderer-decomposition.md); the one
+thing not fully hit was the plan's line-count target (`draw.rs` landed at
+655 lines against a ~300 target - `write_frame_uniforms` in particular is
+still ~170 lines and could be split further per buffer kind, fair game for
+a future pass on its own).
 
-Phases 1 (`FrameParams`, `825c108`) and 2 (`AudioAnalysis`, `899979b`)
-shipped right after v1.2.2. Phase 3 (`ArtLayer`/`BackgroundLayer`, `96c7d65`)
-landed 2026-07-21: both album-art and custom-background
-texture/blur-chain/bind-group state moved off the `Renderer` god-struct into
-their own structs, each with `set_texture()` as the sole way to install a new
-source texture — the private-constructor invariant the plan called for, so
-the 2026-07-19 stale-blur-chain bug class can't recur structurally. Verified
-with `cargo fmt`/`clippy -D warnings`/`test` (all green) plus a live smoke
-test on the real desktop (real MPRIS track, album art, lyrics, visualiser,
-weather all rendering correctly - no offscreen harness exists yet, so this
-was eyeballed via `cosmic-screenshot`, not a pixel diff).
-
-Phase 4 (render-target abstraction + offscreen harness) landed 2026-07-21:
-`draw.rs`'s per-output loop body is now two standalone functions -
-`write_frame_uniforms()` and `encode_frame()` - taking individual GPU
-resources and a bare `&wgpu::TextureView`/`(width, height)` instead of
-`&Renderer` and a live surface (same borrow-checker reason as
-`prepare_text_buffer`: the per-output loop already holds `renderer.outputs`
-mutably borrowed via its iterator). `Renderer::new_headless()` builds a
-renderer with no Wayland surfaces at all (adapter requested with no
-`compatible_surface`, a fixed render-target format); the new hidden
-`--render-frame <out.png> [--compare <baseline.png>]` engine flag
-(`modules::renderer::render_frame_to_png`, `renderer/harness.rs`) uses it to
-render one frame against a fixed synthetic scene (a known track with a
-synthetic checkerboard album art, a fixed audio spectrum) and writes it to a
-PNG, diffing against a baseline when `--compare` is given
-(mean-absolute-difference per channel, matching the live-verification
-threshold this replaces). Verified for real: the harness's own rendered PNG
-shows the expected scene (checkerboard art + visualiser bars over the
-ambient sky - text isn't drawn yet, since `TextRenderer::prepare_text` is
-still only called from the live per-output loop), a self-compare passes
-(mean 0.0000/255), and a compare against a deliberately-different image
-fails with a nonzero exit code - plus `fmt`/`clippy`/`test` all green and a
-live smoke test on the real desktop.
-
-Phase 5 (split the per-output loop) landed 2026-07-21, completing the plan:
-text shaping/caching/rendering state (`font_system`, `swash_cache`,
-`text_renderer`, the buffer cache, and the pending-buffers list) is now its
-own `TextSubsystem` (new `core/text_subsystem.rs`), replacing
-`prepare_text_buffer`'s three-separate-fields workaround with `&mut
-TextSubsystem` as the plan called for. The ~230-line lyric/track-info/
-weather shaping block that used to live inline in `draw_frame` is now
-`TextSubsystem::prepare()`; `draw_frame`'s per-output loop calls it
-alongside `write_frame_uniforms()`/`encode_frame()` rather than containing
-the logic itself. Verified the strongest way available: rendered a frame
-with the harness *before* this change, rendered again *after*, and
-`--compare`d them - mean 0.0000/255, zero pixels different - plus
-`fmt`/`clippy`/`test` all green and a live smoke test (steady operation
-through real MPRIS track changes, which exercise the exact code path
-feeding `TextSubsystem::prepare()`, though a visual screenshot of the text
-itself was blocked both attempts by occluding windows on the live desktop -
-worth a manual glance).
-
-Not fully hit: the plan's line-count targets (`draw.rs` under ~300 lines,
-no function over ~100). It landed at 655 lines - `draw_frame` itself is
-~330 and `write_frame_uniforms` ~170, both still above the ~100 target.
-Splitting `write_frame_uniforms` into per-buffer-kind functions
-(visualiser/album-art/background) would close most of that gap; not done
-here for risk/effort reasons given the architectural goals (borrow-checker-
-friendly decomposition, the offscreen harness, `TextSubsystem`) were already
-achieved and pixel-verified. Fair game for a future pass if it's worth
-doing on its own.
-
-With all five phases done, the renderer's own architecture no longer blocks
-anything on the "theme packs" roadmap below - though see the correction in
-that section: runtime shader loading turned out to already exist
-independently of this work, so it was never actually the blocker it was
-first thought to be.
+The harness (`modules::renderer::render_frame_to_png`, a hidden
+`--render-frame <out.png> [--compare <baseline.png>] [--style <name>]`
+engine flag) turned out to be broadly useful beyond this refactor - it's
+now the standard way to verify any renderer change without a live desktop
+session, and backed the theme-packs shader-loading investigation below.
 
 ## 1.2.x — first-run desktop integration (in progress)
 
@@ -154,86 +98,54 @@ the desktop itself is the theme editor's preview. Approved direction
    Start/Stop button (gap found 2026-07-18: GUI had no way to restart a
    quit engine).
 
-## Theme packs (bundle sharing) — SHIPPED 2026-07-21
+## Theme packs (bundle sharing) — SHIPPED v1.4.0
 
 Extends the 1.2 Themes Release's "Import Theme" / gallery model from a bare
 layout TOML into a full pack: background video, visualiser layout, and
 (optionally) a custom `.wgsl` shader, bundled so a pack works like a
 Wallpaper Engine workshop item — one file to install a whole look. Idea
-from Joshua 2026-07-21; built the same day, full shader support from the
-start (see the correction below on why no staging was needed).
+from Joshua 2026-07-21; built and hardened the same day.
 
-Lives on its own **Packs** page (Joshua asked for this mid-implementation
-rather than folding it into Layout Themes, to keep that page from getting
-cluttered) with an Export section (pick a theme, `Export Pack` writes
-`~/.config/cosmic-wallpaper/packs/<name>.cwtheme`) and an Import drop
-zone. `src/modules/config/pack.rs` holds the format: `PackManifest`/
-`PackContents`/`ParsedPack`, `build()`/`parse()`. A pack with a shader
-routes through `pending_pack_import` and `Application::dialog()` - a
-native modal showing the actual WGSL source with Cancel/"Enable anyway" -
-before anything is written; a pack without one imports immediately, same
-as a plain theme-file drop.
+Lives on its own **Packs** page (kept separate from Layout Themes so that
+page doesn't get cluttered), `src/modules/config/pack.rs` holds the
+format (`PackManifest`/`PackContents`/`ParsedPack`, `build()`/`parse()`):
 
-One deviation from the original design notes below: the video is embedded
-directly (bytes in the archive) rather than left as a path/URL reference,
-since a self-contained one-file share was worth the size tradeoff for a
-first version.
+- **Plain gzipped tar, extension `.cwtheme`.** Deliberately not a custom
+  container — `tar tzf` (or an archive manager) opens one like any other,
+  so a shader can be inspected before this app ever reads it.
+- **A custom shader gates on an explicit review.** A pack that bundles one
+  stashes everything in `pending_pack_import` and blocks on a native
+  `Application::dialog()` modal showing the actual WGSL source
+  (Cancel/"Enable anyway") before anything is written; a pack without one
+  imports immediately, same as a plain theme-file drop.
+- **Extensible by construction**, mirroring `ThemeLayout`'s own convention:
+  every table optional (`#[serde(default)]`, no `deny_unknown_fields`), so
+  a pack sharing one thing stays a two-line manifest and a future asset
+  kind is one new table plus one new match arm in extraction, not a format
+  redesign. `schema_version` gates the pack *format*; `app_version`
+  (the exporting build's version) rides along purely so a `theme.toml`
+  parse failure — e.g. a newer `VisShape` variant an older build has never
+  heard of — can name which version made the pack instead of surfacing a
+  bare TOML error.
+- **A "Your Packs" gallery** on the same page lists every import with a
+  one-click Apply (sets the layout and, if the pack bundled one, the
+  background video together) — added after the first cut left an
+  imported video's file copied to disk but otherwise inert.
+- **Collision-safe writes.** A theme, shader, or video sharing a file name
+  with an unrelated pack's asset lands under a numbered suffix instead of
+  silently overwriting it (or being silently shadowed by it); re-importing
+  a pack you already have (byte-identical content) is a no-op rather than
+  piling up duplicates.
+- **Video is embedded directly** (bytes in the archive), not left as a
+  path/URL reference — a self-contained one-file share was worth the size
+  tradeoff over a smaller-but-dependent pack.
 
-- **Format: plain tar, not a custom container.** A manifest TOML (reusing
-  the existing `ThemeLayout` schema) plus the media file(s) alongside.
-  Deliberately *not* obfuscated/compressed-only in a way that hides
-  contents — a plain tar means a user can `tar tf`/extract a pack outside
-  the engine and read the `.wgsl` before ever running it, which is the
-  whole point given the point below.
-- **Custom `.wgsl` is arbitrary GPU code from a stranger.** Packs
-  containing a shader must be flagged as such (manifest field, e.g.
-  `custom_shader = true`) and the import flow must surface an explicit
-  "this pack includes a custom shader — review it before enabling"
-  prompt rather than compiling and running it silently. No sandboxing
-  planned beyond that disclosure; the tar-not-hidden-container choice
-  above is what makes "review before enabling" actually actionable.
-- **Video weight**: consider letting the video be a reference
-  (path/URL) rather than mandatory embedded bytes, so packs that only
-  change layout/visualiser/shader stay small.
-- **Extensible by construction.** `pack.toml` follows `ThemeLayout`'s own
-  convention — every field/table optional, `#[serde(default)]` throughout —
-  so a pack sharing just one thing stays a two-line manifest. `schema_version`
-  is a floor, not a lock: the importer accepts anything at or below the
-  version it understands and only warns on packs newer than that, and
-  unknown fields/tables are ignored rather than rejected (no
-  `deny_unknown_fields`), so a future field doesn't break older builds and
-  an older pack never stops working. Archive extraction is driven by an
-  explicit match over manifest-declared entries (one arm per asset kind —
-  `background`, `shader`, ...), not a blind directory walk, so adding a new
-  bundlable asset later (fonts, a colour palette, per-monitor variants...)
-  is one new optional table plus one new match arm, not a format redesign.
-
-**Correction (2026-07-21, later the same day):** the "every shader is
-`include_str!`'d at compile time, no runtime loading exists" claim above
-was wrong. `VisualiserPass` (`src/modules/visualiser_pass.rs`) has loaded
-the visualiser shader from `ThemeLayout.visualiser.shader` at runtime since
-March 2026 (`8ec4a2c` onward) - reads `shaders/<name>.wgsl` (path-traversal
-hardened, `e3fefff`/`fec5e11`), falls back to the compiled-in default on a
-missing file or a wgpu validation failure (never crashes on bad WGSL,
-logs and keeps the previous/default pipeline instead), and `reload()`
-already hot-swaps it on a live theme edit. Documented all along in
-`docs/THEMES.md`'s `shader` field and the theme template's commented-out
-`# shader = "my_custom_shader.wgsl"` line - missed during the original
-investigation, which only checked `pipelines.rs` (album art/ambient/weather,
-still compile-time-only) and never looked at `visualiser_pass.rs`.
-Re-verified today with the offscreen harness's new `--style <name>` flag:
-pointed a scratch theme at a deliberately-obvious custom shader (solid
-magenta fill) and got exactly that back in the render; pointed another at
-deliberately-invalid WGSL and got the logged validation error plus a clean
-fallback to the default shader, no crash.
-
-Net effect: custom-shader support for theme packs was **never actually
-blocked on the renderer decomposition** - that work was valuable in its own
-right (see above) but ran on a separate code path from
-`visualiser_pass.rs`, which the decomposition didn't touch. The only
-genuinely new work theme packs needed on the shader front was the
-import-flow UX (the review-before-enabling prompt) - the loading mechanism
-it hangs off of already existed and was already hardened.
+Runtime shader loading (`src/modules/visualiser_pass.rs`, reads
+`ThemeLayout.visualiser.shader` at runtime, path-traversal hardened, falls
+back cleanly on a bad/missing shader) turned out to already exist since
+March 2026 — the renderer decomposition above was valuable in its own
+right but was never actually a prerequisite for this feature, since it
+ran on a separate code path the decomposition didn't touch.
 
 ## Known upstream issue — libcosmic's ColorPickerModel (pinned rev 6359a94)
 
@@ -282,29 +194,49 @@ further (~80-100 user-facing strings as of 1.2):
 - Out of scope: docs/THEMES.md and release notes; RTL layout mirroring is
   an upstream iced limitation
 
-## Visualiser bar polish
+## 1.4.1 candidate — WGSL shader pass
 
-One coherent visual pass over the bars (deferred 2026-07-18 - they still
-look good, so no urgency):
+The shaders (`visualiser.wgsl` especially) are the least-revisited part of
+the codebase and it's starting to show. Triggered by a bug hunt
+2026-07-21 that found "Square" (a real `VisShape` variant, selectable in
+the theme editor) silently rendering as an oversized circular ring - the
+shader only ever branches on `shape == 1u` (Linear) vs. an "else"
+catch-all it built for Circular, so Square was never actually
+implemented. Hidden from the picker in v1.4.0 rather than shipped broken
+(see the Theme packs section above); this is where it gets a real fix.
 
-- Capsule SDF with smoothstep edges: rounded caps plus real anti-aliasing
-  (`eval_shape` in visualiser.wgsl currently hard-cuts at the bar edge)
-- Mirror reflection below the baseline ("glass floor", fits the frosted
-  identity)
-- Glow scaled by the bar's own band energy, not just `lyric_pulse`
-- Peak-hold caps that fall with gravity (needs a per-band peak array
-  alongside the existing smoothed bands)
-- Expose bar width ratio (hardcoded 0.85), cap radius, reflection, and an
-  LED/segmented mode as `ThemeLayout` options so themes opt in
+- **Implement `VisShape::Square` properly** - bars around a square
+  perimeter, following the same instanced-bar approach `eval_shape`/
+  `eval_shadow` already use for Linear/Circular, verified pixel-by-pixel
+  with the offscreen harness's `--style` flag before re-enabling the
+  picker option.
+- **Fix the known formatting issues** Joshua has already flagged in the
+  `.wgsl` source (not yet catalogued in this doc - pull the specifics from
+  him when this starts).
+- Fold in the deferred visual-polish pass while the file is open anyway
+  (no urgency on these individually, but cheap to bundle):
+  - Capsule SDF with smoothstep edges: rounded caps plus real
+    anti-aliasing (`eval_shape` currently hard-cuts at the bar edge)
+  - Mirror reflection below the baseline ("glass floor", fits the frosted
+    identity)
+  - Glow scaled by the bar's own band energy, not just `lyric_pulse`
+  - Peak-hold caps that fall with gravity (needs a per-band peak array
+    alongside the existing smoothed bands)
+  - Expose bar width ratio (hardcoded 0.85), cap radius, reflection, and
+    an LED/segmented mode as `ThemeLayout` options so themes opt in
 
 ## Unscheduled ideas
 
 - Interactive mouse-reactive wallpaper effects
 - Plugin API for custom data sources
-- Weather widget position/font/style customization (today `ThemeLayout.weather`
-  is a plain `TextLayout` — no independent font override) plus new widgets
-  beyond the current five, starting with a Time widget (2026-07-21, likely
-  sooner than the item below)
+- **Editable widgets** (2026-07-21, next up after the WGSL pass): Weather
+  widget position/font/style customization (today `ThemeLayout.weather` is
+  a plain `TextLayout` — no independent font override); new widgets beyond
+  the current five, starting with a Time widget; further out, custom
+  widgets backed by arbitrary data sources (webhooks?) — floated but not
+  designed, main open question is how a widget ships/bundles at all (a
+  `.toml` "scene" file akin to today's theme packs, selectable like a
+  theme, is the leading idea)
 - Rudimentary scene builder: visual z-ordering so elements (visualiser bars,
   other objects) can be layered/hidden behind one another (2026-07-21,
   explicitly far off — not to be designed for yet, just not foreclosed)
