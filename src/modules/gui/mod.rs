@@ -125,7 +125,8 @@ enum ThemeEditMsg {
     Rotation(f32),
     Amplitude(f32),
     /// Index into the element's shape options (art: square/circular;
-    /// visualiser: linear/circular/square).
+    /// visualiser: linear/circular - "square" is a real `VisShape` variant
+    /// but not offered here; see `VIS_SHAPES`'s doc comment).
     Shape(usize),
     /// Index into left/center/right.
     Align(usize),
@@ -476,7 +477,7 @@ align = "right"
 size = 1.0
 
 [visualiser]
-shape = "linear"     # "linear", "circular" or "square"
+shape = "linear"     # "linear" or "circular"
 position = [0.5, 0.5]
 size = 0.25          # bar span (linear) or ring radius (circular)
 rotation = 0.0       # degrees
@@ -504,7 +505,15 @@ fn apply_theme_edit(layout: &mut config::ThemeLayout, element: usize, edit: Them
     const TEXT_ALIGNS: [TextAlign; 3] = [TextAlign::Left, TextAlign::Center, TextAlign::Right];
     const VIS_ALIGNS: [VisAlign; 3] = [VisAlign::Left, VisAlign::Center, VisAlign::Right];
     const ART_SHAPES: [ArtShape; 2] = [ArtShape::Square, ArtShape::Circular];
-    const VIS_SHAPES: [VisShape; 3] = [VisShape::Linear, VisShape::Circular, VisShape::Square];
+    // `VisShape::Square` is deliberately not offered here: the visualiser
+    // shader has never actually implemented it (falls through to the
+    // circular path, see visualiser.wgsl), so picking it produced a
+    // mislabeled circular ring rather than a real square visualiser.
+    // Hidden pending a proper shader implementation (planned for v1.4.1's
+    // WGSL pass) rather than shipping a broken option. A theme file that
+    // already has `shape = "square"` still parses and renders (as
+    // circular, same as today) - this only removes it from the picker.
+    const VIS_SHAPES: [VisShape; 2] = [VisShape::Linear, VisShape::Circular];
 
     fn text_layout(
         layout: &mut config::ThemeLayout,

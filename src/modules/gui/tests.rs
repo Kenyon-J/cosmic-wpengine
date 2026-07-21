@@ -65,6 +65,26 @@ fn theme_edits_apply_and_roundtrip() {
     assert_eq!(reparsed.lyrics.size, 1.8);
 }
 
+/// "Square" is a real `VisShape` variant (a theme file can still say
+/// `shape = "square"` and it still parses/renders, same as always - the
+/// shader just doesn't implement it, see visualiser.wgsl), but it is
+/// deliberately not one of the picker's options, since the shader falls
+/// through to circular for it. An out-of-range index from the picker must
+/// be a no-op, not a panic - the same guarantee `.get(idx)` already gives
+/// every other index-based edit in this function.
+#[test]
+fn visualiser_shape_edit_ignores_the_hidden_square_index() {
+    let mut layout = cosmic_wallpaper::modules::config::ThemeLayout::load("no-such-theme");
+    layout.visualiser.shape = cosmic_wallpaper::modules::config::VisShape::Linear;
+
+    super::apply_theme_edit(&mut layout, 3, super::ThemeEditMsg::Shape(2));
+
+    assert!(matches!(
+        layout.visualiser.shape,
+        cosmic_wallpaper::modules::config::VisShape::Linear
+    ));
+}
+
 #[test]
 fn gallery_themes_parse() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("themes");

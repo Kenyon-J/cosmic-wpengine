@@ -513,7 +513,9 @@ pub(crate) const THEME_ELEMENTS: [&str; 6] = [
 ];
 const TEXT_ALIGN_LABELS: [&str; 3] = ["Left", "Center", "Right"];
 const ART_SHAPE_LABELS: [&str; 2] = ["Square", "Circular"];
-const VIS_SHAPE_LABELS: [&str; 3] = ["Linear", "Circular", "Square"];
+// "Square" is deliberately absent - see the comment on gui/mod.rs's own
+// `VIS_SHAPES` array, which this must stay index-aligned with.
+const VIS_SHAPE_LABELS: [&str; 2] = ["Linear", "Circular"];
 
 /// One editor slider row: label, live value, TOML key caption.
 fn theme_slider<'a>(
@@ -650,11 +652,14 @@ fn theme_editor_rows<'a>(
                         .description("shape")
                         .control(dropdown(
                             &VIS_SHAPE_LABELS[..],
-                            Some(match v.shape {
-                                VisShape::Linear => 0,
-                                VisShape::Circular => 1,
-                                VisShape::Square => 2,
-                            }),
+                            match v.shape {
+                                VisShape::Linear => Some(0),
+                                VisShape::Circular => Some(1),
+                                // Not offered as a pick, so there's no
+                                // index to show selected - see the array's
+                                // doc comment above.
+                                VisShape::Square => None,
+                            },
                             |idx| Message::ThemeEdit(E::Shape(idx)),
                         )),
                 )
