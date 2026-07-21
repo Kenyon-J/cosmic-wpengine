@@ -1,3 +1,21 @@
+# cosmic-wallpaper 1.3.2
+
+Fixes the release binaries themselves, again: v1.3.1's standalone downloads
+crash on launch on any CPU without AVX-512.
+
+## Fixed
+
+- **The release binaries no longer crash with "Illegal instruction" on CPUs
+  without AVX-512.** The statically-linked FFmpeg build baked in whatever
+  SIMD instructions the GitHub Actions build runner happened to support, with
+  no fallback for the machine actually running it — so a build made on an
+  AVX-512-capable runner reliably crashed on launch (`cosmic-wallpaper-gui`)
+  or on first video decode (`cosmic-wallpaper`) for anyone without it. If you
+  updated to v1.3.1's standalone binaries and Settings stopped launching,
+  this is the fix. (The `.deb` was never affected.)
+
+---
+
 # cosmic-wallpaper 1.3.1
 
 Patch release for a regression found testing 1.3.0.

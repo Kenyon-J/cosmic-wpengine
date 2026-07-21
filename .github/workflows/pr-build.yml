@@ -174,6 +174,23 @@ jobs:
             fi
           done
 
+      # Regression guard for the v1.3.1 SIGILL bug: a build machine with
+      # AVX-512 (some CI runners have it) previously baked unconditional
+      # AVX-512 (zmm-register) instructions into the statically-linked
+      # FFmpeg code via ffmpeg-sys-next's -march=native, crashing on any
+      # end-user CPU without it. Fixed by the vendored
+      # vendor/ffmpeg-sys-next-8.1.0 patch; this catches a regression (an
+      # ffmpeg-sys-next version bump losing the patch, or any other
+      # dependency reintroducing -march=native) before it ships.
+      - name: Verify binaries contain no AVX-512 instructions
+        run: |
+          for bin in cosmic-wallpaper cosmic-wallpaper-gui; do
+            if objdump -d "target/release/$bin" | grep -qE '%zmm[0-9]+'; then
+              echo "::error::$bin contains AVX-512 (zmm) instructions - it will SIGILL on CPUs without AVX-512. Check vendor/ffmpeg-sys-next-8.1.0/build.rs's -march handling."
+              exit 1
+            fi
+          done
+
   # Hard gate: fails on any RustSec advisory not in the .cargo/audit.toml
   # ignore list. That ignore list holds only transitive, unfixable-from-here
   # advisories (each with a rationale); anything actionable fails the job.

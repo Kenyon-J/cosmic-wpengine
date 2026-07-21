@@ -1,6 +1,6 @@
 [package]
 name = "cosmic-wallpaper"
-version = "1.3.1"
+version = "1.3.2"
 edition = "2021"
 description = "A live wallpaper engine for the COSMIC desktop"
 license = "MIT"
@@ -67,6 +67,15 @@ libc = "0.2"
 # Verifies the minisign signature on release SHA256SUMS before the updater
 # trusts any hash in it. Pure-Rust, verification-only.
 minisign-verify = "0.2"
+
+# Upstream's native-build path unconditionally passes -march=native
+# -mtune=native to FFmpeg's configure, baking in whatever SIMD extensions the
+# CI runner happens to support (e.g. AVX-512) with no runtime fallback - a
+# v1.3.1 release binary built this way SIGILLs on any end-user CPU without
+# AVX-512. Vendored fix at vendor/ffmpeg-sys-next-8.1.0 (see its README);
+# reapply on any version bump.
+[patch.crates-io]
+ffmpeg-sys-next = { path = "vendor/ffmpeg-sys-next-8.1.0" }
 
 # Debian packaging for Pop!_OS / Ubuntu, consumed by `cargo deb`. Built in CI
 # inside an Ubuntu 24.04 container so the runtime dependencies resolve against

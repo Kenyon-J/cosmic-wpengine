@@ -65,6 +65,18 @@ jobs:
             fi
           done
 
+      # Regression guard for the v1.3.1 SIGILL bug - see pr-build.yml's copy
+      # of this step for the full story. Kept in both workflows so a release
+      # can never ship the regression even if it slipped past a push.
+      - name: Verify binaries contain no AVX-512 instructions
+        run: |
+          for bin in cosmic-wallpaper cosmic-wallpaper-gui; do
+            if objdump -d "target/release/$bin" | grep -qE '%zmm[0-9]+'; then
+              echo "::error::$bin contains AVX-512 (zmm) instructions - it will SIGILL on CPUs without AVX-512. Check vendor/ffmpeg-sys-next-8.1.0/build.rs's -march handling."
+              exit 1
+            fi
+          done
+
       - name: Package release assets
         run: |
           set -euo pipefail
