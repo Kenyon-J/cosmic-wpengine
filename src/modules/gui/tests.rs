@@ -322,6 +322,12 @@ fn export_then_import_round_trip_recovers_theme_video_and_shader() {
             std::fs::read(videos_dir.join("clip.mp4")).unwrap(),
             b"fake video bytes"
         );
+
+        // The gallery on the Packs page reads this back to offer a 1-click
+        // re-apply, including which video came bundled with it.
+        let installed = super::library::scan_installed_packs();
+        let entry = installed.iter().find(|p| p.name == "my-look").unwrap();
+        assert_eq!(entry.background.as_deref(), Some("clip.mp4"));
     }
 
     match prev {

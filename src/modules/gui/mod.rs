@@ -86,6 +86,9 @@ struct SettingsApp {
     /// review its source and either confirm or cancel via `fn dialog()`.
     /// Nothing from it is written to disk until confirmed.
     pending_pack_import: Option<PendingPackImport>,
+    /// Every pack imported into this profile, for the Packs page's "Your
+    /// Packs" gallery - refreshed after every import.
+    installed_packs: Vec<library::InstalledPack>,
 }
 
 /// A parsed `.cwtheme` pack whose shader hasn't been reviewed yet - see
@@ -348,6 +351,7 @@ fn write_pack_to_disk(
     std::fs::write(shaders_dir.join(format!("{name}.toml")), theme_toml)
         .map_err(|e| e.to_string())?;
 
+    let background_file = background.as_ref().map(|(file, _)| file.clone());
     if let Some((file, bytes)) = background {
         let dir = library::videos_dir();
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -359,6 +363,11 @@ fn write_pack_to_disk(
     if let Some((file, bytes)) = shader {
         std::fs::write(shaders_dir.join(&file), bytes).map_err(|e| e.to_string())?;
     }
+
+    // Recorded regardless of whether this pack bundled a video, so the
+    // Packs gallery lists every import - a layout-only or shader-only pack
+    // is still one click away next time, not just the ones with video.
+    library::record_installed_pack(name, background_file.as_deref()).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1149,6 +1158,9 @@ enum Message {
     ConfirmPackImport,
     /// "Cancel" on the custom-shader review dialog - nothing was written.
     CancelPackImport,
+    /// One click from the Packs page's gallery: makes an already-imported
+    /// pack's theme (and its background video, when it bundled one) live.
+    ApplyPack(String),
 }
 
 impl Application for SettingsApp {
@@ -1284,6 +1296,7 @@ impl Application for SettingsApp {
                 launcher_issue: None,
                 pack_export_theme,
                 pending_pack_import: None,
+                installed_packs: library::scan_installed_packs(),
                 wp_config,
                 save_generation: 0,
             },
@@ -1908,6 +1921,7 @@ impl Application for SettingsApp {
                 self.drop_hover = false;
                 let paths = files.map(|f| f.0).unwrap_or_default();
                 let mut imported = 0;
+                let mut imported_a_background = false;
                 let mut messages: Vec<String> = Vec::new();
                 for path in paths
                     .iter()
@@ -1937,13 +1951,17 @@ impl Application for SettingsApp {
                                     shader,
                                 });
                             } else {
+                                let has_background = background.is_some();
                                 match self.finalize_pack_import(
                                     &parsed.name,
                                     &parsed.theme_toml,
                                     background,
                                     None,
                                 ) {
-                                    Ok(()) => imported += 1,
+                                    Ok(()) => {
+                                        imported += 1;
+                                        imported_a_background |= has_background;
+                                    }
                                     Err(e) => messages.push(format!("'{}': {}", parsed.name, e)),
                                 }
                             }
@@ -1953,6 +1971,7 @@ impl Application for SettingsApp {
                 }
                 if imported > 0 {
                     self.available_themes = load_themes();
+                    self.installed_packs = library::scan_installed_packs();
                     messages.insert(
                         0,
                         format!(
@@ -1969,6 +1988,9 @@ impl Application for SettingsApp {
                 } else if self.status_msg.starts_with("Ready") {
                     self.status_msg = "Nothing imported - drop .cwtheme pack files.".into();
                 }
+                if imported_a_background {
+                    return scan_library_task();
+                }
             }
             Message::ConfirmPackImport => {
                 if let Some(pending) = self.pending_pack_import.take() {
@@ -1982,12 +2004,16 @@ impl Application for SettingsApp {
                     ) {
                         Ok(()) => {
                             self.available_themes = load_themes();
+                            self.installed_packs = library::scan_installed_packs();
                             let detail = if has_video {
                                 "with video and a custom shader"
                             } else {
                                 "with a custom shader"
                             };
                             self.status_msg = format!("Imported pack '{name}' ({detail}).");
+                            if has_video {
+                                return scan_library_task();
+                            }
                         }
                         Err(e) => {
                             self.status_msg = format!("Error importing pack: {e}");
@@ -1998,6 +2024,30 @@ impl Application for SettingsApp {
             Message::CancelPackImport => {
                 self.pending_pack_import = None;
                 self.status_msg = "Cancelled - nothing was imported.".into();
+            }
+            Message::ApplyPack(name) => {
+                let background = self
+                    .installed_packs
+                    .iter()
+                    .find(|p| p.name == name)
+                    .and_then(|p| p.background.clone());
+                self.wp_config.audio.style = name.clone();
+                let has_video = background.is_some();
+                if let Some(file) = background {
+                    self.wp_config.appearance.video_background_path = Some(file);
+                }
+                self.selected_theme = Some(name.clone());
+                self.load_edit_theme();
+                match self.wp_config.save() {
+                    Ok(()) => {
+                        self.status_msg = if has_video {
+                            format!("Applied pack '{name}' and its background video.")
+                        } else {
+                            format!("Applied pack '{name}'.")
+                        };
+                    }
+                    Err(e) => self.status_msg = format!("Error applying pack: {e}"),
+                }
             }
         }
         Task::none()

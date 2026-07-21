@@ -866,6 +866,40 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 
 // ------------------------------------------------------------------- Packs
 
+/// The "Your Packs" gallery: every pack imported into this profile, each
+/// with a single button that makes it (and its bundled background video,
+/// when it has one) live in one click - no separate trip to Layout Themes
+/// to Apply and Live Wallpapers to pick the video.
+fn pack_gallery_section(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    let mut section = settings::section().title("Your Packs");
+    if app.installed_packs.is_empty() {
+        section = section.add(settings::item(
+            "No packs imported yet",
+            text::body("Drop a .cwtheme file below to see it here."),
+        ));
+    } else {
+        for pack in &app.installed_packs {
+            let is_active = app.wp_config.audio.style == pack.name;
+            let description = match (pack.background.is_some(), is_active) {
+                (true, true) => "Includes a background video - active now.",
+                (true, false) => "Includes a background video.",
+                (false, true) => "Active now.",
+                (false, false) => "Layout only.",
+            };
+            section = section.add(
+                settings::item::builder(pack.name.as_str())
+                    .description(description)
+                    .control(if is_active {
+                        button::standard("Active")
+                    } else {
+                        button::suggested("Apply").on_press(Message::ApplyPack(pack.name.clone()))
+                    }),
+            );
+        }
+    }
+    section.into()
+}
+
 fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let export_selected = app
         .pack_export_theme
@@ -873,6 +907,7 @@ fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         .and_then(|t| app.available_themes.iter().position(|name| name == t));
 
     let sections = vec![
+        pack_gallery_section(app),
         settings::section()
             .title("Export")
             .add(

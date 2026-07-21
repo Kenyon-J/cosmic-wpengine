@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use cosmic_wallpaper::modules::config::Config;
 use ffmpeg_next as ffmpeg;
+use serde::{Deserialize, Serialize};
 
 pub(crate) const VIDEO_EXTENSIONS: [&str; 5] = ["mp4", "webm", "mkv", "mov", "avi"];
 
@@ -32,6 +33,72 @@ pub(crate) fn videos_dir() -> PathBuf {
 /// `shaders` folder convention.
 pub(crate) fn packs_dir() -> PathBuf {
     Config::config_dir().join("packs")
+}
+
+fn installed_packs_dir() -> PathBuf {
+    packs_dir().join("installed")
+}
+
+/// One imported pack's bookkeeping - just enough to reapply it in one
+/// click from the Packs page's gallery. This is local-only bookkeeping,
+/// not part of the shareable `.cwtheme` format itself (`config::pack`):
+/// a theme file has no notion of "which video came bundled with it", so
+/// that association has to live somewhere once the pack's pieces are
+/// unpacked into the usual `shaders`/`videos` folders.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default)]
+struct InstalledPackRecord {
+    background: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct InstalledPack {
+    /// Also the layout theme's name (`shaders/<name>.toml`).
+    pub name: String,
+    /// File name inside `videos_dir()`, when this pack bundled one.
+    pub background: Option<String>,
+}
+
+/// Records that `name` was imported from a pack, so the Packs page's
+/// gallery can offer it back with a single "Apply" click. Called only from
+/// the pack-import path - a theme created or edited directly, or a plain
+/// `.toml` drop, is never "installed" this way.
+pub(crate) fn record_installed_pack(name: &str, background: Option<&str>) -> std::io::Result<()> {
+    let dir = installed_packs_dir();
+    std::fs::create_dir_all(&dir)?;
+    let record = InstalledPackRecord {
+        background: background.map(str::to_string),
+    };
+    let text = toml::to_string_pretty(&record).unwrap_or_default();
+    std::fs::write(dir.join(format!("{name}.toml")), text)
+}
+
+/// Every pack ever imported into this profile, for the Packs page's
+/// gallery. A record whose `background` no longer exists in `videos_dir()`
+/// (the video was deleted by hand) is still listed - Apply then just
+/// leaves the video setting alone rather than pointing at a missing file.
+pub(crate) fn scan_installed_packs() -> Vec<InstalledPack> {
+    let mut packs = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(installed_packs_dir()) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "toml") {
+                let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                let record: InstalledPackRecord = std::fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|text| toml::from_str(&text).ok())
+                    .unwrap_or_default();
+                packs.push(InstalledPack {
+                    name: name.to_string(),
+                    background: record.background,
+                });
+            }
+        }
+    }
+    packs.sort_by(|a, b| a.name.cmp(&b.name));
+    packs
 }
 
 fn thumbs_dir() -> PathBuf {
@@ -279,6 +346,42 @@ mod tests {
             prune_orphaned_thumbnails(&[]);
 
             assert!(stray.exists(), "non-thumbnail files must be left alone");
+        });
+    }
+
+    #[test]
+    fn installed_pack_round_trips_through_scan() {
+        with_temp_config_dir(|| {
+            record_installed_pack("my-look", Some("clip.mp4")).unwrap();
+            record_installed_pack("bare-layout", None).unwrap();
+
+            let mut packs = scan_installed_packs();
+            packs.sort_by(|a, b| a.name.cmp(&b.name));
+
+            assert_eq!(packs.len(), 2);
+            assert_eq!(packs[0].name, "bare-layout");
+            assert_eq!(packs[0].background, None);
+            assert_eq!(packs[1].name, "my-look");
+            assert_eq!(packs[1].background.as_deref(), Some("clip.mp4"));
+        });
+    }
+
+    #[test]
+    fn scan_installed_packs_is_a_no_op_when_the_dir_does_not_exist_yet() {
+        with_temp_config_dir(|| {
+            assert!(scan_installed_packs().is_empty());
+        });
+    }
+
+    #[test]
+    fn re_recording_the_same_pack_name_overwrites_its_entry() {
+        with_temp_config_dir(|| {
+            record_installed_pack("my-look", Some("old.mp4")).unwrap();
+            record_installed_pack("my-look", Some("new.mp4")).unwrap();
+
+            let packs = scan_installed_packs();
+            assert_eq!(packs.len(), 1);
+            assert_eq!(packs[0].background.as_deref(), Some("new.mp4"));
         });
     }
 }
