@@ -40,10 +40,10 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
 }
 
 fn sample_art(uv: vec2<f32>) -> vec4f {
-    // textureSampleLevel MUST be used instead of textureSample here! 
-    // The 'discard' statements in the fragment shader break the 2x2 pixel quads 
+    // textureSampleLevel MUST be used instead of textureSample here!
+    // The 'discard' statements in the fragment shader break the 2x2 pixel quads
     // needed to calculate derivatives (dpdx/dpdy) for mipmap level selection.
-    
+
     // Strictly clamp the UVs to bypass any strict driver out-of-bounds panics
     return textureSampleLevel(current_art, art_sampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
 }
@@ -66,7 +66,6 @@ fn get_shape_mask(point: vec2<f32>, size: f32, shape: u32) -> f32 {
     return mask;
 }
 
-
 // --- Fragment shader ---
 // Runs for every pixel. Returns the colour of that pixel.
 @fragment
@@ -77,7 +76,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     if uniforms.mode == 0u {
         let cover_uv = uv * uniforms.uv_transform.xy + uniforms.uv_transform.zw;
         let raw_bg = sample_art(cover_uv);
-        
+
         if uniforms.blur_opacity < 0.01 {
             return vec4<f32>(raw_bg.rgb, uniforms.bg_alpha);
         }
@@ -125,7 +124,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         let art_uv = uv * uniforms.uv_transform.xy + uniforms.uv_transform.zw;
 
         var final_color = vec4<f32>(0.0, 0.0, 0.0, shadow_mask * 0.6); // Base shadow
-        
+
         // Only sample the texture if we are inside the letterboxed art bounds
         if art_mask > 0.01 {
             if art_uv.x >= 0.0 && art_uv.x <= 1.0 && art_uv.y >= 0.0 && art_uv.y <= 1.0 {
@@ -151,12 +150,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // --- Mode 3: Solid Color Background ---
     if uniforms.mode == 3u {
         // Darken the primary color for a sleek, deep background
-        let dark_bg = uniforms.color_and_transition.rgb * 0.2; 
-        
+        let dark_bg = uniforms.color_and_transition.rgb * 0.2;
+
         // Add a subtle vignette drop shadow in the corners for extra depth
         let dist = distance(uv, vec2<f32>(0.5, 0.5));
         let vignette = smoothstep(0.8, 0.2, dist);
-        
+
         return vec4<f32>(dark_bg * vignette, uniforms.bg_alpha);
     }
 

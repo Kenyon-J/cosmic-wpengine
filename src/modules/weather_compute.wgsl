@@ -31,11 +31,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // If the particle falls off the bottom or dies, wrap it back to the top
     if p.pos.y > 1.2 || p.lifetime <= 0.0 {
         p.pos.y = -0.2;
-        
+
         // Generate a pseudo-random X position to respawn it at
         let seed = f32(index) * 12.9898 + p.lifetime;
         p.pos.x = fract(sin(seed) * 43758.5453) * 2.0 - 0.5;
-        p.lifetime = 5.0 + fract(sin(seed * 1.1) * 12345.0) * 2.0; 
+        p.lifetime = 5.0 + fract(sin(seed * 1.1) * 12345.0) * 2.0;
         p.vel.x = (fract(sin(seed * 1.2) * 54321.0) - 0.5) * 0.2; // Slight wind deviation
     }
 
