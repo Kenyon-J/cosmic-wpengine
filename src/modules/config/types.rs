@@ -488,6 +488,19 @@ impl ThemeLayout {
             }
         }
 
+        Self::builtin_default(style)
+    }
+
+    /// The hand-tuned look a built-in style name ships with - `bars` (and
+    /// any other/unknown name) is just `Self::default()`; `monstercat`,
+    /// `symmetric` and `waveform` get their own overrides below. Ignores
+    /// any file on disk, unlike `load()`: this is "what does this name
+    /// ship with", used both as `load()`'s no-file-yet fallback and as the
+    /// theme editor's "Reset to defaults" target, which must restore the
+    /// shipped look even after the style's own file has been edited and
+    /// autosaved (at which point `load()` itself would just return those
+    /// edited values back).
+    pub fn builtin_default(style: &str) -> Self {
         let mut theme = Self::default();
         if style == "monstercat" {
             theme.visualiser.shape = VisShape::Linear;

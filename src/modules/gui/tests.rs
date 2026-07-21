@@ -172,14 +172,18 @@ fn issue_body_attaches_recent_engine_errors_when_present() {
     assert!(body.contains("fetch failed: timed out"));
 }
 
-/// `reset_theme_element` restores the *generic* `ThemeLayout::default()`
-/// baseline for one element, not the style's own hand-tuned layout (a
-/// custom theme's file is the thing being edited, so its own "defaults"
-/// would just be whatever's already on disk) - and leaves every other
-/// element's edits untouched.
+/// `reset_theme_element` restores the *style's own shipped* layout for one
+/// element - monstercat's hand-tuned lyrics position, not the generic
+/// `ThemeLayout::default()` baseline - and leaves every other element's
+/// edits untouched. Regression test: this used to reset to the generic
+/// baseline regardless of style, so resetting e.g. the Visualiser tab on
+/// monstercat replaced its Linear/0.6/1.5 look with the generic
+/// Circular/0.25/1.0 one instead of restoring what monstercat ships with.
 #[test]
-fn reset_theme_element_restores_generic_defaults_for_one_element_only() {
+fn reset_theme_element_restores_this_styles_own_shipped_defaults_for_one_element_only() {
     let mut layout = cosmic_wallpaper::modules::config::ThemeLayout::load("monstercat");
+    let monstercat_defaults =
+        cosmic_wallpaper::modules::config::ThemeLayout::builtin_default("monstercat");
     let generic_defaults = cosmic_wallpaper::modules::config::ThemeLayout::default();
 
     // monstercat's own defaults differ from the generic ones, or this test
@@ -189,19 +193,67 @@ fn reset_theme_element_restores_generic_defaults_for_one_element_only() {
     super::apply_theme_edit(&mut layout, 2, super::ThemeEditMsg::PosX(0.1));
     super::apply_theme_edit(&mut layout, 0, super::ThemeEditMsg::Size(0.9));
 
-    super::reset_theme_element(&mut layout, 2);
+    super::reset_theme_element(&mut layout, "monstercat", 2);
 
-    assert_eq!(layout.lyrics.position, generic_defaults.lyrics.position);
-    assert_eq!(layout.lyrics.align, generic_defaults.lyrics.align);
+    assert_eq!(layout.lyrics.position, monstercat_defaults.lyrics.position);
+    assert_eq!(layout.lyrics.align, monstercat_defaults.lyrics.align);
     // The untouched element keeps its edit.
     assert_eq!(layout.album_art.size, 0.9);
+}
+
+/// Regression test for the actual reported bug: by the time a built-in
+/// style has been edited in the theme editor at all, its autosave has
+/// already written a `shaders/<style>.toml` reflecting those edits, so
+/// `reset_theme_element` restoring via `ThemeLayout::load` (which reads
+/// that file) would just hand the edited values right back instead of the
+/// style's shipped look. It must use `builtin_default`, which ignores the
+/// file entirely.
+#[test]
+fn reset_theme_element_restores_shipped_defaults_even_after_the_style_file_was_saved() {
+    let _guard = crate::tests::ENV_MUTEX.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let prev = std::env::var("XDG_CONFIG_HOME").ok();
+    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+
+    let result = {
+        let shaders_dir = cosmic_wallpaper::modules::config::Config::config_dir().join("shaders");
+        std::fs::create_dir_all(&shaders_dir).unwrap();
+        // Simulate the editor's own autosave: monstercat's shipped lyrics
+        // position edited away and written to disk, same as a real
+        // dragged-slider debounce would.
+        let mut edited = cosmic_wallpaper::modules::config::ThemeLayout::load("monstercat");
+        edited.lyrics.position = [0.1, 0.1];
+        std::fs::write(
+            shaders_dir.join("monstercat.toml"),
+            toml::to_string_pretty(&edited).unwrap(),
+        )
+        .unwrap();
+
+        // Loading now returns the edited-and-saved value, not the shipped one.
+        let mut layout = cosmic_wallpaper::modules::config::ThemeLayout::load("monstercat");
+        assert_eq!(layout.lyrics.position, [0.1, 0.1]);
+
+        super::reset_theme_element(&mut layout, "monstercat", 2);
+
+        let shipped = cosmic_wallpaper::modules::config::ThemeLayout::builtin_default("monstercat");
+        layout.lyrics.position == shipped.lyrics.position
+    };
+
+    match prev {
+        Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
+    assert!(
+        result,
+        "reset must restore monstercat's shipped lyrics position, not the saved-over-it value"
+    );
 }
 
 #[test]
 fn reset_theme_element_ignores_out_of_range_index() {
     let mut layout = cosmic_wallpaper::modules::config::ThemeLayout::load("no-such-theme");
     let before = toml::to_string_pretty(&layout).unwrap();
-    super::reset_theme_element(&mut layout, 99);
+    super::reset_theme_element(&mut layout, "no-such-theme", 99);
     let after = toml::to_string_pretty(&layout).unwrap();
     assert_eq!(before, after);
 }

@@ -374,13 +374,15 @@ fn apply_theme_edit(layout: &mut config::ThemeLayout, element: usize, edit: Them
 }
 
 /// Restores the element at `element` (same indexing as `apply_theme_edit`
-/// and `view::THEME_ELEMENTS`) to `ThemeLayout::default()`'s values for it -
-/// the plain [0.5, 0.5]/circular/etc. baseline, not any style's own
-/// hand-tuned layout (a custom theme's file *is* the thing being edited, so
-/// reloading "its" defaults would just reload the current, possibly
-/// already-edited values right back).
-fn reset_theme_element(layout: &mut config::ThemeLayout, element: usize) {
-    let defaults = config::ThemeLayout::default();
+/// and `view::THEME_ELEMENTS`) to what `style` actually ships with -
+/// `monstercat`/`symmetric`/`waveform`'s own hand-tuned layout, or the
+/// plain [0.5, 0.5]/circular/etc. baseline for `bars`/any custom name.
+/// Uses `ThemeLayout::builtin_default`, not `load()`: by the time a style
+/// has been edited in this editor at all, its autosave has already written
+/// those edits to `shaders/<style>.toml`, so `load()` would just read them
+/// straight back instead of restoring the shipped look.
+fn reset_theme_element(layout: &mut config::ThemeLayout, style: &str, element: usize) {
+    let defaults = config::ThemeLayout::builtin_default(style);
     match element {
         0 => layout.album_art = defaults.album_art,
         1 => layout.track_info = defaults.track_info,
@@ -1368,8 +1370,8 @@ impl Application for SettingsApp {
             }
             Message::ResetThemeElement => {
                 let element = self.theme_element;
-                if let Some(layout) = &mut self.edit_theme {
-                    reset_theme_element(layout, element);
+                if let (Some(style), Some(layout)) = (&self.selected_theme, &mut self.edit_theme) {
+                    reset_theme_element(layout, style, element);
                     return self.schedule_theme_save();
                 }
             }
