@@ -194,36 +194,41 @@ further (~80-100 user-facing strings as of 1.2):
 - Out of scope: docs/THEMES.md and release notes; RTL layout mirroring is
   an upstream iced limitation
 
-## 1.4.1 candidate — WGSL shader pass
+## WGSL shader pass — SHIPPED v1.4.1
 
-The shaders (`visualiser.wgsl` especially) are the least-revisited part of
-the codebase and it's starting to show. Triggered by a bug hunt
-2026-07-21 that found "Square" (a real `VisShape` variant, selectable in
-the theme editor) silently rendering as an oversized circular ring - the
-shader only ever branches on `shape == 1u` (Linear) vs. an "else"
-catch-all it built for Circular, so Square was never actually
-implemented. Hidden from the picker in v1.4.0 rather than shipped broken
-(see the Theme packs section above); this is where it gets a real fix.
+Triggered by a bug hunt 2026-07-21 that found "Square" (a real `VisShape`
+variant, selectable in the theme editor) silently rendering as an
+oversized circular ring - the shader only ever branched on `shape == 1u`
+(Linear) vs. an "else" catch-all it built for Circular, so Square was
+never actually implemented. Hidden from the picker in v1.4.0 rather than
+shipped broken; fixed for real here.
 
-- **Implement `VisShape::Square` properly** - bars around a square
-  perimeter, following the same instanced-bar approach `eval_shape`/
-  `eval_shadow` already use for Linear/Circular, verified pixel-by-pixel
-  with the offscreen harness's `--style` flag before re-enabling the
-  picker option.
-- **Fix the known formatting issues** Joshua has already flagged in the
-  `.wgsl` source (not yet catalogued in this doc - pull the specifics from
-  him when this starts).
-- Fold in the deferred visual-polish pass while the file is open anyway
-  (no urgency on these individually, but cheap to bundle):
-  - Capsule SDF with smoothstep edges: rounded caps plus real
-    anti-aliasing (`eval_shape` currently hard-cuts at the bar edge)
-  - Mirror reflection below the baseline ("glass floor", fits the frosted
-    identity)
-  - Glow scaled by the bar's own band energy, not just `lyric_pulse`
-  - Peak-hold caps that fall with gravity (needs a per-band peak array
-    alongside the existing smoothed bands)
-  - Expose bar width ratio (hardcoded 0.85), cap radius, reflection, and
-    an LED/segmented mode as `ThemeLayout` options so themes opt in
+- **`VisShape::Square` implemented.** Bars now walk a genuine square
+  perimeter - four sides, each a base position + outward normal + tangent
+  (the square counterpart of Circular's cos/sin radial math) - reusing
+  Circular's band-folding (`norm_angle`/`f_band`) so the two "ring-like"
+  shapes share the same audio-mapping feel and differ only in geometry.
+  Verified pixel-by-pixel with the offscreen harness's `--style` flag,
+  plus a regression pass across all four built-in themes to confirm
+  Linear/Circular were unaffected, before re-enabling the picker option.
+- **Formatting cleanup across every `.wgsl` file** (linting only, no
+  functional issues, per Joshua): trailing whitespace stripped
+  (45 lines in `visualiser.wgsl` alone), the mixed `if (cond) {`/`if cond {`
+  styles unified onto the latter (both appeared within `visualiser.wgsl`
+  itself), a stray double-blank-line in `album_art.wgsl` removed.
+
+Deferred, not part of this pass (no urgency, and this pass was scoped to
+the concrete Square bug + linting rather than open-ended polish):
+
+- Capsule SDF with smoothstep edges: rounded caps plus real
+  anti-aliasing (`eval_shape` currently hard-cuts at the bar edge)
+- Mirror reflection below the baseline ("glass floor", fits the frosted
+  identity)
+- Glow scaled by the bar's own band energy, not just `lyric_pulse`
+- Peak-hold caps that fall with gravity (needs a per-band peak array
+  alongside the existing smoothed bands)
+- Expose bar width ratio (hardcoded 0.85), cap radius, reflection, and
+  an LED/segmented mode as `ThemeLayout` options so themes opt in
 
 ## Unscheduled ideas
 

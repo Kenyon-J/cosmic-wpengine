@@ -1,3 +1,16 @@
+# cosmic-wallpaper 1.4.1
+
+Fixes the "Square" visualiser shape hidden in v1.4.0.
+
+## Fixed
+
+- **"Square" now actually draws a square.** It's back in the Layout
+  Themes visualiser Shape picker, now drawing a real square perimeter of
+  bars instead of the mislabeled circular ring it used to silently fall
+  back to.
+
+---
+
 # cosmic-wallpaper 1.4.0
 
 Theme packs: share a full look — layout, background video, and a custom
