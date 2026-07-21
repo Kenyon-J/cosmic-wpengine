@@ -1,7 +1,11 @@
+mod art_layer;
+mod background_layer;
 mod events;
 mod init;
 mod updates;
 use anyhow::Result;
+use art_layer::ArtLayer;
+use background_layer::BackgroundLayer;
 use cosmic_text::{self, Buffer, FontSystem, SwashCache};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::Receiver;
@@ -109,28 +113,10 @@ pub struct Renderer {
     pub(crate) visualiser_pass: VisualiserPass,
     pub(crate) album_art_pipeline: wgpu::RenderPipeline,
     pub(crate) album_art_layout: wgpu::BindGroupLayout,
-    pub(crate) album_art_bg_uniform_buffer: wgpu::Buffer,
-    pub(crate) album_art_fg_uniform_buffer: wgpu::Buffer,
-    pub(crate) album_art_bg_bind_group: Option<wgpu::BindGroup>,
-    pub(crate) album_art_fg_bind_group: Option<wgpu::BindGroup>,
-    pub(crate) current_album_texture: Option<wgpu::Texture>,
-    pub(crate) current_album_size: Option<(u32, u32)>,
     pub(crate) album_art_sampler: wgpu::Sampler,
-    /// Mean colour of the custom background image, kept so text drawn over
-    /// the wallpaper can pick its colour against what is actually behind it
-    /// rather than the album palette.
-    pub(crate) custom_bg_avg_color: Option<[f32; 3]>,
+    pub(crate) art: ArtLayer,
+    pub(crate) background: BackgroundLayer,
     pub(crate) kawase_blur: crate::modules::renderer::blur::KawaseBlur,
-    pub(crate) album_blur_chain: Option<crate::modules::renderer::blur::BlurChain>,
-    pub(crate) custom_bg_blur_chain: Option<crate::modules::renderer::blur::BlurChain>,
-    pub(crate) ambient_pipeline: wgpu::RenderPipeline,
-    pub(crate) ambient_bind_group: wgpu::BindGroup,
-    pub(crate) ambient_uniform_buffer: wgpu::Buffer,
-    pub(crate) custom_bg_uniform_buffer: wgpu::Buffer,
-    pub(crate) custom_bg_bind_group: Option<wgpu::BindGroup>,
-    pub(crate) current_custom_bg_texture: Option<wgpu::Texture>,
-    pub(crate) current_bg: Option<ResolvedBackground>,
-    pub(crate) current_custom_bg_size: Option<(u32, u32)>,
     pub(crate) _particle_buffer: wgpu::Buffer,
     pub(crate) weather_compute_uniform_buffer: wgpu::Buffer,
     pub(crate) weather_compute_bind_group: wgpu::BindGroup,
@@ -146,13 +132,6 @@ pub struct Renderer {
     pub(crate) theme: ThemeLayout,
     pub(crate) lyric_bounce_value: f32,
     pub(crate) lyric_bounce_velocity: f32,
-    /// While a new track's art is still being fetched in the background, the
-    /// previous track's art/palette stay on screen. If nothing has arrived by
-    /// this deadline, they fade out rather than lingering stale forever.
-    pub(crate) pending_art_deadline: Option<Instant>,
-    /// Opacity multiplier for the album art (bg + fg). Normally 1.0; eases to
-    /// 0.0 once `pending_art_deadline` expires, after which the art is dropped.
-    pub(crate) art_fade: f32,
     pub(crate) cached_track_str: String,
     pub(crate) cached_track_hash: u64,
     pub(crate) cached_weather_str: String,
@@ -173,10 +152,6 @@ pub struct Renderer {
     pub(crate) is_waveform_style: bool,
     pub(crate) vis_target_colors: ([f32; 3], [f32; 3]),
     pub(crate) vis_prev_colors: ([f32; 3], [f32; 3]),
-    pub(crate) art_target_color: [f32; 3],
-    pub(crate) art_prev_color: [f32; 3],
-    pub(crate) album_art_aspect: f32,
-    pub(crate) custom_bg_aspect: f32,
     pub(crate) last_occluded: Option<bool>,
 }
 
@@ -357,21 +332,17 @@ impl Renderer {
             // over ~1.5s, then drop it, rather than showing stale art
             // indefinitely or popping it off screen in a single frame.
             if self
-                .pending_art_deadline
+                .art
+                .pending_deadline
                 .is_some_and(|deadline| now >= deadline)
             {
-                if self.art_fade >= 1.0 {
+                if self.art.fade >= 1.0 {
                     tracing::info!("No album art arrived within the grace period; fading out");
                 }
-                self.art_fade = (self.art_fade - delta / 1.5).max(0.0);
-                if self.art_fade == 0.0 {
-                    self.pending_art_deadline = None;
-                    self.art_fade = 1.0;
-                    self.album_art_bg_bind_group = None;
-                    self.album_art_fg_bind_group = None;
-                    self.current_album_texture = None;
-                    self.current_album_size = None;
-                    self.album_blur_chain = None;
+                self.art.fade = (self.art.fade - delta / 1.5).max(0.0);
+                if self.art.fade == 0.0 {
+                    self.art.fade = 1.0;
+                    self.art.clear();
                     self.state.has_album_art = false;
                     if let Some(track) = self.state.current_track.as_mut() {
                         self.state.previous_palette = track.palette.take();
@@ -498,7 +469,7 @@ impl Renderer {
             || self.lyric_bounce_velocity != 0.0;
 
         // Track/art crossfade, transparency fade, or the art grace-period
-        // fade-out (pending_art_deadline drives art_fade in the loop above).
+        // fade-out (art.pending_deadline drives art.fade in the loop above).
         let target_fade = if self.state.config.appearance.transparent_background {
             1.0
         } else {
@@ -506,7 +477,7 @@ impl Renderer {
         };
         let fading = self.state.transition_progress < 1.0
             || self.state.transparent_fade != target_fade
-            || self.pending_art_deadline.is_some();
+            || self.art.pending_deadline.is_some();
 
         // Weather particle physics runs a compute pass every frame.
         let weather_active = self.is_weather_active && self.active_particles > 0;
@@ -515,7 +486,7 @@ impl Renderer {
         // streaks). It can be on screen whenever no custom background
         // texture exists; conservatively treat that as always-animating
         // rather than replicating draw_frame's exact layering rules here.
-        let ambient_possible = self.custom_bg_bind_group.is_none();
+        let ambient_possible = self.background.bind_group().is_none();
 
         audio_active || lyrics_moving || fading || weather_active || ambient_possible
     }

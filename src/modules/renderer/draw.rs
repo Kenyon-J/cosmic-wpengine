@@ -308,7 +308,7 @@ pub(crate) fn draw_frame(
                     _padding: 0,
                 };
                 renderer.queue.write_buffer(
-                    &renderer.album_art_bg_uniform_buffer,
+                    &renderer.art.bg_uniform_buffer,
                     0,
                     bytemuck::bytes_of(&bg_uniforms),
                 );
@@ -332,7 +332,7 @@ pub(crate) fn draw_frame(
                     mode: 1,
                     // The sharp foreground art only fades when stale art is
                     // being eased out after the fetch grace period expires.
-                    bg_alpha: renderer.art_fade,
+                    bg_alpha: renderer.art.fade,
                     art_size: album_art_fg_size,
                     shape: album_art_fg_shape,
                     blur_opacity: 1.0,
@@ -340,7 +340,7 @@ pub(crate) fn draw_frame(
                     _padding: 0,
                 };
                 renderer.queue.write_buffer(
-                    &renderer.album_art_fg_uniform_buffer,
+                    &renderer.art.fg_uniform_buffer,
                     0,
                     bytemuck::bytes_of(&fg_uniforms),
                 );
@@ -348,7 +348,7 @@ pub(crate) fn draw_frame(
         }
 
         if last_uniform_res != Some(current_res) {
-            if renderer.custom_bg_bind_group.is_some() {
+            if renderer.background.bind_group().is_some() {
                 let bg_uv_transform = get_uv_transform(0, screen_aspect, custom_bg_aspect);
 
                 // 4. Process custom background uniforms
@@ -367,7 +367,7 @@ pub(crate) fn draw_frame(
                     _padding: 0,
                 };
                 renderer.queue.write_buffer(
-                    &renderer.custom_bg_uniform_buffer,
+                    &renderer.background.custom_bg_uniform_buffer,
                     0,
                     bytemuck::bytes_of(&custom_bg_uniforms),
                 );
@@ -382,7 +382,7 @@ pub(crate) fn draw_frame(
                     _padding: [0.0; 3],
                 };
                 renderer.queue.write_buffer(
-                    &renderer.ambient_uniform_buffer,
+                    &renderer.background.ambient_uniform_buffer,
                     0,
                     bytemuck::bytes_of(&amb_uniforms),
                 );
@@ -739,20 +739,20 @@ pub(crate) fn draw_frame(
             // --- Background Rendering ---
             // Simplified logic with clear precedence: Album Art > Custom BG > Ambient
             if show_art_bg || show_color_bg {
-                if let Some(bind_group) = &renderer.album_art_bg_bind_group {
+                if let Some(bind_group) = renderer.art.bg_bind_group() {
                     render_pass.set_pipeline(&renderer.album_art_pipeline);
                     render_pass.set_bind_group(0, bind_group, &[]);
                     render_pass.draw(0..3, 0..1);
                 }
-            } else if let Some(bind_group) = &renderer.custom_bg_bind_group {
+            } else if let Some(bind_group) = renderer.background.bind_group() {
                 // Custom Desktop Wallpaper Background (Frosted Glass)
                 render_pass.set_pipeline(&renderer.album_art_pipeline);
                 render_pass.set_bind_group(0, bind_group, &[]);
                 render_pass.draw(0..3, 0..1);
             } else {
                 // Ambient Procedural Sky
-                render_pass.set_pipeline(&renderer.ambient_pipeline);
-                render_pass.set_bind_group(0, &renderer.ambient_bind_group, &[]);
+                render_pass.set_pipeline(&renderer.background.ambient_pipeline);
+                render_pass.set_bind_group(0, &renderer.background.ambient_bind_group, &[]);
                 render_pass.draw(0..3, 0..1);
             }
 
@@ -770,7 +770,7 @@ pub(crate) fn draw_frame(
             }
 
             if show_art_fg {
-                if let Some(bind_group) = &renderer.album_art_fg_bind_group {
+                if let Some(bind_group) = renderer.art.fg_bind_group() {
                     render_pass.set_pipeline(&renderer.album_art_pipeline);
                     render_pass.set_bind_group(0, bind_group, &[]);
                     render_pass.draw(0..3, 0..1);

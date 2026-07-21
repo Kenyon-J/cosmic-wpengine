@@ -281,9 +281,10 @@ impl BlurChain {
     /// True if this chain was built for a source of `size`. A size match
     /// alone cannot prove the source is the same texture *object*: paths
     /// that recreate the source texture must drop the chain themselves
-    /// (core/updates.rs does), because the chain binds the old texture's
-    /// view and would keep blurring it. This check only spares a rebuild
-    /// on the settings-change path, where the texture is untouched.
+    /// (`ArtLayer`/`BackgroundLayer::set_texture` do), because the chain
+    /// binds the old texture's view and would keep blurring it. This check
+    /// only spares a rebuild on the settings-change path, where the texture
+    /// is untouched.
     pub(crate) fn matches_source(&self, size: (u32, u32)) -> bool {
         self.src_size == size
     }

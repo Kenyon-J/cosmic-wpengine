@@ -13,9 +13,9 @@ impl Renderer {
                 let video_stopped = self.state.config.appearance.video_background_path.is_some()
                     && config.appearance.video_background_path.is_none();
                 let new_bg = config.appearance.resolved_background().await;
-                if new_bg != self.current_bg || video_stopped {
+                if new_bg != self.background.current_bg || video_stopped {
                     self.load_resolved_background(new_bg.as_ref());
-                    self.current_bg = new_bg;
+                    self.background.current_bg = new_bg;
                 }
 
                 if config.audio.bands != self.state.config.audio.bands {
@@ -84,7 +84,7 @@ impl Renderer {
                     );
                     self.update_album_art_texture(&art);
                     self.state.has_album_art = true;
-                    self.pending_art_deadline = None;
+                    self.art.pending_deadline = None;
                 } else {
                     // The art is still being fetched in the background and will
                     // arrive via TrackAssetsLoaded. Keep the previous track's art
@@ -96,7 +96,7 @@ impl Renderer {
                     // triggers on genuine failures (which also fade themselves out
                     // early via an art-less TrackAssetsLoaded).
                     info!("Track event received without album art; keeping previous art while it loads");
-                    self.pending_art_deadline =
+                    self.art.pending_deadline =
                         Some(Instant::now() + std::time::Duration::from_secs(10));
                     if track.palette.is_none() {
                         track.palette = self
@@ -143,11 +143,11 @@ impl Renderer {
                         );
                         self.update_album_art_texture(&art);
                         self.state.has_album_art = true;
-                        self.pending_art_deadline = None;
-                    } else if self.pending_art_deadline.is_some() {
+                        self.art.pending_deadline = None;
+                    } else if self.art.pending_deadline.is_some() {
                         // The fetch chain concluded without any art: start the
                         // fade-out now instead of waiting out the grace period.
-                        self.pending_art_deadline = Some(Instant::now());
+                        self.art.pending_deadline = Some(Instant::now());
                     }
                     let mut palette_updated = false;
                     if let Some(current) = self.state.current_track.as_mut() {
@@ -204,7 +204,6 @@ impl Renderer {
             }
 
             Event::PlayerShutDown => {
-                self.pending_art_deadline = None;
                 self.cached_track_str.clear();
                 self.cached_track_hash = 0;
                 self.text_buffer_cache.clear();
@@ -213,11 +212,7 @@ impl Renderer {
                     .current_track
                     .as_ref()
                     .and_then(|t| t.palette.clone());
-                self.album_art_bg_bind_group = None;
-                self.album_art_fg_bind_group = None;
-                self.current_album_texture = None;
-                self.current_album_size = None;
-                self.album_blur_chain = None;
+                self.art.clear();
                 self.state.has_album_art = false;
                 self.state.current_track = None;
                 self.update_theme_colors();

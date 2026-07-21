@@ -142,25 +142,19 @@ impl Renderer {
             visualiser_pass,
             album_art_pipeline,
             album_art_layout,
-            album_art_bg_uniform_buffer,
-            album_art_fg_uniform_buffer,
-            album_art_bg_bind_group: None,
-            album_art_fg_bind_group: None,
-            current_album_texture: Some(empty_texture),
-            current_album_size: None,
             album_art_sampler,
-            custom_bg_avg_color: None,
+            art: ArtLayer::new(
+                empty_texture,
+                album_art_bg_uniform_buffer,
+                album_art_fg_uniform_buffer,
+            ),
+            background: BackgroundLayer::new(
+                ambient_pipeline,
+                ambient_bind_group,
+                ambient_uniform_buffer,
+                custom_bg_uniform_buffer,
+            ),
             kawase_blur,
-            album_blur_chain: None,
-            custom_bg_blur_chain: None,
-            ambient_pipeline,
-            ambient_bind_group,
-            ambient_uniform_buffer,
-            custom_bg_uniform_buffer,
-            custom_bg_bind_group: None,
-            current_custom_bg_texture: None,
-            current_bg: None,
-            current_custom_bg_size: None,
             _particle_buffer: particle_buffer,
             weather_compute_uniform_buffer,
             weather_compute_bind_group,
@@ -176,8 +170,6 @@ impl Renderer {
             theme,
             lyric_bounce_value: 0.0,
             lyric_bounce_velocity: 0.0,
-            pending_art_deadline: None,
-            art_fade: 1.0,
             cached_track_str: String::new(),
             cached_track_hash: 0,
             cached_weather_str: String::new(),
@@ -197,16 +189,12 @@ impl Renderer {
             is_waveform_style,
             vis_target_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
             vis_prev_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
-            art_target_color: [0.1, 0.1, 0.1],
-            art_prev_color: [0.1, 0.1, 0.1],
-            album_art_aspect: 1.0,
-            custom_bg_aspect: 1.0,
             last_occluded: None,
         };
 
         let bg = renderer.state.config.appearance.resolved_background().await;
         renderer.load_resolved_background(bg.as_ref());
-        renderer.current_bg = bg;
+        renderer.background.current_bg = bg;
         renderer.update_theme_colors();
         renderer.update_weather_state();
 

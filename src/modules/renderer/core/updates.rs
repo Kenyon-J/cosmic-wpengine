@@ -74,7 +74,7 @@ impl Renderer {
     pub(crate) fn update_album_art_texture(&mut self, rgba: &image::RgbaImage) {
         // Fresh art always shows at full opacity, even if the previous art was
         // mid-fade when it arrived.
-        self.art_fade = 1.0;
+        self.art.fade = 1.0;
         let dimensions = rgba.dimensions();
         info!(
             "Creating GPU texture for album art. Dimensions: {}x{}",
@@ -107,17 +107,16 @@ impl Renderer {
             &mut self.album_art_pad_buffer,
         );
 
-        self.current_album_texture = Some(texture);
-        self.current_album_size = Some(dimensions);
-        self.album_art_aspect = (dimensions.0 as f32 / dimensions.1 as f32).max(0.001);
-        // The blur chain binds the source texture's view at build time, so the
-        // texture recreated above invalidates it even when the dimensions
-        // match - and matching is the norm, not the exception (streaming
-        // services serve fixed-size art, e.g. Spotify's 640x640). Keeping the
-        // chain here left the frosted background showing the previous track's
-        // art. rebuild_album_bind_groups() then builds a fresh chain.
-        self.album_blur_chain = None;
-        self.rebuild_album_bind_groups();
+        let blur_enabled = self.album_blur_enabled();
+        self.art.set_texture(
+            &self.device,
+            &self.kawase_blur,
+            &self.album_art_layout,
+            &self.album_art_sampler,
+            texture,
+            dimensions,
+            blur_enabled,
+        );
         self.run_album_blur();
         // The art's arrival can flip the text backdrop from wallpaper to
         // album background; re-derive the text colours against it.
@@ -143,111 +142,35 @@ impl Renderer {
     /// disabled, freeing its textures). Called whenever the source texture is
     /// recreated or the blur settings change.
     pub(crate) fn rebuild_album_bind_groups(&mut self) {
-        let (Some(texture), Some(size)) = (&self.current_album_texture, self.current_album_size)
-        else {
-            return;
-        };
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        if self.album_blur_enabled() {
-            let up_to_date = self
-                .album_blur_chain
-                .as_ref()
-                .is_some_and(|c| c.matches_source(size));
-            if !up_to_date {
-                self.album_blur_chain = Some(crate::modules::renderer::blur::BlurChain::new(
-                    &self.device,
-                    &self.kawase_blur,
-                    &self.album_art_sampler,
-                    &view,
-                    size,
-                    "Album Art",
-                ));
-            }
-        } else {
-            self.album_blur_chain = None;
-        }
-
-        // With blur disabled, mode 0 short-circuits before sampling
-        // blurred_art; the sharp view just keeps the binding valid.
-        let blur_view = self
-            .album_blur_chain
-            .as_ref()
-            .map_or(&view, |c| c.output_view());
-
-        self.album_art_bg_bind_group =
-            Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.album_art_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.album_art_bg_uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.album_art_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::TextureView(blur_view),
-                    },
-                ],
-                label: Some("Album Art BG Bind Group"),
-            }));
-
-        self.album_art_fg_bind_group =
-            Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.album_art_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.album_art_fg_uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.album_art_sampler),
-                    },
-                    // The foreground never samples blurred_art.
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                ],
-                label: Some("Album Art FG Bind Group"),
-            }));
+        let blur_enabled = self.album_blur_enabled();
+        self.art.rebuild(
+            &self.device,
+            &self.kawase_blur,
+            &self.album_art_layout,
+            &self.album_art_sampler,
+            blur_enabled,
+        );
     }
 
     /// Re-runs the album blur chain over the current texture contents.
     /// Cheap enough for per-frame Canvas video use: the passes run at
     /// successively halved resolutions.
     pub(crate) fn run_album_blur(&self) {
-        if let Some(chain) = &self.album_blur_chain {
-            chain.run(
-                &self.device,
-                &self.queue,
-                &self.kawase_blur,
-                self.state.config.appearance.blur_opacity,
-            );
-        }
+        self.art.run_blur(
+            &self.device,
+            &self.queue,
+            &self.kawase_blur,
+            self.state.config.appearance.blur_opacity,
+        );
     }
 
     pub(crate) fn run_custom_bg_blur(&self) {
-        if let Some(chain) = &self.custom_bg_blur_chain {
-            chain.run(
-                &self.device,
-                &self.queue,
-                &self.kawase_blur,
-                self.state.config.appearance.blur_opacity,
-            );
-        }
+        self.background.run_blur(
+            &self.device,
+            &self.queue,
+            &self.kawase_blur,
+            self.state.config.appearance.blur_opacity,
+        );
     }
 
     /// Applies changed blur settings to the existing sources: builds or drops
@@ -256,7 +179,7 @@ impl Renderer {
     pub(crate) fn refresh_blur_chains(&mut self) {
         self.rebuild_album_bind_groups();
         self.run_album_blur();
-        if self.custom_bg_bind_group.is_some() {
+        if self.background.bind_group().is_some() {
             self.rebuild_custom_bg_bind_group();
             self.run_custom_bg_blur();
         }
@@ -265,9 +188,9 @@ impl Renderer {
     pub(crate) fn update_canvas_video_frame(&mut self, rgba: &image::RgbaImage) {
         // Fast-path: If the texture already exists and dimensions match perfectly,
         // we can copy the raw video frame bytes straight into the GPU's VRAM!
-        if let Some(texture) = &self.current_album_texture {
-            let dimensions = rgba.dimensions();
-            if texture.size().width == dimensions.0 && texture.size().height == dimensions.1 {
+        let dimensions = rgba.dimensions();
+        if self.art.size() == Some(dimensions) {
+            if let Some(texture) = self.art.texture() {
                 upload_rgba_to_texture(
                     &self.queue,
                     texture,
@@ -276,9 +199,9 @@ impl Renderer {
                     rgba.as_raw(),
                     &mut self.video_frame_buffer,
                 );
-                self.run_album_blur();
-                return;
             }
+            self.run_album_blur();
+            return;
         }
 
         // Slow-path: If dimensions changed (e.g. switching from square album art to 9:16 Canvas video),
@@ -287,9 +210,9 @@ impl Renderer {
     }
 
     pub(crate) fn update_background_video_frame(&mut self, rgba: &image::RgbaImage) {
-        if let Some(texture) = &self.current_custom_bg_texture {
-            let dimensions = rgba.dimensions();
-            if texture.size().width == dimensions.0 && texture.size().height == dimensions.1 {
+        let dimensions = rgba.dimensions();
+        if self.background.size() == Some(dimensions) {
+            if let Some(texture) = self.background.texture() {
                 upload_rgba_to_texture(
                     &self.queue,
                     texture,
@@ -298,9 +221,9 @@ impl Renderer {
                     rgba.as_raw(),
                     &mut self.video_frame_buffer,
                 );
-                self.run_custom_bg_blur();
-                return;
             }
+            self.run_custom_bg_blur();
+            return;
         }
         self.load_custom_background_from_image(rgba);
     }
@@ -346,8 +269,8 @@ impl Renderer {
         );
 
         // Update Album Art colors
-        self.art_prev_color = get_art_color(self.state.previous_palette.as_deref());
-        self.art_target_color = get_art_color(
+        self.art.prev_color = get_art_color(self.state.previous_palette.as_deref());
+        self.art.target_color = get_art_color(
             self.state
                 .current_track
                 .as_ref()
@@ -380,11 +303,7 @@ impl Renderer {
 
     pub fn load_custom_background(&mut self, path: Option<&str>) {
         let Some(path) = path else {
-            self.custom_bg_bind_group = None;
-            self.current_custom_bg_texture = None;
-            self.current_custom_bg_size = None;
-            self.custom_bg_blur_chain = None;
-            self.custom_bg_avg_color = None;
+            self.background.clear();
             self.update_text_colors();
             return;
         };
@@ -394,10 +313,7 @@ impl Renderer {
             Ok(i) => i.to_rgba8(),
             Err(e) => {
                 warn!("Failed to load custom background: {}", e);
-                self.custom_bg_bind_group = None;
-                self.current_custom_bg_texture = None;
-                self.custom_bg_blur_chain = None;
-                self.custom_bg_avg_color = None;
+                self.background.clear();
                 self.update_text_colors();
                 return;
             }
@@ -408,7 +324,6 @@ impl Renderer {
 
     pub fn load_custom_background_from_image(&mut self, img: &image::RgbaImage) {
         let dimensions = img.dimensions();
-        self.current_custom_bg_size = Some(dimensions);
         let texture_size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,
@@ -435,76 +350,31 @@ impl Renderer {
             &mut self.album_art_pad_buffer,
         );
 
-        self.current_custom_bg_texture = Some(texture);
-        self.custom_bg_aspect = (dimensions.0 as f32 / dimensions.1 as f32).max(0.001);
-        self.custom_bg_avg_color = Some(crate::modules::colour::average_colour(img));
-        // Same-size recreation is even more common here than for album art:
-        // solid colours are always synthesised at 16x16, gradients at
-        // 1920x1080, and same-monitor wallpaper images share a resolution -
-        // so without dropping the chain, changing the desktop background
-        // left the frosted glass blurring the old one.
-        self.custom_bg_blur_chain = None;
-        self.rebuild_custom_bg_bind_group();
+        self.background.avg_color = Some(crate::modules::colour::average_colour(img));
+        let blur_enabled = self.blur_enabled();
+        self.background.set_texture(
+            &self.device,
+            &self.kawase_blur,
+            &self.album_art_layout,
+            &self.album_art_sampler,
+            texture,
+            dimensions,
+            blur_enabled,
+        );
         self.run_custom_bg_blur();
         self.update_text_colors();
     }
 
     /// Custom-background counterpart of [`Self::rebuild_album_bind_groups`].
     pub(crate) fn rebuild_custom_bg_bind_group(&mut self) {
-        let (Some(texture), Some(size)) =
-            (&self.current_custom_bg_texture, self.current_custom_bg_size)
-        else {
-            return;
-        };
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        if self.blur_enabled() {
-            let up_to_date = self
-                .custom_bg_blur_chain
-                .as_ref()
-                .is_some_and(|c| c.matches_source(size));
-            if !up_to_date {
-                self.custom_bg_blur_chain = Some(crate::modules::renderer::blur::BlurChain::new(
-                    &self.device,
-                    &self.kawase_blur,
-                    &self.album_art_sampler,
-                    &view,
-                    size,
-                    "Custom Background",
-                ));
-            }
-        } else {
-            self.custom_bg_blur_chain = None;
-        }
-
-        let blur_view = self
-            .custom_bg_blur_chain
-            .as_ref()
-            .map_or(&view, |c| c.output_view());
-
-        self.custom_bg_bind_group =
-            Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.album_art_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.custom_bg_uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.album_art_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::TextureView(blur_view),
-                    },
-                ],
-                label: Some("Custom Background Bind Group"),
-            }));
+        let blur_enabled = self.blur_enabled();
+        self.background.rebuild(
+            &self.device,
+            &self.kawase_blur,
+            &self.album_art_layout,
+            &self.album_art_sampler,
+            blur_enabled,
+        );
     }
 
     pub(crate) fn update_text_colors(&mut self) {
@@ -527,7 +397,7 @@ impl Renderer {
         // otherwise the text sits on the desktop wallpaper, so its colour
         // must contrast with that instead of the album palette.
         let appearance = &self.state.config.appearance;
-        let has_art = self.album_art_fg_bind_group.is_some()
+        let has_art = self.art.fg_bind_group().is_some()
             || self.state.config.mode == crate::modules::config::WallpaperMode::AlbumArt;
         let color_bg_shown = has_art && appearance.album_color_background;
         let album_backdrop =
@@ -539,7 +409,7 @@ impl Renderer {
                 .copied()
                 .unwrap_or([0.1, 0.1, 0.1])
         } else {
-            self.custom_bg_avg_color.unwrap_or([0.1, 0.1, 0.1])
+            self.background.avg_color.unwrap_or([0.1, 0.1, 0.1])
         };
 
         // The frosted-glass pass composites its neutral tint over the

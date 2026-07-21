@@ -123,7 +123,7 @@ impl FrameParams {
         // around track changes; the GPU resources are what actually draw,
         // so they are the authority (and the mismatch is logged).
         let has_media_check_state = renderer.state.has_album_art;
-        let has_media_check_gpu = renderer.album_art_fg_bind_group.is_some();
+        let has_media_check_gpu = renderer.art.fg_bind_group().is_some();
         if has_media_check_gpu && !has_media_check_state {
             warn!("Album art visibility check mismatch! State: false, GPU: true. Using GPU state.");
         }
@@ -161,12 +161,12 @@ impl FrameParams {
         let art_tint_color = if show_art_fg || show_art_bg || show_color_bg {
             if renderer.state.transition_progress < 1.0 {
                 lerp_colour(
-                    renderer.art_prev_color,
-                    renderer.art_target_color,
+                    renderer.art.prev_color,
+                    renderer.art.target_color,
                     renderer.state.transition_progress,
                 )
             } else {
-                renderer.art_target_color
+                renderer.art.target_color
             }
         } else {
             [0.1, 0.1, 0.1]
@@ -176,7 +176,7 @@ impl FrameParams {
 
         // Ambient sky uniforms are only needed when no custom background
         // texture will cover them.
-        let sky_color_data = if renderer.custom_bg_bind_group.is_none() {
+        let sky_color_data = if renderer.background.bind_group().is_none() {
             Some((elapsed, weather_type, final_sky))
         } else {
             None
@@ -207,7 +207,7 @@ impl FrameParams {
         } else {
             0
         };
-        let album_art_bg_alpha = (1.0 - renderer.state.transparent_fade) * renderer.art_fade;
+        let album_art_bg_alpha = (1.0 - renderer.state.transparent_fade) * renderer.art.fade;
 
         let mut album_art_fg_pos = renderer.theme.album_art.position;
         let mut album_art_fg_size = renderer.theme.album_art.size;
@@ -244,7 +244,7 @@ impl FrameParams {
         );
 
         // Screen-invariant foreground album art transform components.
-        let album_art_aspect = renderer.album_art_aspect;
+        let album_art_aspect = renderer.art.aspect();
         let fg_art_base_uv = get_uv_transform(1, 1.0, album_art_aspect);
         // Theme sizes come from hand-editable TOML with no clamp, so
         // size = 0.0 is reachable; dividing by it would NaN-poison the
@@ -293,7 +293,7 @@ impl FrameParams {
             album_art_fg_shape,
             custom_bg_mode,
             custom_bg_alpha,
-            custom_bg_aspect: renderer.custom_bg_aspect,
+            custom_bg_aspect: renderer.background.aspect(),
             blur_opacity: appearance.blur_opacity,
             visualiser_instance_count,
             lyric_start_idx,
