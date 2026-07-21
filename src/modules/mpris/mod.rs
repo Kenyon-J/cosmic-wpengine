@@ -436,6 +436,7 @@ impl MprisWatcher {
                         // the currently displayed track.
                         if !is_timed_out && last_processed_metadata.as_ref() == Some(&assets.meta) {
                             let assets = *assets;
+                            let track_key = assets.meta.effective_track_id();
                             let (album_art, palette) = match assets.art {
                                 Some((img, palette)) => (Some(img), Some(palette)),
                                 None => (None, None),
@@ -458,6 +459,7 @@ impl MprisWatcher {
                                     title: assets.meta.title.into_boxed_str(),
                                     artist: assets.meta.artist.into_boxed_str(),
                                     album: assets.meta.album.into_boxed_str(),
+                                    track_key: track_key.into_boxed_str(),
                                     album_art,
                                     palette,
                                     lyrics,
@@ -604,6 +606,7 @@ impl MprisWatcher {
             title: meta.title.clone().into_boxed_str(),
             artist: meta.artist.clone().into_boxed_str(),
             album: meta.album.clone().into_boxed_str(),
+            track_key: meta.effective_track_id().into_boxed_str(),
             album_art,
             palette,
             lyrics,

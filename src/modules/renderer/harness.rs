@@ -192,6 +192,7 @@ async fn feed_synthetic_scene(renderer: &mut Renderer) {
         title: "Harness Track".into(),
         artist: "Harness Artist".into(),
         album: "Harness Album".into(),
+        track_key: "harness-track".into(),
         album_art: Some(synthetic_album_art()),
         palette: None,
         lyrics: None,

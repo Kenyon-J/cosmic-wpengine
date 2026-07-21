@@ -39,6 +39,7 @@ fn test_scene_description() {
         title: "Test".into(),
         artist: "Test".into(),
         album: "Test".into(),
+        track_key: "Test".into(),
         album_art: Some(image::RgbaImage::new(1, 1)),
         palette: None,
         lyrics: None,

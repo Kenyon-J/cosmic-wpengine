@@ -132,10 +132,16 @@ impl Renderer {
 
             Event::TrackAssetsLoaded(mut track) => {
                 // Drop stale results: the track may have changed again while the
-                // network fetch behind this event was still in flight.
-                let matches_current = self.state.current_track.as_ref().is_some_and(|t| {
-                    t.title == track.title && t.artist == track.artist && t.album == track.album
-                });
+                // network fetch behind this event was still in flight. Keyed on
+                // track_key, not title/artist/album - two distinct plays (a
+                // remaster, a repeat-mode replay some players re-announce
+                // under a fresh D-Bus identity) can share those verbatim while
+                // genuinely needing their own art.
+                let matches_current = self
+                    .state
+                    .current_track
+                    .as_ref()
+                    .is_some_and(|t| t.track_key == track.track_key);
                 if matches_current {
                     if let Some(art) = track.album_art.take() {
                         info!(

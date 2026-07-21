@@ -39,8 +39,12 @@ pub enum Event {
     TrackChanged(Box<TrackInfo>),
     /// Slow, network-fetched assets (remote art, lyrics, canvas video) for a
     /// track already announced via `TrackChanged`. Only the `Some` fields are
-    /// updates; title/artist/album identify which track they belong to so
-    /// stale results can be dropped if the track changed again mid-fetch.
+    /// updates; `track_key` identifies which track they belong to so stale
+    /// results can be dropped if the track changed again mid-fetch - not
+    /// title/artist/album, which two distinct tracks (a remaster, a live
+    /// version, a repeat-mode replay some players re-announce under a fresh
+    /// D-Bus identity) can share verbatim while genuinely having different
+    /// art.
     TrackAssetsLoaded(Box<TrackInfo>),
     PlaybackStopped,
     PlaybackResumed,
@@ -60,6 +64,11 @@ pub struct TrackInfo {
     pub title: Box<str>,
     pub artist: Box<str>,
     pub album: Box<str>,
+    /// Stable identity for "is this still the same track" checks - the
+    /// player-reported MPRIS track ID, or a title+artist fallback for
+    /// players that don't set a usable one. Deliberately not derived from
+    /// title/artist/album alone (see `Event::TrackAssetsLoaded`'s doc).
+    pub track_key: Box<str>,
     pub album_art: Option<image::RgbaImage>,
     pub palette: Option<Box<[[f32; 3]]>>,
     pub lyrics: Option<Box<[LyricLine]>>,
