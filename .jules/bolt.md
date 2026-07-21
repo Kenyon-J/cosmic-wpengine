@@ -1,0 +1,3 @@
+## 02-03-2025- Optimize DynamicImage Pixel Sampling
+**Learning:** `DynamicImage::get_pixel` performs nested enum matching over 10+ variants and dynamic dispatch for every pixel lookup, which introduces significant overhead inside high-frequency nested pixel loops (e.g., color palette extraction, image averaging). Extracting the underlying `RgbaImage` reference once before the loop using `.as_rgba8()` / `.to_rgba8()` completely bypasses this dispatch.
+**Action:** Always retrieve a direct reference to the underlying concrete image buffer (like `RgbaImage`) before performing pixel lookup operations in performance-sensitive loops.
