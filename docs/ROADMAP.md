@@ -31,12 +31,39 @@ phases, file anchors, and why system76-power was considered and rejected
 for the battery detection (not running on non-Pop!_OS COSMIC installs;
 confirmed absent on this project's own dev machine).
 
-## Renderer decomposition (planned — see PLAN-renderer-decomposition.md)
+## Renderer decomposition (in progress — see PLAN-renderer-decomposition.md)
 
 The ~100-field `Renderer` + ~850-line `draw_frame` split (Phase 9 of
 [PLAN-v1-hardening.md](PLAN-v1-hardening.md)). Graduated to
 [PLAN-renderer-decomposition.md](PLAN-renderer-decomposition.md) 2026-07-19:
 five phases, frame-capture harness in phase 4, each phase one green commit.
+
+Phases 1 (`FrameParams`, `825c108`) and 2 (`AudioAnalysis`, `899979b`)
+shipped right after v1.2.2. Phase 3 (`ArtLayer`/`BackgroundLayer`, `96c7d65`)
+landed 2026-07-21: both album-art and custom-background
+texture/blur-chain/bind-group state moved off the `Renderer` god-struct into
+their own structs, each with `set_texture()` as the sole way to install a new
+source texture — the private-constructor invariant the plan called for, so
+the 2026-07-19 stale-blur-chain bug class can't recur structurally. Verified
+with `cargo fmt`/`clippy -D warnings`/`test` (all green) plus a live smoke
+test on the real desktop (real MPRIS track, album art, lyrics, visualiser,
+weather all rendering correctly - no offscreen harness exists yet, so this
+was eyeballed via `cosmic-screenshot`, not a pixel diff).
+
+Phase 4 (render-target abstraction + offscreen harness) started 2026-07-21:
+the render-target half is done — `draw.rs`'s encode block is now
+`encode_frame()`, taking a bare `&wgpu::TextureView` and every GPU resource
+it draws with individually (device/queue/pipelines/bind groups), not
+`&Renderer` (same borrow-checker reason as `prepare_text_buffer`: the
+per-output loop already holds `renderer.outputs` mutably borrowed via its
+iterator). Presenting stays the caller's job, so the same function can
+drive both the live per-monitor loop and a future offscreen path. Still
+missing: the actual `--render-frame <out.png>` dev harness (building a
+`Renderer` without Wayland, a synthetic scene, and the perceptual-diff
+`--compare` mode) - that and phase 5 (split the per-output loop) are the
+remaining work, the prerequisite for runtime shader loading (see "theme
+packs" below), reprioritized 2026-07-21 to land before that feature rather
+than after.
 
 ## 1.2.x — first-run desktop integration (in progress)
 
@@ -56,23 +83,6 @@ integration for exactly those installs:
   clobbering user edits)
 - Install the embedded icon set into `~/.local/share/icons/hicolor/...`,
   rewriting on content change so icon updates propagate
-
-## Portable release binaries — stop dynamically linking ffmpeg
-
-Found 2026-07-19: the CI release binaries (built on Ubuntu 24.04) link
-ffmpeg 6's sonames dynamically (`libavutil.so.58`, ...). Any distro that
-ships a different ffmpeg major — notably Arch and other rolling releases,
-which bump sonames on every ffmpeg major — makes both binaries die at the
-dynamic linker (exit 127) before `main`, so the engine's autostart fails
-silently and the GUI "fails to launch" with no visible error. The
-self-updater then faithfully keeps users on broken binaries.
-
-- Static-link or vendor ffmpeg in the release build (ffmpeg-next's
-  build-from-source feature, or prebuilt static libs in CI) so assets no
-  longer depend on the host's ffmpeg version
-- Until then the workaround is building from source; consider having the
-  GUI surface a linker-level failure of the engine binary (exit 127 from
-  the autostart unit) instead of failing silently
 
 ## 1.2 — "The Themes Release" (SHIPPED as v1.2.0/v1.2.1, 2026-07-19)
 
@@ -101,6 +111,52 @@ the desktop itself is the theme editor's preview. Approved direction
 5. **Engine status row** — Settings → General shows running/stopped with a
    Start/Stop button (gap found 2026-07-18: GUI had no way to restart a
    quit engine).
+
+## 1.3 candidate — theme packs (bundle sharing)
+
+Extend the 1.2 Themes Release's "Import Theme" / gallery model from a bare
+layout TOML into a full pack: background image/video, visualiser settings,
+and (optionally) a custom `.wgsl` shader, bundled so a pack works like a
+Wallpaper Engine workshop item — one file to install a whole look. Idea
+from Joshua 2026-07-21; agreed direction, not yet scheduled/planned.
+
+- **Format: plain tar, not a custom container.** A manifest TOML (reusing
+  the existing `ThemeLayout` schema) plus the media file(s) alongside.
+  Deliberately *not* obfuscated/compressed-only in a way that hides
+  contents — a plain tar means a user can `tar tf`/extract a pack outside
+  the engine and read the `.wgsl` before ever running it, which is the
+  whole point given the point below.
+- **Custom `.wgsl` is arbitrary GPU code from a stranger.** Packs
+  containing a shader must be flagged as such (manifest field, e.g.
+  `custom_shader = true`) and the import flow must surface an explicit
+  "this pack includes a custom shader — review it before enabling"
+  prompt rather than compiling and running it silently. No sandboxing
+  planned beyond that disclosure; the tar-not-hidden-container choice
+  above is what makes "review before enabling" actually actionable.
+- **Video weight**: consider letting the video be a reference
+  (path/URL) rather than mandatory embedded bytes, so packs that only
+  change layout/visualiser/shader stay small.
+- **Extensible by construction.** `pack.toml` follows `ThemeLayout`'s own
+  convention — every field/table optional, `#[serde(default)]` throughout —
+  so a pack sharing just one thing stays a two-line manifest. `schema_version`
+  is a floor, not a lock: the importer accepts anything at or below the
+  version it understands and only warns on packs newer than that, and
+  unknown fields/tables are ignored rather than rejected (no
+  `deny_unknown_fields`), so a future field doesn't break older builds and
+  an older pack never stops working. Archive extraction is driven by an
+  explicit match over manifest-declared entries (one arm per asset kind —
+  `background`, `shader`, ...), not a blind directory walk, so adding a new
+  bundlable asset later (fonts, a colour palette, per-monitor variants...)
+  is one new optional table plus one new match arm, not a format redesign.
+
+**Sequencing decision (2026-07-21):** ship custom-shader support in the
+first version of packs rather than staging a shader-less v1 first. Every
+shader today is `include_str!`'d at compile time — there is no runtime
+shader-loading path at all — so this depends on the renderer decomposition
+above landing first (phases 3–5), followed by a runtime shader-loading
+capability built on the decomposed structure, before pack format work
+starts. Order: renderer decomposition (phases 3–5) → runtime shader loading
+→ theme packs (full format, custom shader included from the start).
 
 ## Known upstream issue — libcosmic's ColorPickerModel (pinned rev 6359a94)
 
@@ -168,3 +224,10 @@ look good, so no urgency):
 
 - Interactive mouse-reactive wallpaper effects
 - Plugin API for custom data sources
+- Weather widget position/font/style customization (today `ThemeLayout.weather`
+  is a plain `TextLayout` — no independent font override) plus new widgets
+  beyond the current five, starting with a Time widget (2026-07-21, likely
+  sooner than the item below)
+- Rudimentary scene builder: visual z-ordering so elements (visualiser bars,
+  other objects) can be layered/hidden behind one another (2026-07-21,
+  explicitly far off — not to be designed for yet, just not foreclosed)

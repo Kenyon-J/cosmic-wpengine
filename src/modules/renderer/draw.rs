@@ -1,10 +1,121 @@
+use super::core::{ArtLayer, BackgroundLayer};
 use super::frame_params::{get_uv_transform, FrameParams};
 use super::text::{PositionedBuffer, TextCacheKey, TextRenderer, TextVertex};
 use super::types::{AmbUniforms, ArtUniforms, VisUniforms};
+use crate::modules::visualiser_pass::VisualiserPass;
 use crate::modules::wayland::WaylandManager;
 use anyhow::Result;
 use cosmic_text::{self, Attrs, Family, Metrics, Shaping};
 use tracing::warn;
+
+/// Encodes and submits one frame's render pass against `view` - phase 4 of
+/// the renderer decomposition (`docs/PLAN-renderer-decomposition.md`).
+/// Takes a bare `&wgpu::TextureView` rather than acquiring one from a
+/// surface, and every GPU resource it draws with individually rather than
+/// `&Renderer` (same borrow-checker reason as `prepare_text_buffer` above:
+/// callers inside the per-output loop already hold `renderer.outputs`
+/// mutably borrowed via its iterator, so a function taking the whole
+/// struct would conflict where one taking its disjoint fields doesn't) -
+/// so this same function can drive both the live per-monitor loop below
+/// and a future offscreen `--render-frame` harness rendering to a bare
+/// texture with no surface at all. Presenting (surface-specific) stays
+/// the caller's job; this only encodes and submits.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_frame(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    view: &wgpu::TextureView,
+    width: u32,
+    height: u32,
+    album_art_pipeline: &wgpu::RenderPipeline,
+    art: &ArtLayer,
+    background: &BackgroundLayer,
+    weather_render_pipeline: &wgpu::RenderPipeline,
+    weather_render_bind_group: &wgpu::BindGroup,
+    visualiser_pass: &VisualiserPass,
+    text_renderer: &TextRenderer,
+    clear_colour: wgpu::Color,
+    show_art_bg: bool,
+    show_color_bg: bool,
+    show_art_fg: bool,
+    is_weather_active: bool,
+    active_particles: u32,
+    has_audio: bool,
+    visualiser_instance_count: u32,
+) {
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some(&format!("Frame Encoder {width}x{height}")),
+    });
+
+    {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Main Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(clear_colour),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+
+        // --- Background Rendering ---
+        // Simplified logic with clear precedence: Album Art > Custom BG > Ambient
+        if show_art_bg || show_color_bg {
+            if let Some(bind_group) = art.bg_bind_group() {
+                render_pass.set_pipeline(album_art_pipeline);
+                render_pass.set_bind_group(0, bind_group, &[]);
+                render_pass.draw(0..3, 0..1);
+            }
+        } else if let Some(bind_group) = background.bind_group() {
+            // Custom Desktop Wallpaper Background (Frosted Glass)
+            render_pass.set_pipeline(album_art_pipeline);
+            render_pass.set_bind_group(0, bind_group, &[]);
+            render_pass.draw(0..3, 0..1);
+        } else {
+            // Ambient Procedural Sky
+            render_pass.set_pipeline(&background.ambient_pipeline);
+            render_pass.set_bind_group(0, &background.ambient_bind_group, &[]);
+            render_pass.draw(0..3, 0..1);
+        }
+
+        // --- Overlay Layers ---
+        if is_weather_active && active_particles > 0 {
+            render_pass.set_pipeline(weather_render_pipeline);
+            render_pass.set_bind_group(0, weather_render_bind_group, &[]);
+            render_pass.draw(0..6, 0..active_particles); // 6 vertices per quad
+        }
+
+        if has_audio {
+            render_pass.set_pipeline(&visualiser_pass.pipeline);
+            render_pass.set_bind_group(0, &visualiser_pass.bind_group, &[]);
+            render_pass.draw(0..6, 0..visualiser_instance_count);
+        }
+
+        if show_art_fg {
+            if let Some(bind_group) = art.fg_bind_group() {
+                render_pass.set_pipeline(album_art_pipeline);
+                render_pass.set_bind_group(0, bind_group, &[]);
+                render_pass.draw(0..3, 0..1);
+            }
+        }
+
+        // --- Text Rendering ---
+        render_pass.set_pipeline(&text_renderer.pipeline);
+        render_pass.set_bind_group(0, &text_renderer.bind_group, &[]);
+        render_pass.set_vertex_buffer(0, text_renderer.vertices.slice(..));
+        render_pass.set_index_buffer(text_renderer.indices.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..text_renderer.num_indices, 0, 0..1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+}
 
 /// Builds (or refreshes from cache) a shaped text buffer for one on-screen
 /// text element, applies this frame's alignment, and appends the result to
@@ -712,83 +823,30 @@ pub(crate) fn draw_frame(
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = renderer
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Frame Encoder"),
-            });
 
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Main Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear_colour),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
+        encode_frame(
+            &renderer.device,
+            &renderer.queue,
+            &view,
+            current_res.0,
+            current_res.1,
+            &renderer.album_art_pipeline,
+            &renderer.art,
+            &renderer.background,
+            &renderer.weather_render_pipeline,
+            &renderer.weather_render_bind_group,
+            &renderer.visualiser_pass,
+            &renderer.text_renderer,
+            clear_colour,
+            show_art_bg,
+            show_color_bg,
+            show_art_fg,
+            is_weather_active,
+            active_particles,
+            has_audio,
+            visualiser_instance_count,
+        );
 
-            // --- Background Rendering ---
-            // Simplified logic with clear precedence: Album Art > Custom BG > Ambient
-            if show_art_bg || show_color_bg {
-                if let Some(bind_group) = renderer.art.bg_bind_group() {
-                    render_pass.set_pipeline(&renderer.album_art_pipeline);
-                    render_pass.set_bind_group(0, bind_group, &[]);
-                    render_pass.draw(0..3, 0..1);
-                }
-            } else if let Some(bind_group) = renderer.background.bind_group() {
-                // Custom Desktop Wallpaper Background (Frosted Glass)
-                render_pass.set_pipeline(&renderer.album_art_pipeline);
-                render_pass.set_bind_group(0, bind_group, &[]);
-                render_pass.draw(0..3, 0..1);
-            } else {
-                // Ambient Procedural Sky
-                render_pass.set_pipeline(&renderer.background.ambient_pipeline);
-                render_pass.set_bind_group(0, &renderer.background.ambient_bind_group, &[]);
-                render_pass.draw(0..3, 0..1);
-            }
-
-            // --- Overlay Layers ---
-            if is_weather_active && active_particles > 0 {
-                render_pass.set_pipeline(&renderer.weather_render_pipeline);
-                render_pass.set_bind_group(0, &renderer.weather_render_bind_group, &[]);
-                render_pass.draw(0..6, 0..active_particles); // 6 vertices per quad
-            }
-
-            if has_audio {
-                render_pass.set_pipeline(&renderer.visualiser_pass.pipeline);
-                render_pass.set_bind_group(0, &renderer.visualiser_pass.bind_group, &[]);
-                render_pass.draw(0..6, 0..visualiser_instance_count);
-            }
-
-            if show_art_fg {
-                if let Some(bind_group) = renderer.art.fg_bind_group() {
-                    render_pass.set_pipeline(&renderer.album_art_pipeline);
-                    render_pass.set_bind_group(0, bind_group, &[]);
-                    render_pass.draw(0..3, 0..1);
-                }
-            }
-
-            // --- Text Rendering ---
-            render_pass.set_pipeline(&renderer.text_renderer.pipeline);
-            render_pass.set_bind_group(0, &renderer.text_renderer.bind_group, &[]);
-            render_pass.set_vertex_buffer(0, renderer.text_renderer.vertices.slice(..));
-            render_pass.set_index_buffer(
-                renderer.text_renderer.indices.slice(..),
-                wgpu::IndexFormat::Uint32,
-            );
-            render_pass.draw_indexed(0..renderer.text_renderer.num_indices, 0, 0..1);
-        }
-
-        renderer.queue.submit(std::iter::once(encoder.finish()));
         renderer.queue.present(output);
     }
 
