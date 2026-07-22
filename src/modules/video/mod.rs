@@ -75,6 +75,74 @@ fn copy_scaled_frame(
     }
 }
 
+/// Opens `path` fresh and derives everything the local decode loop needs
+/// from it: the demuxer context, which stream is video, a decoder + scaler
+/// matched to that stream's own parameters, and its time base. Used both
+/// for the loop's initial setup and to fully reinitialize after a failed
+/// seek-to-start - a bare reopen of just `ictx` used to leave `decoder`/
+/// `scaler`/`stream_index`/`time_base_f64` all still pointing at state
+/// derived from the *previous* `Input`, which a fresh one isn't guaranteed
+/// to match (ffmpeg's C API gives no guarantee a codec context stays valid
+/// once the format context that produced its parameters is gone).
+#[allow(clippy::type_complexity)]
+fn open_video_stream(
+    path: &str,
+) -> Result<
+    (
+        ffmpeg::format::context::Input,
+        usize,
+        ffmpeg::decoder::Video,
+        ffmpeg::software::scaling::Context,
+        u32,
+        u32,
+        f64,
+    ),
+    String,
+> {
+    let ictx = ffmpeg::format::input(&path).map_err(|e| format!("failed to open input: {e}"))?;
+
+    let input = ictx
+        .streams()
+        .best(ffmpeg::media::Type::Video)
+        .ok_or(ffmpeg::Error::StreamNotFound)
+        .map_err(|e| format!("failed to find video stream: {e}"))?;
+    let stream_index = input.index();
+
+    let context_decoder = ffmpeg::codec::context::Context::from_parameters(input.parameters())
+        .map_err(|e| format!("failed to get codec context: {e}"))?;
+    let decoder = context_decoder
+        .decoder()
+        .video()
+        .map_err(|e| format!("failed to get video decoder: {e}"))?;
+
+    let width = decoder.width();
+    let height = decoder.height();
+
+    let scaler = ffmpeg::software::scaling::Context::get(
+        decoder.format(),
+        width,
+        height,
+        ffmpeg::format::Pixel::RGBA,
+        width,
+        height,
+        ffmpeg::software::scaling::flag::Flags::BILINEAR,
+    )
+    .map_err(|e| format!("failed to create scaler: {e}"))?;
+
+    let time_base = input.time_base();
+    let time_base_f64 = time_base.numerator() as f64 / time_base.denominator() as f64;
+
+    Ok((
+        ictx,
+        stream_index,
+        decoder,
+        scaler,
+        width,
+        height,
+        time_base_f64,
+    ))
+}
+
 pub struct VideoDecoder;
 
 impl VideoDecoder {
@@ -90,68 +158,15 @@ impl VideoDecoder {
         info!("Starting local ffmpeg-next video decoder for: {}", path);
 
         tokio::task::spawn_blocking(move || {
-            let mut ictx = match ffmpeg::format::input(&path) {
-                Ok(ctx) => ctx,
-                Err(e) => {
-                    warn!("ffmpeg-next failed to open input {}: {}", path, e);
-                    return;
-                }
-            };
-
-            let input = ictx
-                .streams()
-                .best(ffmpeg::media::Type::Video)
-                .ok_or(ffmpeg::Error::StreamNotFound);
-
-            let input = match input {
-                Ok(stream) => stream,
-                Err(e) => {
-                    warn!("ffmpeg-next failed to find video stream: {}", e);
-                    return;
-                }
-            };
-
-            let stream_index = input.index();
-
-            let context_decoder =
-                match ffmpeg::codec::context::Context::from_parameters(input.parameters()) {
-                    Ok(ctx) => ctx,
+            let (mut ictx, mut stream_index, mut decoder, mut scaler, mut width, mut height, mut time_base_f64) =
+                match open_video_stream(&path) {
+                    Ok(v) => v,
                     Err(e) => {
-                        warn!("ffmpeg-next failed to get codec context: {}", e);
+                        warn!("ffmpeg-next failed to open {}: {}", path, e);
                         return;
                     }
                 };
-
-            let mut decoder = match context_decoder.decoder().video() {
-                Ok(dec) => dec,
-                Err(e) => {
-                    warn!("ffmpeg-next failed to get video decoder: {}", e);
-                    return;
-                }
-            };
-
-            let width = decoder.width();
-            let height = decoder.height();
-            let frame_size = (width * height * 4) as usize;
-
-            let mut scaler = match ffmpeg::software::scaling::Context::get(
-                decoder.format(),
-                width,
-                height,
-                ffmpeg::format::Pixel::RGBA,
-                width,
-                height,
-                ffmpeg::software::scaling::flag::Flags::BILINEAR,
-            ) {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!("ffmpeg-next failed to create scaler: {}", e);
-                    return;
-                }
-            };
-
-            let time_base = input.time_base();
-            let time_base_f64 = time_base.numerator() as f64 / time_base.denominator() as f64;
+            let mut frame_size = (width * height * 4) as usize;
 
             // Reused across every frame: scaler.run() only allocates this frame's
             // internal buffer the first time (while it's still empty), so keeping
@@ -167,11 +182,31 @@ impl VideoDecoder {
                 // We need to seek to the beginning if we loop.
                 if let Err(e) = ictx.seek(0, 0..ictx.duration().max(0)) {
                     warn!("ffmpeg-next seek failed: {}", e);
-                    // Just reopen if seek fails
-                    ictx = match ffmpeg::format::input(&path) {
-                        Ok(ctx) => ctx,
-                        Err(_) => break,
-                    };
+                    // Reopening alone isn't enough: `decoder`/`scaler`/
+                    // `stream_index`/`time_base_f64` were all derived from
+                    // the *previous* `ictx` and aren't guaranteed valid
+                    // against a freshly reopened one (ffmpeg's C API gives
+                    // no guarantee a codec context stays usable once the
+                    // format context that produced its parameters is gone).
+                    // Rebuild everything from the new input together, not
+                    // just `ictx` itself.
+                    match open_video_stream(&path) {
+                        Ok((new_ictx, new_stream_index, new_decoder, new_scaler, new_width, new_height, new_time_base_f64)) => {
+                            ictx = new_ictx;
+                            stream_index = new_stream_index;
+                            decoder = new_decoder;
+                            scaler = new_scaler;
+                            width = new_width;
+                            height = new_height;
+                            time_base_f64 = new_time_base_f64;
+                            frame_size = (width * height * 4) as usize;
+                            rgb_frame = ffmpeg::frame::Video::empty();
+                        }
+                        Err(e) => {
+                            warn!("ffmpeg-next reopen after failed seek also failed: {}", e);
+                            break;
+                        }
+                    }
                 }
                 decoder.flush();
                 let mut first_pts: Option<i64> = None;

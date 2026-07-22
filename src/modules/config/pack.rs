@@ -30,6 +30,25 @@ pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 /// gzip stream claiming (or decompressing to) an enormous entry.
 const MAX_ENTRY_BYTES: u64 = 512 * 1024 * 1024;
 
+/// Whole-pack cap, checked two ways: the caller should reject a `.cwtheme`
+/// bigger than this via `Path::metadata` *before* ever reading it into
+/// memory (see the GUI's pack-drop handler), and `parse` re-checks it
+/// against both the input slice's own length and the running total of
+/// every entry's declared size while iterating. That second check matters
+/// on its own: `MAX_ENTRY_BYTES` only bounds any *one* entry, so a pack
+/// with many entries each just under that cap could otherwise still force
+/// gigabytes of cumulative decompression work despite never tripping the
+/// per-entry check. Generous enough for one `MAX_ENTRY_BYTES` video plus
+/// the small theme/shader/manifest entries every pack also carries; a
+/// `.cwtheme` bigger than this is never a legitimate export from this app.
+pub const MAX_PACK_BYTES: u64 = 600 * 1024 * 1024;
+
+/// Cheap defence against a pack with an absurd number of tiny entries (each
+/// individually well under `MAX_ENTRY_BYTES`/`MAX_PACK_BYTES`) built purely
+/// to make this loop do unnecessary work - a real pack only ever has four
+/// entries (pack.toml, theme.toml, one background, one shader).
+const MAX_PACK_ENTRIES: usize = 64;
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct PackManifest {
@@ -138,6 +157,10 @@ pub struct ParsedPack {
 /// path-traversal risk); anything else, including any entry outside the
 /// allow-listed names, is ignored.
 pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
+    if bytes.len() as u64 > MAX_PACK_BYTES {
+        bail!("pack file too large ({} bytes, limit {MAX_PACK_BYTES})", bytes.len());
+    }
+
     let gz = GzDecoder::new(bytes);
     let mut archive = tar::Archive::new(gz);
 
@@ -146,10 +169,25 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
     let mut background: Option<(String, Vec<u8>)> = None;
     let mut shader: Option<(String, Vec<u8>)> = None;
 
+    let mut entry_count: usize = 0;
+    let mut cumulative_bytes: u64 = 0;
+
     for entry in archive.entries().context("reading pack archive")? {
         let mut entry = entry.context("reading pack archive entry")?;
+
+        entry_count += 1;
+        if entry_count > MAX_PACK_ENTRIES {
+            bail!("pack has too many entries (limit {MAX_PACK_ENTRIES})");
+        }
+
         if entry.size() > MAX_ENTRY_BYTES {
             bail!("pack entry too large");
+        }
+        // Bounds total decompression work across the whole archive, not
+        // just any single entry - see `MAX_PACK_BYTES`'s doc comment.
+        cumulative_bytes = cumulative_bytes.saturating_add(entry.size());
+        if cumulative_bytes > MAX_PACK_BYTES {
+            bail!("pack's total entry size exceeds the {MAX_PACK_BYTES}-byte limit");
         }
         let path = entry
             .path()
@@ -313,6 +351,47 @@ mod tests {
         let (file, shader_bytes) = parsed.shader.unwrap();
         assert_eq!(file, "evil.wgsl");
         assert_eq!(shader_bytes, b"malicious");
+    }
+
+    /// Regression test for a pack built purely to make `parse`'s loop do
+    /// unnecessary work: many small, unrecognised entries, none of them
+    /// anywhere near `MAX_ENTRY_BYTES`/`MAX_PACK_BYTES` individually or
+    /// even summed. Only the entry *count* makes this pack abusive, so
+    /// only the count cap (not the byte caps) can catch it.
+    #[test]
+    fn a_pack_with_too_many_entries_is_rejected() {
+        let manifest_toml = toml::to_string_pretty(&PackManifest {
+            schema_version: SUPPORTED_SCHEMA_VERSION,
+            name: "many-entries".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+        let theme_toml = toml::to_string_pretty(&ThemeLayout::default()).unwrap();
+
+        let gz = GzEncoder::new(Vec::new(), Compression::default());
+        let mut tar = tar::Builder::new(gz);
+        append_file(&mut tar, "pack.toml", manifest_toml.as_bytes()).unwrap();
+        append_file(&mut tar, "theme.toml", theme_toml.as_bytes()).unwrap();
+        for i in 0..MAX_PACK_ENTRIES {
+            append_file(&mut tar, &format!("junk/{i}"), b"x").unwrap();
+        }
+        let bytes = tar.into_inner().unwrap().finish().unwrap();
+
+        let err = parse(&bytes).unwrap_err();
+        assert!(
+            err.to_string().contains("too many entries"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// A legitimately-sized pack (comfortably under every new cap) must
+    /// keep working - the caps exist for abuse, not normal use.
+    #[test]
+    fn a_normally_sized_pack_is_unaffected_by_the_new_caps() {
+        let contents = sample_contents();
+        let bytes = build(&contents).unwrap();
+        assert!((bytes.len() as u64) < MAX_PACK_BYTES);
+        assert!(parse(&bytes).is_ok());
     }
 
     #[test]

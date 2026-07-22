@@ -1203,8 +1203,25 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 // ----------------------------------------------------------------- General
 
 fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
+    // "Up to date" and a failed check both get a recheck button alongside
+    // the status - a silent failure (rate limit, network blip) used to
+    // read identically to a genuine "you're current", which is actively
+    // misleading given GitHub's unauthenticated API is capped at 60
+    // requests/hour per IP and shared with anything else on the network.
     let update_control: cosmic::Element<'_, Message> = match &app.update_state {
-        UpdateState::UpToDate => text::body("Up to date").into(),
+        UpdateState::Checking => text::body("Checking for updates...").into(),
+        UpdateState::UpToDate => Row::new()
+            .push(text::body("Up to date"))
+            .push(button::standard("Check for Updates").on_press(Message::CheckForUpdates))
+            .spacing(8)
+            .align_y(cosmic::iced::Alignment::Center)
+            .into(),
+        UpdateState::CheckFailed(reason) => Row::new()
+            .push(text::body(format!("Couldn't check: {reason}")))
+            .push(button::standard("Retry").on_press(Message::CheckForUpdates))
+            .spacing(8)
+            .align_y(cosmic::iced::Alignment::Center)
+            .into(),
         UpdateState::Available(tag) if super::updater::is_self_updatable() => {
             button::suggested(format!("Update to {tag}"))
                 .on_press(Message::StartUpdate)

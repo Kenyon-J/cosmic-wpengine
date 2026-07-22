@@ -159,7 +159,13 @@ enum Page {
 
 #[derive(Debug, Clone, PartialEq)]
 enum UpdateState {
+    /// A check is in flight - covers both the initial startup check and a
+    /// manual recheck, so the button can disable/relabel itself either way.
+    Checking,
     UpToDate,
+    /// The check itself failed (network, rate limit, bad response) - not
+    /// the same as `UpToDate`. Holds a short reason to show the user.
+    CheckFailed(String),
     Available(String),
     /// Holds the tag being installed so a failed attempt can fall back to
     /// `Available(tag)` (offering a retry) instead of losing track of it.
@@ -252,6 +258,30 @@ impl SettingsApp {
             .map(|name| config::ThemeLayout::load(name));
     }
 
+    /// Switches the theme editor to `name` (or clears it, for `None`),
+    /// flushing any edit pending for the theme being left first.
+    ///
+    /// `schedule_theme_save`'s debounce fires 300ms after the last edit,
+    /// against whatever `selected_theme`/`edit_theme` happen to be *at fire
+    /// time* - not what they were when the edit was made. Switching themes
+    /// (via the dropdown, a pack import, theme creation, or applying a
+    /// saved pack) before that timer lands used to mean the timer fired
+    /// against the newly-selected theme instead, writing *its* own
+    /// unedited layout over its own file while silently discarding
+    /// whatever was actually pending for the theme just left - no error,
+    /// nothing in the status line, the edit just never reached disk.
+    /// Flushing synchronously here closes that window, and bumping
+    /// `theme_save_generation` invalidates any timer already in flight so
+    /// it becomes a harmless no-op instead of firing again later.
+    fn switch_edit_theme(&mut self, name: Option<String>) {
+        if self.edit_theme.is_some() {
+            self.write_theme_file();
+        }
+        self.theme_save_generation = self.theme_save_generation.wrapping_add(1);
+        self.selected_theme = name;
+        self.load_edit_theme();
+    }
+
     /// Re-reads the engine's liveness, and - only when it is down - asks
     /// systemd whether the login autostart failed, so the engine row can say
     /// why instead of just "Not running".
@@ -299,8 +329,7 @@ impl SettingsApp {
         shader: Option<(String, Vec<u8>)>,
     ) -> Result<String, String> {
         let written_as = write_pack_to_disk(name, theme_toml, background, shader)?;
-        self.selected_theme = Some(written_as.clone());
-        self.load_edit_theme();
+        self.switch_edit_theme(Some(written_as.clone()));
         Ok(written_as)
     }
 }
@@ -1090,17 +1119,39 @@ async fn fetch_patch_notes() -> String {
     }
 }
 
-async fn check_for_updates() -> Option<String> {
+/// `Ok(Some(tag))` - an update is available; `Ok(None)` - confirmed already
+/// current; `Err(msg)` - the check itself failed (network, rate limit,
+/// malformed response) and nothing was actually confirmed either way.
+/// Callers must not fold `Err` into "up to date" - GitHub's unauthenticated
+/// API is capped at 60 requests/hour per IP, shared with anything else on
+/// the same network, and a transient failure there is common enough that
+/// silently reporting it as "you're current" is actively misleading.
+async fn check_for_updates() -> Result<Option<String>, String> {
     let url = "https://api.github.com/repos/Kenyon-J/cosmic-wpengine/releases/latest";
 
-    let client = get_http_client().ok()?;
+    let client = get_http_client().map_err(|e| format!("Couldn't build HTTP client: {e}"))?;
 
-    let resp = client.get(url).send().await.ok()?;
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Couldn't reach GitHub: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err(if status.as_u16() == 403 {
+            "GitHub API rate limit hit - try again in a bit".to_string()
+        } else {
+            format!("GitHub returned HTTP {status}")
+        });
+    }
+
     const MAX_JSON_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
     let bytes = cosmic_wallpaper::modules::utils::read_capped(resp, MAX_JSON_SIZE)
         .await
-        .ok()?;
-    let release: GitHubRelease = serde_json::from_slice(&bytes).ok()?;
+        .map_err(|e| format!("Couldn't read GitHub's response: {e}"))?;
+    let release: GitHubRelease = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("Couldn't parse GitHub's response: {e}"))?;
     let latest_version = release.tag_name.trim_start_matches('v');
     let current_version = env!("CARGO_PKG_VERSION");
 
@@ -1123,11 +1174,11 @@ async fn check_for_updates() -> Option<String> {
         _ => latest_version != current_version,
     };
 
-    if is_newer {
+    Ok(if is_newer {
         Some(release.tag_name)
     } else {
         None
-    }
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1231,7 +1282,11 @@ enum Message {
     PatchNotesLinkClicked(cosmic::widget::markdown::Uri),
     ReportIssue,
     CopyDiagnostics,
-    UpdateCheckDone(Option<String>),
+    UpdateCheckDone(Result<Option<String>, String>),
+    /// Manual recheck - the Version row's "Check for Updates" button. Reuses
+    /// the same `check_for_updates()`/`UpdateCheckDone` path the startup
+    /// check already uses.
+    CheckForUpdates,
     StartUpdate,
     UpdateFinished(Result<String, String>),
     OpenUpdateLink,
@@ -1359,7 +1414,7 @@ impl Application for SettingsApp {
                 autostart: autostart_enabled(),
                 new_theme_name: String::new(),
                 status_msg: "Ready.".into(),
-                update_state: UpdateState::UpToDate,
+                update_state: UpdateState::Checking,
                 patch_notes: None,
                 wallpaper_preview: None,
                 color_picker: ColorPickerModel::new(
@@ -1600,8 +1655,7 @@ impl Application for SettingsApp {
                 return scan_library_task();
             }
             Message::ThemeSelected(idx) => {
-                self.selected_theme = self.available_themes.get(idx).cloned();
-                self.load_edit_theme();
+                self.switch_edit_theme(self.available_themes.get(idx).cloned());
             }
             Message::ThemeElementSelected(idx) => {
                 self.theme_element = idx;
@@ -1832,8 +1886,17 @@ impl Application for SettingsApp {
                 self.new_theme_name = name;
             }
             Message::CreateTheme => {
-                if !self.new_theme_name.is_empty() {
-                    let name = self.new_theme_name.trim().trim_end_matches(".toml");
+                let name = self.new_theme_name.trim().trim_end_matches(".toml");
+                // Checked on the fully-trimmed name, not the raw string:
+                // the view layer already blocks submitting a whitespace-
+                // only name, but this handler shouldn't trust that on its
+                // own. Two distinct inputs can slip past a raw
+                // `new_theme_name.is_empty()` check yet still trim down to
+                // an empty stem here - whitespace-only, and a name that's
+                // exactly `.toml` (stripped entirely by
+                // `trim_end_matches(".toml")`) - either would otherwise
+                // create `shaders/.toml`.
+                if !name.is_empty() {
                     let file_name = format!("shaders/{}.toml", name);
 
                     if !is_safe_path(&file_name) {
@@ -1851,8 +1914,7 @@ impl Application for SettingsApp {
                             use std::io::Write;
                             let _ = file.write_all(THEME_TEMPLATE.as_bytes());
                             self.available_themes = load_themes();
-                            self.selected_theme = Some(name.to_string());
-                            self.load_edit_theme();
+                            self.switch_edit_theme(Some(name.to_string()));
                             self.status_msg = format!("Created {}", file_name);
                             self.new_theme_name.clear();
                         }
@@ -1910,11 +1972,18 @@ impl Application for SettingsApp {
                 self.status_msg = "Diagnostics copied to clipboard.".into();
                 return cosmic::iced::clipboard::write(text);
             }
-            Message::UpdateCheckDone(version) => {
-                self.update_state = match version {
-                    Some(v) => UpdateState::Available(v),
-                    None => UpdateState::UpToDate,
+            Message::UpdateCheckDone(result) => {
+                self.update_state = match result {
+                    Ok(Some(v)) => UpdateState::Available(v),
+                    Ok(None) => UpdateState::UpToDate,
+                    Err(e) => UpdateState::CheckFailed(e),
                 };
+            }
+            Message::CheckForUpdates => {
+                self.update_state = UpdateState::Checking;
+                return Task::perform(check_for_updates(), |result| {
+                    Message::UpdateCheckDone(result).into()
+                });
             }
             Message::StartUpdate => {
                 if let UpdateState::Available(tag) = self.update_state.clone() {
@@ -2016,6 +2085,27 @@ impl Application for SettingsApp {
                     .iter()
                     .filter(|p| p.extension().is_some_and(|e| e == "cwtheme"))
                 {
+                    // Checked via metadata, before reading a single byte:
+                    // an oversized (or maliciously crafted) `.cwtheme`
+                    // dropped onto this page used to be read into memory
+                    // in full and handed to `parse()` before the
+                    // shader-review gate - or any validation at all - ever
+                    // got a chance to reject it.
+                    match std::fs::metadata(path) {
+                        Ok(meta) if meta.len() > config::pack::MAX_PACK_BYTES => {
+                            messages.push(format!(
+                                "'{}' is too large to be a valid pack (limit {} MB) - skipped.",
+                                path.display(),
+                                config::pack::MAX_PACK_BYTES / (1024 * 1024)
+                            ));
+                            continue;
+                        }
+                        Err(_) => {
+                            messages.push("Could not read a dropped file.".into());
+                            continue;
+                        }
+                        _ => {}
+                    }
                     let Ok(bytes) = std::fs::read(path) else {
                         messages.push("Could not read a dropped file.".into());
                         continue;
@@ -2158,8 +2248,7 @@ impl Application for SettingsApp {
                     self.wp_config.appearance.album_color_background = false;
                     self.wp_config.appearance.video_background_path = Some(file);
                 }
-                self.selected_theme = Some(name.clone());
-                self.load_edit_theme();
+                self.switch_edit_theme(Some(name.clone()));
                 match self.wp_config.save() {
                     Ok(()) => {
                         self.status_msg = match (has_video, video_missing, theme_missing) {

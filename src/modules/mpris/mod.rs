@@ -823,12 +823,26 @@ impl MprisWatcher {
         if let Ok(url) = Url::parse(url_str) {
             if url.scheme() == "file" {
                 if let Ok(path) = url.to_file_path() {
-                    let real_path = match Self::resolve_safe_path(&path) {
-                        Some(p) => p,
-                        None => anyhow::bail!(
+                    // `resolve_safe_path` does several `std::fs::canonicalize`
+                    // calls - real syscalls, not awaited - so run it on the
+                    // blocking pool rather than stalling this task (and, since
+                    // MPRIS metadata handling isn't isolated per-player, every
+                    // other player's track-change processing riding the same
+                    // executor) on a slow or unresponsive filesystem.
+                    let path_owned = path.clone();
+                    let real_path = match tokio::task::spawn_blocking(move || {
+                        Self::resolve_safe_path(&path_owned)
+                    })
+                    .await
+                    {
+                        Ok(Some(p)) => p,
+                        Ok(None) => anyhow::bail!(
                             "Security violation: Attempted path traversal via file:// URL: {:?}",
                             path
                         ),
+                        Err(e) => {
+                            anyhow::bail!("path safety check task panicked: {e}")
+                        }
                     };
                     info!("Successfully parsed file path: {:?}", real_path);
                     let bytes = tokio::fs::read(&real_path).await.map_err(|e| {
@@ -856,13 +870,19 @@ impl MprisWatcher {
 
         // Fallback for absolute paths that are not valid file URLs (e.g. /tmp/art.png)
         info!("Attempting raw path fallback read for: {}", url_str);
-        let path = std::path::Path::new(url_str);
-        let real_path = match Self::resolve_safe_path(path) {
-            Some(p) => p,
-            None => anyhow::bail!(
+        // See the file:// branch above for why this runs on the blocking pool.
+        let path_owned = std::path::PathBuf::from(url_str);
+        let real_path = match tokio::task::spawn_blocking(move || {
+            Self::resolve_safe_path(&path_owned)
+        })
+        .await
+        {
+            Ok(Some(p)) => p,
+            Ok(None) => anyhow::bail!(
                 "Security violation: Attempted path traversal or unsafe raw path: {}",
                 url_str
             ),
+            Err(e) => anyhow::bail!("path safety check task panicked: {e}"),
         };
 
         let bytes = tokio::fs::read(&real_path).await.map_err(|e| {
