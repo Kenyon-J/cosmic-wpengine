@@ -1,3 +1,34 @@
+# cosmic-wallpaper 1.5.1
+
+Five bugs found in a full-codebase sweep, fixed.
+
+## Fixed
+
+- **The theme editor could silently lose or misfile an edit.** Switching
+  themes (dropdown, pack import, theme creation, or applying a saved pack)
+  within about 300ms of the last slider/toggle change used to write the
+  *newly-selected* theme's own unedited layout over its own file, while
+  quietly discarding whatever was actually pending for the theme you'd
+  just left - no error, nothing in the status line. Switching themes now
+  always flushes the outgoing one first.
+- **Dropping an oversized or crafted `.cwtheme` pack could exhaust memory.**
+  A dropped pack was read fully into memory and parsed before the
+  shader-review gate - or any validation - ever ran, with no cap on total
+  entry count or cumulative size (only any *one* entry was bounded). Now
+  checked by file size before it's ever read, and by cumulative
+  entry size/count while parsing.
+- **A looping background video could desync after a failed seek-to-start.**
+  Reopening the file kept the previous decoder/scaler/stream index, which
+  aren't guaranteed valid against a fresh handle - now everything needed
+  to decode is rebuilt together.
+- Fixed a blocking-filesystem call on the MPRIS async task that could
+  stall track-change processing for every media player on a slow disk.
+- Closed a theme-name edge case (`CreateTheme` checked the untrimmed name
+  for emptiness) that a whitespace-only or exactly-`.toml` name could slip
+  past, though the settings UI already prevented reaching it in practice.
+
+---
+
 # cosmic-wallpaper 1.5.0
 
 Visualiser bar polish: capsule-shaped bars, a "glass floor" reflection,
