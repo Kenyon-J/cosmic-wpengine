@@ -1,4 +1,4 @@
-use image::{DynamicImage, GenericImageView, Rgba};
+use image::{DynamicImage, GenericImageView};
 
 pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
     // Optimization: Skip expensive Lanczos3 filtering and extra allocations
@@ -23,9 +23,19 @@ pub fn extract_palette(image: &DynamicImage) -> Box<[[f32; 3]]> {
         &rgba_img
     };
 
+    // Optimization: Extract the underlying raw subpixel buffer, precompute row offsets,
+    // and perform raw indexing to bypass bounds checks and coordinate conversion in get_pixel.
+    let raw = img_ref.as_raw();
+    let width_usize = width as usize;
+
     for y in (0..height).step_by(step_y as usize) {
+        let row_offset = y as usize * width_usize;
         for x in (0..width).step_by(step_x as usize) {
-            let Rgba([r, g, b, a]) = *img_ref.get_pixel(x, y);
+            let base = (row_offset + x as usize) * 4;
+            let r = raw[base];
+            let g = raw[base + 1];
+            let b = raw[base + 2];
+            let a = raw[base + 3];
             if a < 128 {
                 continue;
             }
@@ -79,9 +89,20 @@ pub fn average_colour(img: &image::RgbaImage) -> [f32; 3] {
 
     let mut sum = [0.0f64; 3];
     let mut count = 0u32;
+
+    // Optimization: Extract the underlying raw subpixel buffer, precompute row offsets,
+    // and perform raw indexing to bypass bounds checks and coordinate conversion in get_pixel.
+    let raw = img.as_raw();
+    let width_usize = width as usize;
+
     for y in (0..height).step_by(step_y as usize) {
+        let row_offset = y as usize * width_usize;
         for x in (0..width).step_by(step_x as usize) {
-            let Rgba([r, g, b, a]) = *img.get_pixel(x, y);
+            let base = (row_offset + x as usize) * 4;
+            let r = raw[base];
+            let g = raw[base + 1];
+            let b = raw[base + 2];
+            let a = raw[base + 3];
             if a < 128 {
                 continue;
             }
