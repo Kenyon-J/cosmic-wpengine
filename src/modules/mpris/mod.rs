@@ -872,18 +872,15 @@ impl MprisWatcher {
         info!("Attempting raw path fallback read for: {}", url_str);
         // See the file:// branch above for why this runs on the blocking pool.
         let path_owned = std::path::PathBuf::from(url_str);
-        let real_path = match tokio::task::spawn_blocking(move || {
-            Self::resolve_safe_path(&path_owned)
-        })
-        .await
-        {
-            Ok(Some(p)) => p,
-            Ok(None) => anyhow::bail!(
-                "Security violation: Attempted path traversal or unsafe raw path: {}",
-                url_str
-            ),
-            Err(e) => anyhow::bail!("path safety check task panicked: {e}"),
-        };
+        let real_path =
+            match tokio::task::spawn_blocking(move || Self::resolve_safe_path(&path_owned)).await {
+                Ok(Some(p)) => p,
+                Ok(None) => anyhow::bail!(
+                    "Security violation: Attempted path traversal or unsafe raw path: {}",
+                    url_str
+                ),
+                Err(e) => anyhow::bail!("path safety check task panicked: {e}"),
+            };
 
         let bytes = tokio::fs::read(&real_path).await.map_err(|e| {
             warn!("Failed to read raw path {}: {}", url_str, e);

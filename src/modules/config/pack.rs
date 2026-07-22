@@ -158,7 +158,10 @@ pub struct ParsedPack {
 /// allow-listed names, is ignored.
 pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
     if bytes.len() as u64 > MAX_PACK_BYTES {
-        bail!("pack file too large ({} bytes, limit {MAX_PACK_BYTES})", bytes.len());
+        bail!(
+            "pack file too large ({} bytes, limit {MAX_PACK_BYTES})",
+            bytes.len()
+        );
     }
 
     let gz = GzDecoder::new(bytes);

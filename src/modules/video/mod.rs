@@ -158,14 +158,21 @@ impl VideoDecoder {
         info!("Starting local ffmpeg-next video decoder for: {}", path);
 
         tokio::task::spawn_blocking(move || {
-            let (mut ictx, mut stream_index, mut decoder, mut scaler, mut width, mut height, mut time_base_f64) =
-                match open_video_stream(&path) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        warn!("ffmpeg-next failed to open {}: {}", path, e);
-                        return;
-                    }
-                };
+            let (
+                mut ictx,
+                mut stream_index,
+                mut decoder,
+                mut scaler,
+                mut width,
+                mut height,
+                mut time_base_f64,
+            ) = match open_video_stream(&path) {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("ffmpeg-next failed to open {}: {}", path, e);
+                    return;
+                }
+            };
             let mut frame_size = (width * height * 4) as usize;
 
             // Reused across every frame: scaler.run() only allocates this frame's
@@ -191,7 +198,15 @@ impl VideoDecoder {
                     // Rebuild everything from the new input together, not
                     // just `ictx` itself.
                     match open_video_stream(&path) {
-                        Ok((new_ictx, new_stream_index, new_decoder, new_scaler, new_width, new_height, new_time_base_f64)) => {
+                        Ok((
+                            new_ictx,
+                            new_stream_index,
+                            new_decoder,
+                            new_scaler,
+                            new_width,
+                            new_height,
+                            new_time_base_f64,
+                        )) => {
                             ictx = new_ictx;
                             stream_index = new_stream_index;
                             decoder = new_decoder;

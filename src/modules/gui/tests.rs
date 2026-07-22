@@ -303,20 +303,38 @@ fn reset_theme_element_restores_every_new_visualiser_field() {
     super::apply_theme_edit(&mut layout, 3, super::ThemeEditMsg::GlowStrength(0.75));
     super::apply_theme_edit(&mut layout, 3, super::ThemeEditMsg::LedSegments(12.0));
     super::apply_theme_edit(&mut layout, 3, super::ThemeEditMsg::PeakHold(true));
-    assert_ne!(layout.visualiser.bar_width_ratio, shipped.visualiser.bar_width_ratio);
+    assert_ne!(
+        layout.visualiser.bar_width_ratio,
+        shipped.visualiser.bar_width_ratio
+    );
     assert_ne!(layout.visualiser.cap_radius, shipped.visualiser.cap_radius);
     assert_ne!(layout.visualiser.reflection, shipped.visualiser.reflection);
-    assert_ne!(layout.visualiser.glow_strength, shipped.visualiser.glow_strength);
-    assert_ne!(layout.visualiser.led_segments, shipped.visualiser.led_segments);
+    assert_ne!(
+        layout.visualiser.glow_strength,
+        shipped.visualiser.glow_strength
+    );
+    assert_ne!(
+        layout.visualiser.led_segments,
+        shipped.visualiser.led_segments
+    );
     assert_ne!(layout.visualiser.peak_hold, shipped.visualiser.peak_hold);
 
     super::reset_theme_element(&mut layout, "monstercat", 3);
 
-    assert_eq!(layout.visualiser.bar_width_ratio, shipped.visualiser.bar_width_ratio);
+    assert_eq!(
+        layout.visualiser.bar_width_ratio,
+        shipped.visualiser.bar_width_ratio
+    );
     assert_eq!(layout.visualiser.cap_radius, shipped.visualiser.cap_radius);
     assert_eq!(layout.visualiser.reflection, shipped.visualiser.reflection);
-    assert_eq!(layout.visualiser.glow_strength, shipped.visualiser.glow_strength);
-    assert_eq!(layout.visualiser.led_segments, shipped.visualiser.led_segments);
+    assert_eq!(
+        layout.visualiser.glow_strength,
+        shipped.visualiser.glow_strength
+    );
+    assert_eq!(
+        layout.visualiser.led_segments,
+        shipped.visualiser.led_segments
+    );
     assert_eq!(layout.visualiser.peak_hold, shipped.visualiser.peak_hold);
     // Sanity: monstercat's shipped visualiser is actually the flat/glow-less
     // look (cap_radius=0, reflection=0, glow_strength=0), not silently equal
@@ -326,7 +344,10 @@ fn reset_theme_element_restores_every_new_visualiser_field() {
     let generic = cosmic_wallpaper::modules::config::ThemeLayout::default();
     assert_ne!(shipped.visualiser.cap_radius, generic.visualiser.cap_radius);
     assert_ne!(shipped.visualiser.reflection, generic.visualiser.reflection);
-    assert_ne!(shipped.visualiser.glow_strength, generic.visualiser.glow_strength);
+    assert_ne!(
+        shipped.visualiser.glow_strength,
+        generic.visualiser.glow_strength
+    );
 }
 
 #[test]
