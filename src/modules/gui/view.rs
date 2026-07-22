@@ -828,18 +828,44 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .add(
                 settings::item::builder("Create new theme")
                     .description("Starts from a fully-commented template layout.")
-                    .control(
-                        Row::new()
-                            .push(
-                                text_input("Theme name", &app.new_theme_name)
-                                    .on_input(Message::NewThemeNameChanged)
-                                    .on_submit(|_| Message::CreateTheme)
-                                    .width(Length::Fixed(180.0)),
+                    .control({
+                        let name = app.new_theme_name.trim();
+                        let is_empty = name.is_empty();
+                        let already_exists = app.available_themes.iter().any(|t| t == name);
+                        let is_valid = !is_empty && !already_exists;
+
+                        let mut input = text_input("Theme name", &app.new_theme_name)
+                            .on_input(Message::NewThemeNameChanged)
+                            .width(Length::Fixed(180.0));
+                        let mut btn = button::standard("Create");
+
+                        if is_valid {
+                            input = input.on_submit(|_| Message::CreateTheme);
+                            btn = btn.on_press(Message::CreateTheme);
+                        }
+
+                        let btn_element: cosmic::Element<'_, Message> = if is_valid {
+                            btn.into()
+                        } else {
+                            let error_msg = if is_empty {
+                                "Theme name cannot be empty"
+                            } else {
+                                "A theme with this name already exists"
+                            };
+                            cosmic::widget::tooltip(
+                                btn,
+                                error_msg,
+                                cosmic::widget::tooltip::Position::Top,
                             )
-                            .push(button::standard("Create").on_press(Message::CreateTheme))
+                            .into()
+                        };
+
+                        Row::new()
+                            .push(input)
+                            .push(btn_element)
                             .spacing(8)
-                            .align_y(cosmic::iced::Alignment::Center),
-                    ),
+                            .align_y(cosmic::iced::Alignment::Center)
+                    }),
             )
             .add(
                 settings::item::builder("Import")
