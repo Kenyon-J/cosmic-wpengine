@@ -6,9 +6,19 @@ pub struct VisualiserPass {
     pub bind_group: wgpu::BindGroup,
     pub uniform_buffer: wgpu::Buffer,
     pub bands_buffer: wgpu::Buffer,
+    /// Per-band peak-hold values (see `AudioAnalysis::peaks`), bound
+    /// read-only at binding(2). Old custom shaders that don't declare this
+    /// binding simply never reference it - wgpu doesn't require every bind
+    /// group layout entry to be used by the shader module.
+    pub peaks_buffer: wgpu::Buffer,
     layout: wgpu::BindGroupLayout,
     shader_src: String,
 }
+
+/// `VisUniforms`'s size in bytes - kept in one place since both the initial
+/// placeholder buffer and the bind group layout's `min_binding_size` must
+/// agree with it exactly.
+const UNIFORM_SIZE: u64 = 112;
 
 impl VisualiserPass {
     pub async fn new(
@@ -17,11 +27,8 @@ impl VisualiserPass {
         band_count: usize,
         style: &str,
     ) -> Result<Self> {
-        let mut uniform_data = Vec::with_capacity(96);
+        let uniform_data = vec![0u8; UNIFORM_SIZE as usize];
         // Placeholder init data; the renderer loop immediately overwrites this
-        for _ in 0..24 {
-            uniform_data.extend_from_slice(&[0u8; 4]);
-        }
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Visualiser Uniform Buffer"),
@@ -36,6 +43,12 @@ impl VisualiserPass {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let peaks_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Audio Peaks Buffer"),
+            size: bands_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Visualiser Bind Group Layout"),
@@ -46,7 +59,7 @@ impl VisualiserPass {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(96),
+                        min_binding_size: wgpu::BufferSize::new(UNIFORM_SIZE),
                     },
                     count: None,
                 },
@@ -60,10 +73,26 @@ impl VisualiserPass {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(4),
+                    },
+                    count: None,
+                },
             ],
         });
 
-        let bind_group = Self::create_bind_group(device, &layout, &uniform_buffer, &bands_buffer);
+        let bind_group = Self::create_bind_group(
+            device,
+            &layout,
+            &uniform_buffer,
+            &bands_buffer,
+            &peaks_buffer,
+        );
 
         let theme = super::config::ThemeLayout::load(style);
         let mut shader_src = Self::load_shader_source(theme.visualiser.shader.as_deref());
@@ -82,6 +111,7 @@ impl VisualiserPass {
             bind_group,
             uniform_buffer,
             bands_buffer,
+            peaks_buffer,
             layout,
             shader_src,
         })
@@ -92,6 +122,7 @@ impl VisualiserPass {
         layout: &wgpu::BindGroupLayout,
         uniform_buf: &wgpu::Buffer,
         bands_buf: &wgpu::Buffer,
+        peaks_buf: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Visualiser Bind Group"),
@@ -104,6 +135,10 @@ impl VisualiserPass {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: bands_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: peaks_buf.as_entire_binding(),
                 },
             ],
         })
@@ -124,11 +159,18 @@ impl VisualiserPass {
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            self.peaks_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Audio Peaks Buffer"),
+                size: bands_size,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
             self.bind_group = Self::create_bind_group(
                 device,
                 &self.layout,
                 &self.uniform_buffer,
                 &self.bands_buffer,
+                &self.peaks_buffer,
             );
         }
 

@@ -135,6 +135,13 @@ enum ThemeEditMsg {
     BeatPulse(f32),
     /// Circular visualiser: capture the album art into the ring.
     DockArt(bool),
+    BarWidthRatio(f32),
+    CapRadius(f32),
+    Reflection(f32),
+    GlowStrength(f32),
+    /// Rounded to the nearest integer band-segment count.
+    LedSegments(f32),
+    PeakHold(bool),
 }
 
 /// One page of the settings window, keyed off the sidebar selection.
@@ -576,6 +583,12 @@ fn apply_theme_edit(layout: &mut config::ThemeLayout, element: usize, edit: Them
             }
         },
         ThemeEditMsg::DockArt(v) => layout.visualiser.dock_art = v,
+        ThemeEditMsg::BarWidthRatio(v) => layout.visualiser.bar_width_ratio = v,
+        ThemeEditMsg::CapRadius(v) => layout.visualiser.cap_radius = v,
+        ThemeEditMsg::Reflection(v) => layout.visualiser.reflection = v,
+        ThemeEditMsg::GlowStrength(v) => layout.visualiser.glow_strength = v,
+        ThemeEditMsg::LedSegments(v) => layout.visualiser.led_segments = v.round() as u32,
+        ThemeEditMsg::PeakHold(v) => layout.visualiser.peak_hold = v,
         ThemeEditMsg::Bounce(v) => layout.effects.lyric_bounce = v,
         ThemeEditMsg::Stiffness(v) => layout.effects.lyric_spring_stiffness = v,
         ThemeEditMsg::Damping(v) => layout.effects.lyric_spring_damping = v,

@@ -282,6 +282,53 @@ fn reset_theme_element_restores_shipped_defaults_even_after_the_style_file_was_s
     );
 }
 
+/// Reset replaces the whole `VisualiserLayout` struct (`layout.visualiser =
+/// defaults.visualiser`), so it can't drift field-by-field - but that's
+/// exactly the kind of thing worth locking in with a real assertion rather
+/// than trusting by inspection, especially right after a pass that added
+/// six new fields (`bar_width_ratio`, `cap_radius`, `reflection`,
+/// `peak_hold`, `led_segments`, `glow_strength`). Monstercat pins several of
+/// these away from the generic baseline (flat, glow-less bars), so this
+/// also catches a reset that silently falls back to `ThemeLayout::default()`
+/// instead of the style's own shipped values.
+#[test]
+fn reset_theme_element_restores_every_new_visualiser_field() {
+    let mut layout = cosmic_wallpaper::modules::config::ThemeLayout::load("monstercat");
+    let shipped = cosmic_wallpaper::modules::config::ThemeLayout::builtin_default("monstercat");
+
+    // Drag every new slider/toggle away from monstercat's shipped values.
+    super::apply_theme_edit(&mut layout, 3, super::ThemeEditMsg::BarWidthRatio(0.42));
+    super::apply_theme_edit(&mut layout, 3, super::ThemeEditMsg::CapRadius(0.9));
+    super::apply_theme_edit(&mut layout, 3, super::ThemeEditMsg::Reflection(0.8));
+    super::apply_theme_edit(&mut layout, 3, super::ThemeEditMsg::GlowStrength(0.75));
+    super::apply_theme_edit(&mut layout, 3, super::ThemeEditMsg::LedSegments(12.0));
+    super::apply_theme_edit(&mut layout, 3, super::ThemeEditMsg::PeakHold(true));
+    assert_ne!(layout.visualiser.bar_width_ratio, shipped.visualiser.bar_width_ratio);
+    assert_ne!(layout.visualiser.cap_radius, shipped.visualiser.cap_radius);
+    assert_ne!(layout.visualiser.reflection, shipped.visualiser.reflection);
+    assert_ne!(layout.visualiser.glow_strength, shipped.visualiser.glow_strength);
+    assert_ne!(layout.visualiser.led_segments, shipped.visualiser.led_segments);
+    assert_ne!(layout.visualiser.peak_hold, shipped.visualiser.peak_hold);
+
+    super::reset_theme_element(&mut layout, "monstercat", 3);
+
+    assert_eq!(layout.visualiser.bar_width_ratio, shipped.visualiser.bar_width_ratio);
+    assert_eq!(layout.visualiser.cap_radius, shipped.visualiser.cap_radius);
+    assert_eq!(layout.visualiser.reflection, shipped.visualiser.reflection);
+    assert_eq!(layout.visualiser.glow_strength, shipped.visualiser.glow_strength);
+    assert_eq!(layout.visualiser.led_segments, shipped.visualiser.led_segments);
+    assert_eq!(layout.visualiser.peak_hold, shipped.visualiser.peak_hold);
+    // Sanity: monstercat's shipped visualiser is actually the flat/glow-less
+    // look (cap_radius=0, reflection=0, glow_strength=0), not silently equal
+    // to the generic circular-bars baseline - otherwise the equality
+    // assertions above would pass even if reset fell back to the wrong
+    // source.
+    let generic = cosmic_wallpaper::modules::config::ThemeLayout::default();
+    assert_ne!(shipped.visualiser.cap_radius, generic.visualiser.cap_radius);
+    assert_ne!(shipped.visualiser.reflection, generic.visualiser.reflection);
+    assert_ne!(shipped.visualiser.glow_strength, generic.visualiser.glow_strength);
+}
+
 #[test]
 fn reset_theme_element_ignores_out_of_range_index() {
     let mut layout = cosmic_wallpaper::modules::config::ThemeLayout::load("no-such-theme");

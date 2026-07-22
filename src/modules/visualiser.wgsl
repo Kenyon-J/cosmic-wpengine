@@ -10,19 +10,26 @@ struct VisualiserUniforms {
     time: f32,
     align: u32, // 0=left, 1=center, 2=right
     is_waveform: u32, // bool
+    bar_width_ratio: f32, // bar width as a fraction of its allotted slot (was hardcoded 0.85)
+    cap_radius: f32, // 0=hard rectangle, 1=full capsule/pill
+    reflection: f32, // "glass floor" mirror strength below the baseline, 0=off
+    led_segments: u32, // >0 chops each bar into this many LED-style segments
+    peak_hold: u32, // bool: draw a gravity-falling peak cap per bar
+    glow_strength: f32, // multiplier on the tip glow, 0=flat/crisp, 1=full glow
     _pad1: u32,
-    _pad2: u32,
-    _pad3: u32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: VisualiserUniforms;
 @group(0) @binding(1) var<storage, read> bands: array<f32>;
+@group(0) @binding(2) var<storage, read> peaks: array<f32>;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) local_uv: vec2<f32>,
     @location(2) bar_val: f32,
+    @location(3) band_energy: f32, // this bar's own 0..1 band value, for energy-scaled glow
+    @location(4) peak_val: f32, // this bar's gravity-held peak height, in the same units as bar_val
 }
 
 @vertex
@@ -69,6 +76,8 @@ fn vs_main(@builtin(vertex_index) v_idx: u32, @builtin(instance_index) i_idx: u3
 
         out.local_uv = p_quad;
         out.bar_val = height;
+        out.band_energy = val;
+        out.peak_val = peaks[band_idx] * 0.25 * uniforms.amplitude;
         out.uv = vec2<f32>(norm_x, 0.0);
 
         let glow_pad_x = bar_width * 1.5;
@@ -123,6 +132,8 @@ fn vs_main(@builtin(vertex_index) v_idx: u32, @builtin(instance_index) i_idx: u3
 
         out.local_uv = p_quad;
         out.bar_val = height;
+        out.band_energy = val;
+        out.peak_val = peaks[band_idx] * 0.25 * uniforms.amplitude;
         out.uv = vec2<f32>(f_band, 0.0);
 
         let local_x = (p_quad.x * quad_w) - (quad_w * 0.5);
@@ -191,6 +202,8 @@ fn vs_main(@builtin(vertex_index) v_idx: u32, @builtin(instance_index) i_idx: u3
 
         out.local_uv = p_quad;
         out.bar_val = height;
+        out.band_energy = val;
+        out.peak_val = peaks[band_idx] * 0.25 * uniforms.amplitude;
         out.uv = vec2<f32>(f_band, 0.0);
 
         let local_x = (p_quad.x * quad_w) - (quad_w * 0.5);
@@ -256,18 +269,51 @@ fn get_vis_waveform(uv: vec2<f32>, s: f32, c: f32, aspect: f32) -> vec4<f32> {
     return vec4<f32>(final_color, final_alpha);
 }
 
-fn eval_shape(lx: f32, ly: f32, half_w: f32, height: f32, glow_intensity: f32, pulse_mult: f32) -> vec2<f32> {
-    if abs(lx) > half_w { return vec2<f32>(0.0, 0.0); }
-    if ly < 0.0 { return vec2<f32>(0.0, 0.0); }
+// Signed distance to a box centred at (0, height/2) with half-extents
+// (half_w, height/2) and uniform corner radius `radius`. At radius=0 this is
+// an exact rectangle (bytewise the pre-capsule bar shape); as radius grows
+// towards min(half_w, height/2) it rounds into a full capsule/pill once the
+// bar is taller than it is wide. Standard "rounded box" SDF (Inigo Quilez).
+fn sd_round_box(lx: f32, ly: f32, half_w: f32, height: f32, radius: f32) -> f32 {
+    let p = vec2<f32>(lx, ly - height * 0.5);
+    let b = vec2<f32>(half_w, height * 0.5) - vec2<f32>(radius);
+    let q = abs(p) - b;
+    return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+}
 
-    if ly <= height {
-        return vec2<f32>(1.0, 0.0);
+// Body + glow for one bar, as a rounded-box SDF with real (derivative-based)
+// anti-aliasing on every edge - corners, sides, and top alike - rather than
+// the old hard per-axis cutoff. `glow_intensity`/`pulse_mult` shape how far
+// and how brightly the glow reaches past the body; `energy` is this bar's
+// own 0..1 band value, so a loud bar's glow reads brighter than a quiet
+// bar's even under the same global lyric pulse.
+fn eval_shape(lx: f32, ly: f32, half_w: f32, height: f32, cap_radius_ratio: f32, glow_intensity: f32, pulse_mult: f32, energy: f32) -> vec2<f32> {
+    let radius = clamp(cap_radius_ratio, 0.0, 1.0) * min(half_w, height * 0.5);
+    let d = sd_round_box(lx, ly, half_w, height, radius);
+
+    let aa = max(fwidth(d), 1e-5);
+    let body = smoothstep(aa, -aa, d);
+
+    // Glow stays confined directly above the bar's own footprint (vertical
+    // distance past its tip only, never sideways) - the same shape the
+    // pre-capsule glow used. A full SDF-distance glow would bleed around
+    // the rounded sides into neighbouring bars' gaps, washing a ring of
+    // many thin bars into one smooth haze instead of distinct spikes.
+    if abs(lx) > half_w || ly <= height {
+        return vec2<f32>(body, 0.0);
     }
 
     let glow_dist = ly - height;
-    let glow = clamp(0.005 / (glow_dist * glow_dist * glow_intensity + 0.005) - 0.1, 0.0, 1.0) * (1.0 + uniforms.lyric_pulse * pulse_mult);
+    // Capped at 1.0 (never brighter than the original, energy-agnostic
+    // glow) rather than boosting loud bars above it: boosting would push
+    // the glow's visible reach past `glow_pad_y`, the fixed quad padding
+    // sized for the old always-on multiplier, and hard-clip at the quad's
+    // own edge instead of fading out.
+    let energy_boost = clamp(0.3 + energy * 0.7, 0.0, 1.0);
+    let glow = clamp(0.005 / (glow_dist * glow_dist * glow_intensity + 0.005) - 0.1, 0.0, 1.0)
+        * (1.0 + uniforms.lyric_pulse * pulse_mult) * energy_boost * uniforms.glow_strength;
 
-    return vec2<f32>(0.0, glow);
+    return vec2<f32>(body, glow);
 }
 
 fn eval_shadow(lx: f32, ly: f32, half_w: f32, height: f32, blur: f32) -> f32 {
@@ -275,6 +321,25 @@ fn eval_shadow(lx: f32, ly: f32, half_w: f32, height: f32, blur: f32) -> f32 {
     let cy = abs(ly - height * 0.5) - height * 0.5;
     let d = length(max(vec2<f32>(cx, cy), vec2<f32>(0.0))) + min(max(cx, cy), 0.0);
     return smoothstep(blur, -blur, d);
+}
+
+// Carves evenly-spaced gaps into `body_alpha` for the LED/segmented mode:
+// `segments` equal-pitch slots spanning the bar's full travel range
+// (0..max_height, not just its current height), so gaps line up across
+// bars regardless of how tall each one currently is - the classic VU-meter
+// look. A no-op (returns `body_alpha` unchanged) when segments is 0.
+fn apply_led_segments(body_alpha: f32, ly: f32, max_height: f32, segments: u32) -> f32 {
+    if segments == 0u {
+        return body_alpha;
+    }
+    let pitch = max_height / f32(segments);
+    let gap = pitch * 0.22;
+    let seg_local = ly - floor(ly / pitch) * pitch;
+    let aa = max(fwidth(ly), 1e-5);
+    let half_gap = gap * 0.5;
+    let past_gap = smoothstep(half_gap - aa, half_gap + aa, seg_local);
+    let before_gap = smoothstep(pitch - half_gap + aa, pitch - half_gap - aa, seg_local);
+    return body_alpha * past_gap * before_gap;
 }
 
 @fragment
@@ -324,12 +389,35 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let local_x = (in.local_uv.x * quad_w) - (quad_w * 0.5);
     let local_y = (in.local_uv.y * quad_h) - glow_pad_y;
 
-    let half_w = bar_width * 0.85 * 0.5;
+    let half_w = bar_width * clamp(uniforms.bar_width_ratio, 0.05, 1.0) * 0.5;
 
     let glow_intensity = select(1.0, 10.0, is_linear);
     let pulse_mult = select(2.0, 1.0, is_linear);
 
-    let fg = eval_shape(local_x, local_y, half_w, height, glow_intensity, pulse_mult);
+    var fg = eval_shape(local_x, local_y, half_w, height, uniforms.cap_radius, glow_intensity, pulse_mult, in.band_energy);
+    fg.x = apply_led_segments(fg.x, local_y, max_height, uniforms.led_segments);
+    // Which height this pixel's colour gradient should sample at - normally
+    // its own local_y, but the mirrored height when it's inside the
+    // reflection below, so the reflection shows the bar's real top-to-
+    // bottom gradient flipped rather than flattening to solid color_bottom.
+    var color_y = local_y;
+
+    // Mirror reflection ("glass floor"): below the baseline, re-evaluate
+    // the same bar shape as if reflected across ly=0 and fade it out with
+    // depth and the theme's reflection strength. Reuses eval_shape as-is -
+    // a point at depth d below the floor mirrors the bar's own appearance
+    // at height d above it.
+    if uniforms.reflection > 0.0 && local_y < 0.0 {
+        let mirrored_y = -local_y;
+        var refl = eval_shape(local_x, mirrored_y, half_w, height, uniforms.cap_radius, glow_intensity, pulse_mult, in.band_energy);
+        refl.x = apply_led_segments(refl.x, mirrored_y, max_height, uniforms.led_segments);
+        let depth_fade = clamp(1.0 - (mirrored_y / (height + 0.15)), 0.0, 1.0);
+        let refl_alpha = uniforms.reflection * depth_fade * depth_fade;
+        fg = vec2<f32>(refl.x * refl_alpha, refl.y * refl_alpha);
+        color_y = mirrored_y;
+    } else if local_y < 0.0 {
+        fg = vec2<f32>(0.0, 0.0);
+    }
 
     let shadow_screen = vec2<f32>(-0.005, -0.005) * uniforms.pos_size_rot.z;
     let shadow_local_x = select(
@@ -347,9 +435,23 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let shadow_alpha = eval_shadow(local_x + shadow_local_x, local_y + shadow_local_y, half_w, height, 0.015) * 0.6;
     let fg_alpha = fg.x + fg.y;
 
-    if fg_alpha < 0.01 && shadow_alpha < 0.01 { discard; }
+    // Peak-hold cap: a thin bright sliver at this bar's gravity-held peak
+    // height, slightly wider than the bar itself (classic VU-meter look).
+    // Drawn after the shadow/glow test above so it can still appear in the
+    // otherwise-empty glow region above the current bar height.
+    var peak_alpha = 0.0;
+    if uniforms.peak_hold == 1u && local_y >= 0.0 {
+        let cap_half_thickness = max(glow_pad_y * 0.12, 0.004);
+        let d_peak = abs(local_y - in.peak_val) - cap_half_thickness;
+        let aa = max(fwidth(d_peak), 1e-5);
+        let in_band = smoothstep(aa, -aa, d_peak);
+        let in_width = smoothstep(half_w * 1.2 + aa, half_w * 1.2 - aa, abs(local_x));
+        peak_alpha = in_band * in_width;
+    }
 
-    let gradient = clamp(local_y / height, 0.0, 1.0);
+    if fg_alpha < 0.01 && shadow_alpha < 0.01 && peak_alpha < 0.01 { discard; }
+
+    let gradient = clamp(color_y / height, 0.0, 1.0);
     let bar_color = mix(uniforms.color_bottom.rgb, uniforms.color_top.rgb, gradient);
 
     let final_fg_color = mix(uniforms.color_top.rgb * fg.y, bar_color, fg.x);
@@ -357,5 +459,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let final_fg_alpha = min(fg.x * solid_alpha + fg.y, 1.0);
 
     let shadow_color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
-    return mix(shadow_color, vec4<f32>(final_fg_color, 1.0), final_fg_alpha);
+    let base = mix(shadow_color, vec4<f32>(final_fg_color, 1.0), final_fg_alpha);
+
+    // Composite the peak cap on top, bright (biased toward white) so it
+    // reads clearly against both the bar's own colour and the background.
+    let peak_color = mix(uniforms.color_top.rgb, vec3<f32>(1.0), 0.5);
+    return mix(base, vec4<f32>(peak_color, 1.0), peak_alpha);
 }

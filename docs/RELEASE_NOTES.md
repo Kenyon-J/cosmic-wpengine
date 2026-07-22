@@ -1,3 +1,52 @@
+# cosmic-wallpaper 1.5.0
+
+Visualiser bar polish: capsule-shaped bars, a "glass floor" reflection,
+LED-segmented mode, and gravity peak-hold caps — all themeable, and all
+exposed as sliders/toggles on the theme editor's Visualiser tab, not just
+TOML keys. Plus a Monstercat theme that actually looks like Monstercat's,
+and a full custom-shader-writing guide.
+
+## Added
+
+- **Capsule bars with real anti-aliasing.** Bars now render as a rounded-box
+  SDF with proper antialiased edges instead of a hard per-pixel cutoff;
+  `cap_radius` controls the rounding, from a crisp rectangle to a full
+  pill/capsule.
+- **Mirrored "glass floor" reflection** below the baseline, fading with
+  depth (`reflection`).
+- **LED/segmented mode** (`led_segments`) chops each bar into discrete
+  VU-meter-style chunks.
+- **Peak-hold caps** that hold each bar's recent maximum and fall back
+  under gravity (`peak_hold`) - off by default (see Changed below), but
+  available for anyone who wants the classic look.
+- **Glow now scales with each bar's own volume**, not just the beat pulse
+  (never brighter than before, only dimmer for quiet bars - no visual
+  regression on existing themes).
+- **Bar width is themeable** (`bar_width_ratio`, was a hardcoded constant).
+- All six of the above are now sliders/toggles on the Layout Themes editor's
+  Visualiser tab.
+- **`docs/CUSTOM_SHADERS.md`**: a full guide to writing a custom visualiser
+  shader - the complete uniform/storage-buffer layout, what audio-reactive
+  values are available and how they're derived, a minimal working example,
+  and how to iterate on one with the engine's headless `--render-frame`
+  flag instead of a live desktop session.
+
+## Changed
+
+- **Monstercat's shipped theme now actually looks like Monstercat's real
+  visualiser**: flat rectangular bars, no glow, tightly packed - measured
+  directly off a reference image rather than eyeballed. Colour is left
+  adaptive to the album/wallpaper palette, same as before (real
+  Monstercat-style visualisers vary their fill colour by genre, so this
+  theme's fix is about bar *shape*, not a fixed hue).
+- Peak-hold caps ship **off** by default: tried live against the built-in
+  themes and the marker read as a visually disconnected floating mark
+  rather than a clean cap. Kept as an opt-in toggle rather than dropped,
+  since the underlying mechanism works fine - it's a look-and-feel call,
+  not a bug.
+
+---
+
 # cosmic-wallpaper 1.4.1
 
 Fixes the "Square" visualiser shape hidden in v1.4.0.

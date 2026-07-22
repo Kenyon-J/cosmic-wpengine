@@ -710,6 +710,51 @@ fn theme_editor_rows<'a>(
                             }),
                             |idx| Message::ThemeEdit(E::Align(idx)),
                         )),
+                )
+                .add(theme_slider(
+                    "Bar width",
+                    "bar_width_ratio",
+                    v.bar_width_ratio,
+                    0.05..=1.0,
+                    0.01,
+                    E::BarWidthRatio,
+                ))
+                .add(theme_slider(
+                    "Cap roundness",
+                    "cap_radius",
+                    v.cap_radius,
+                    0.0..=1.0,
+                    0.01,
+                    E::CapRadius,
+                ))
+                .add(theme_slider(
+                    "Glow",
+                    "glow_strength",
+                    v.glow_strength,
+                    0.0..=1.0,
+                    0.01,
+                    E::GlowStrength,
+                ))
+                .add(theme_slider(
+                    "Reflection",
+                    "reflection",
+                    v.reflection,
+                    0.0..=1.0,
+                    0.01,
+                    E::Reflection,
+                ))
+                .add(theme_slider(
+                    "LED segments",
+                    "led_segments (0 = off)",
+                    v.led_segments as f32,
+                    0.0..=32.0,
+                    1.0,
+                    E::LedSegments,
+                ))
+                .add(
+                    settings::item::builder("Peak-hold caps")
+                        .description("peak_hold - a small bright cap that holds each bar's recent peak and falls under gravity")
+                        .toggler(v.peak_hold, |on| Message::ThemeEdit(E::PeakHold(on))),
                 );
             if matches!(v.shape, VisShape::Circular) {
                 section = section.add(

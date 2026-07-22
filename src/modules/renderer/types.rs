@@ -37,7 +37,11 @@ pub struct Particle {
 }
 
 /// Uniforms for the audio visualiser pass (`visualiser.wgsl`'s
-/// `VisualiserUniforms`).
+/// `VisualiserUniforms`). Fields through `is_waveform` are a byte-for-byte
+/// prefix of the pre-1.5 layout on purpose: a custom shader written against
+/// the old 96-byte struct still reads its own fields correctly out of the
+/// new 112-byte buffer, since wgpu only requires the bind group's declared
+/// size be *at least* what the shader module asks for.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct VisUniforms {
@@ -52,7 +56,13 @@ pub struct VisUniforms {
     pub time: f32,
     pub align: u32,
     pub is_waveform: u32,
-    pub _padding: [u32; 3],
+    pub bar_width_ratio: f32,
+    pub cap_radius: f32,
+    pub reflection: f32,
+    pub led_segments: u32,
+    pub peak_hold: u32,
+    pub glow_strength: f32,
+    pub _padding: u32,
 }
 
 /// Uniforms for the ambient (procedural sky) background pass.

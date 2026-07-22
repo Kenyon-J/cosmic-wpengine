@@ -194,6 +194,35 @@ pub struct VisualiserLayout {
     /// position and size full effect.
     #[serde(default = "default_true")]
     pub dock_art: bool,
+    /// Bar width as a fraction of the space allotted to each band (was a
+    /// hardcoded 0.85 in the shader; 1.0 butts bars together with no gap).
+    #[serde(default = "default_vis_bar_width_ratio")]
+    pub bar_width_ratio: f32,
+    /// Corner rounding on each bar, 0.0 (hard rectangle) to 1.0 (full
+    /// capsule/pill - semicircular caps once the bar is taller than it is
+    /// wide).
+    #[serde(default = "default_vis_cap_radius")]
+    pub cap_radius: f32,
+    /// Strength of the mirrored "glass floor" reflection below the
+    /// baseline, 0.0 (off) to 1.0 (full strength, still fading with depth).
+    #[serde(default = "default_vis_reflection")]
+    pub reflection: f32,
+    /// Draws a small bright cap that holds each bar's recent peak and falls
+    /// back down under gravity, independent of the live smoothed height.
+    /// Off by default: tried against the built-in themes and judged not
+    /// worth it visually (a floating, oddly-bordered mark) - kept as an
+    /// opt-in for anyone who wants it rather than dropped outright.
+    #[serde(default)]
+    pub peak_hold: bool,
+    /// Chops each bar into this many discrete LED-style segments with small
+    /// gaps between them. 0 (default) keeps the continuous bar.
+    #[serde(default)]
+    pub led_segments: u32,
+    /// Multiplier on the soft glow above each bar's tip, 0.0 (none, a flat
+    /// crisp edge) to 1.0 (full glow). Themes going for a minimal/flat look
+    /// (e.g. Monstercat's real-world namesake) want this at 0.
+    #[serde(default = "default_vis_glow_strength")]
+    pub glow_strength: f32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Copy)]
@@ -230,6 +259,18 @@ fn default_vis_rotation() -> f32 {
 fn default_vis_amplitude() -> f32 {
     1.0
 }
+fn default_vis_bar_width_ratio() -> f32 {
+    0.85
+}
+fn default_vis_cap_radius() -> f32 {
+    1.0
+}
+fn default_vis_reflection() -> f32 {
+    0.35
+}
+fn default_vis_glow_strength() -> f32 {
+    1.0
+}
 
 fn default_visualiser_layout() -> VisualiserLayout {
     VisualiserLayout {
@@ -243,6 +284,12 @@ fn default_visualiser_layout() -> VisualiserLayout {
         color_bottom: None,
         shader: None,
         dock_art: true,
+        bar_width_ratio: default_vis_bar_width_ratio(),
+        cap_radius: default_vis_cap_radius(),
+        reflection: default_vis_reflection(),
+        peak_hold: false,
+        led_segments: 0,
+        glow_strength: default_vis_glow_strength(),
     }
 }
 
@@ -508,6 +555,16 @@ impl ThemeLayout {
             theme.visualiser.size = 0.6;
             theme.visualiser.rotation = 0.0;
             theme.visualiser.amplitude = 1.5;
+            // Matches the real Monstercat visualiser's namesake look: flat
+            // bars, no bloom, tightly packed. Colour is deliberately left
+            // at its default (None - adaptive to the wallpaper/album art)
+            // rather than pinned to Monstercat's own green, since real
+            // Monstercat-style visualisers vary their fill colour by genre;
+            // this theme is about the *shape*, not a fixed hue.
+            theme.visualiser.cap_radius = 0.0;
+            theme.visualiser.reflection = 0.0;
+            theme.visualiser.glow_strength = 0.0;
+            theme.visualiser.bar_width_ratio = 0.7;
             theme.album_art.position = [0.24, 0.59];
             theme.album_art.size = 0.15;
             theme.album_art.shape = ArtShape::Square;
@@ -635,6 +692,15 @@ position = [0.5, 0.5]
 size = 0.6
 rotation = 0
 amplitude = 1.5
+# Matches the real Monstercat visualiser's shape: flat bars, no glow,
+# tightly packed. Colour is left adaptive (unset) rather than pinned to
+# green - real Monstercat-style visualisers vary fill colour by genre.
+# color_top = [1.0, 0.2, 0.5]      # Optional: pin a fixed colour instead
+# color_bottom = [0.2, 0.5, 1.0]
+cap_radius = 0.0
+reflection = 0.0
+glow_strength = 0.0
+bar_width_ratio = 0.7
 "#.as_bytes(),
                 )?;
             }

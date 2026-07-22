@@ -59,6 +59,12 @@ pub(crate) fn write_frame_uniforms(
     custom_bg_mode: u32,
     custom_bg_alpha: f32,
     sky_color_data: Option<(f32, u32, [f32; 3])>,
+    bar_width_ratio: f32,
+    cap_radius: f32,
+    reflection: f32,
+    led_segments: u32,
+    peak_hold: bool,
+    glow_strength: f32,
 ) {
     let screen_res_f = [width as f32, height as f32];
     let screen_aspect = screen_res_f[0] / screen_res_f[1];
@@ -77,7 +83,13 @@ pub(crate) fn write_frame_uniforms(
             time: elapsed,
             align: vis_align_u32,
             is_waveform: is_waveform_u32,
-            _padding: [0; 3],
+            bar_width_ratio,
+            cap_radius,
+            reflection,
+            led_segments,
+            peak_hold: peak_hold as u32,
+            glow_strength,
+            _padding: 0,
         };
         queue.write_buffer(
             visualiser_uniform_buffer,
@@ -387,6 +399,11 @@ pub(crate) fn draw_frame(
             0,
             bytemuck::cast_slice(audio_data),
         );
+        renderer.queue.write_buffer(
+            &renderer.visualiser_pass.peaks_buffer,
+            0,
+            bytemuck::cast_slice(&renderer.audio.peaks),
+        );
     }
 
     // The owned family from FrameParams rebuilt into a borrow-free Attrs:
@@ -469,6 +486,12 @@ pub(crate) fn draw_frame(
                 custom_bg_mode,
                 custom_bg_alpha,
                 sky_color_data,
+                renderer.theme.visualiser.bar_width_ratio,
+                renderer.theme.visualiser.cap_radius,
+                renderer.theme.visualiser.reflection,
+                renderer.theme.visualiser.led_segments,
+                renderer.theme.visualiser.peak_hold,
+                renderer.theme.visualiser.glow_strength,
             );
         }
 

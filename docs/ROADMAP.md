@@ -217,18 +217,85 @@ shipped broken; fixed for real here.
   styles unified onto the latter (both appeared within `visualiser.wgsl`
   itself), a stray double-blank-line in `album_art.wgsl` removed.
 
-Deferred, not part of this pass (no urgency, and this pass was scoped to
-the concrete Square bug + linting rather than open-ended polish):
+The five items originally deferred out of this pass (capsule SDF/AA,
+mirror reflection, energy-scaled glow, peak-hold caps, and exposing them
+all as `ThemeLayout` options) landed in the follow-up pass below.
 
-- Capsule SDF with smoothstep edges: rounded caps plus real
-  anti-aliasing (`eval_shape` currently hard-cuts at the bar edge)
-- Mirror reflection below the baseline ("glass floor", fits the frosted
-  identity)
-- Glow scaled by the bar's own band energy, not just `lyric_pulse`
-- Peak-hold caps that fall with gravity (needs a per-band peak array
-  alongside the existing smoothed bands)
-- Expose bar width ratio (hardcoded 0.85), cap radius, reflection, and
-  an LED/segmented mode as `ThemeLayout` options so themes opt in
+## Visualiser bar polish — SHIPPED v1.5.0
+
+The five items deferred out of the WGSL shader pass above, plus a real
+Monstercat aesthetic fix and GUI exposure for the new knobs.
+
+- **Capsule SDF with real anti-aliasing.** `eval_shape` is now a rounded-box
+  SDF (`sd_round_box`) with `fwidth()`-based antialiasing on every edge,
+  replacing the old hard per-axis cutoff; `cap_radius` (0=rectangle,
+  1=full pill) controls the rounding, and `bar_width_ratio` (was hardcoded
+  0.85) controls bar width vs. gap. Glow deliberately stayed confined to
+  directly above each bar's own footprint rather than following the full
+  rounded SDF - an early attempt at the latter bled sideways into
+  neighbouring bars' gaps and washed a ring of many thin bars into one
+  smooth haze instead of distinct spikes.
+- **Mirror reflection** ("glass floor") below the baseline, fading with
+  depth and a `reflection` strength - reuses `eval_shape` on the mirrored
+  point rather than a separate code path, including the colour gradient
+  (an early version flattened the reflection to solid `color_bottom`
+  since it forgot to mirror the gradient's sample position too).
+- **Glow scaled by the bar's own band energy** (`0.3 + energy*0.7`,
+  capped at 1.0 - i.e. never brighter than the old always-on glow, only
+  dimmer for quiet bars) rather than just `lyric_pulse`. Capped
+  deliberately: an uncapped boost pushed the glow's visible reach past
+  `glow_pad_y`, the fixed quad padding sized for the old formula, and
+  hard-clipped at the quad's own edge instead of fading out - found via a
+  live desktop screenshot, not the offscreen harness's synthetic scene.
+- **Peak-hold caps that fall with gravity** - `AudioAnalysis` gained a
+  `peaks`/`peak_velocity` pair (rises instantly, falls at a constant
+  `PEAK_GRAVITY`, integrated every render tick in `decay()`, independent of
+  audio-frame arrival rate), uploaded as a second read-only storage buffer
+  (binding 2). **Shipped off by default** (`peak_hold = false`) - live
+  desktop review found the marker rendered as a visually disconnected
+  "floating pill" rather than a clean cap; kept as an opt-in toggle rather
+  than dropped, since the underlying mechanism works fine, it's purely a
+  look-and-feel call.
+- **All five, plus LED/segmented mode, exposed as `ThemeLayout` options**
+  (`bar_width_ratio`, `cap_radius`, `reflection`, `glow_strength`,
+  `led_segments`, `peak_hold`) - and as sliders/toggles on the theme
+  editor's Visualiser tab, not just TOML keys. The uniform buffer only
+  ever grew by *appending* fields (96 → 112 bytes) and the peaks buffer is
+  an additional, independent binding, so an existing custom shader from a
+  theme pack keeps compiling and running unchanged.
+- **Monstercat's shipped theme restyled to match its real-world namesake**
+  (flat rectangular bars, no glow, tightly packed - `cap_radius`/
+  `reflection`/`glow_strength` = 0, `bar_width_ratio` = 0.7, all sampled/
+  measured directly off a reference screenshot rather than eyeballed).
+  Colour was deliberately left adaptive (unset, following the album/
+  wallpaper palette as before) rather than pinned to Monstercat's own
+  green - real Monstercat-style visualisers vary fill colour by genre,
+  and this theme is about the *shape*, not a fixed hue.
+- **`reset_theme_element`** (the theme editor's per-element Reset button)
+  needed no code change - it already replaces the whole `VisualiserLayout`
+  struct rather than field-by-field - but gained a regression test
+  covering all six new fields specifically, given how easy it would have
+  been for a future field to be added to the struct but missed by reset.
+- Found and documented along the way, for anyone writing a custom shader:
+  a literal `0.0` height on even a handful of the many instances sharing
+  one instanced draw call can blank out the *entire* draw call on this
+  project's dev hardware (AMD RADV/Vulkan), with no validation error to
+  point at why - always floor a band value above exactly zero
+  (`max(val, 0.02)`) before it touches `clip_position`. See
+  [CUSTOM_SHADERS.md](CUSTOM_SHADERS.md).
+
+Deferred out of *this* pass:
+
+- **Solid fill-colour override as a GUI control.** `color_top`/
+  `color_bottom` already exist as `ThemeLayout` fields (TOML-only today -
+  see THEMES.md) and can be hardcoded by hand for a pack that wants one,
+  so there's no functional gap, just a missing theme-editor control.
+  Worth adding for pack creators who want a one-click fixed colour instead
+  of the adaptive album palette, but it needs a colour-picker widget in
+  the Visualiser tab, and the project's existing text-colour picker has
+  already surfaced a couple of upstream `libcosmic` `ColorPickerModel`
+  bugs (see "Known upstream issue" above) worth weighing before adding a
+  second picker instance.
 
 ## Unscheduled ideas
 

@@ -24,7 +24,7 @@
 * 🖼️ **Artwork Fallback**: Queries the iTunes API for cover art if local artwork is unavailable (e.g., due to sandboxing).
 * 🎞️ **Spotify Canvas**: Fetches and plays looping video backgrounds for supported tracks via FFmpeg *(Note: Requires a local Canvas API proxy)*.
 * 🎤 **Synced Lyrics**: Uses the LRCLIB API to display time-synced lyrics with audio-reactive, physics-based animations.
-* 🎧 **Audio Visualizer**: Captures system audio via PipeWire and renders an FFT-based visualizer with high-performance pre-calculated DSP windowing and customizable styles.
+* 🎧 **Audio Visualizer**: Captures system audio via PipeWire and renders an FFT-based visualizer with high-performance pre-calculated DSP windowing and customizable styles — capsule/pill bars with real anti-aliasing, a mirrored "glass floor" reflection, LED-segmented mode, gravity-driven peak-hold caps, and per-bar energy-scaled glow, all exposed as theme options (see [Custom Visualiser Themes](#custom-visualiser-themes)) or fully replaceable with your own WGSL shader.
 * 🌌 **Desktop Integration**: Reads the active COSMIC desktop wallpaper — images, solid colours, and gradients — to render native transparent and frosted-glass effects, and plays nicely with COSMIC 1.3's system-wide frosted glass.
 * ⚙️ **Settings GUI & Tray**: Includes a `libcosmic`-based configuration app and a D-Bus system tray applet for managing settings.
 * 🔄 **Self-Updater**: One-click updates from the settings app, verified end-to-end — SHA-256 checksums signed with minisign, checked against a key embedded in the binary.
@@ -252,14 +252,20 @@ To create a new theme:
    align = "right"
 
    [visualiser]
-   shape = "linear" # "circular" or "linear"
+   shape = "linear" # "circular", "linear" or "square"
    position = [0.5, 0.5]
    size = 1.0
    rotation = 0.0
    amplitude = 1.5
    # color_top = [1.0, 0.2, 0.5]      # Optional fixed colours (RGB 0.0 - 1.0)
    # color_bottom = [0.2, 0.5, 1.0]
+   # cap_radius = 0.5                # Bar corner rounding, 0 (square) to 1 (full pill)
+   # reflection = 0.3                # "Glass floor" mirror strength below the baseline
+   # led_segments = 8                # Chop each bar into this many LED-style segments
    ```
+   See [docs/THEMES.md](docs/THEMES.md) for the full key reference (every
+   element, every visualiser option, defaults) - all of it is also
+   sliders/toggles on the theme editor's own tabs, not just TOML keys.
 2. Select your custom theme from the System Tray applet, or manually set `style = "my_theme"` in your main `config.toml`.
 3. **Live Reloading:** Any edits you make to the `.toml` file while the wallpaper is running will be instantly applied to your desktop!
 4. *(Advanced)* You can also provide a custom `my_theme.wgsl` shader file alongside your `.toml` to completely rewrite the graphics pipeline! For example:
@@ -277,45 +283,38 @@ To create a new theme:
    # Point this theme to your custom shader!
    shader = "radial_spin.wgsl"
    ```
-
-### Writing Custom WGSL Shaders
-
-If you provide a custom `shader = "my_shader.wgsl"` in your theme's `.toml`, place the `.wgsl` file in `~/.config/cosmic-wallpaper/shaders/`.
-The engine will inject the following uniform struct. Ensure your custom shader uses this exact layout:
-
-```wgsl
-struct VisualiserUniforms {
-    resolution: vec2<f32>,
-    band_count: u32,
-    lyric_pulse: f32,          // Beats snap to 1.0 and exponentially decay
-    color_top: vec4<f32>,
-    color_bottom: vec4<f32>,
-    pos_size_rot: vec4<f32>,   // x: pos.x, y: pos.y, z: size, w: rotation (rads)
-    amplitude: f32,
-    shape: u32,                // 0 = circular, 1 = linear
-    time: f32,                 // Elapsed time in seconds for scrolling effects!
-    align: u32,                // 0 = left, 1 = center, 2 = right
-    is_waveform: u32,          // bool
-    _pad1: u32,
-    _pad2: u32,
-    _pad3: u32,
-}
-
-@group(0) @binding(0) var<uniform> uniforms: VisualiserUniforms;
-@group(0) @binding(1) var<storage, read> bands: array<f32>;
-```
+   See [docs/CUSTOM_SHADERS.md](docs/CUSTOM_SHADERS.md) for the full
+   uniform/storage-buffer layout, what triggers (beats, band energy, peak
+   values) are available to react to, a minimal working example, and how
+   to iterate on one with the engine's headless `--render-frame` flag
+   instead of a live desktop session.
 
 ## How it works
 
-Each subsystem runs as an independent `tokio` task, sending events over async channels to the renderer:
+Each subsystem feeds the same event channel into the renderer - most as
+`tokio` async tasks, but MPRIS specifically runs on its own dedicated OS
+thread (D-Bus signal delivery needs to stay real-time, independent of
+whatever else the async scheduler is doing that tick):
 
 ```
-MPRIS watcher  ──┐
-PipeWire audio ──┼──[channel]──▶ Renderer ──▶ Wayland layer surface
-Weather poller ──┘
+MPRIS watcher (OS thread) ──┐
+PipeWire audio (tokio)    ──┼──[channel]──▶ Renderer ──▶ Wayland layer surface
+Weather poller (tokio)    ──┘
 ```
 
-The renderer processes events each frame, updates `AppState`, and dispatches to the appropriate WGSL shader via wgpu.
+Every tick, the renderer drains pending events into `AppState`, smooths
+that tick's audio into per-band values (`AudioAnalysis` - FFT-bin
+weighting, rise/fall smoothing, beat detection, peak-hold gravity),
+computes that frame's uniforms once (`FrameParams::compute`), and encodes
+the draw calls for whichever WGSL passes are active - album art, ambient
+sky, weather particles, the audio visualiser, text - via `wgpu`.
+
+A hidden `--render-frame <out.png> [--style <name>]` engine flag renders
+one frame of this same pipeline to a PNG with no Wayland session at all
+(a fixed synthetic track/audio/album-art scene stands in for the real
+thing) - the standard way to verify a renderer or shader change, live
+desktop or not; see [CUSTOM_SHADERS.md](docs/CUSTOM_SHADERS.md) for using
+it while writing a custom shader.
 
 ## Roadmap
 

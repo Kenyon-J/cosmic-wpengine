@@ -22,6 +22,11 @@ use std::time::Instant;
 const SAMPLE_RATE: f32 = 48000.0;
 const FFT_SIZE: f32 = 2048.0;
 
+/// Fall acceleration for peak-hold caps, in (smoothed-band units)/s^2. Tuned
+/// by feel against the render harness rather than derived from anything
+/// physical - `bands` values live in a normalised 0..1 range, not metres.
+const PEAK_GRAVITY: f32 = 3.2;
+
 pub(crate) struct IngestResult {
     /// Average smoothed band energy this frame, 0.0 when there are no bands
     /// configured. Callers feed this into `AppState::audio_energy` for
@@ -53,6 +58,14 @@ pub(crate) struct AudioAnalysis {
     pub(crate) bands: Box<[f32]>,
     /// Smoothed per-band waveform peaks, for the waveform visualiser style.
     pub(crate) waveform: Box<[f32]>,
+    /// Per-band peak-hold values the visualiser shader binds as a second
+    /// storage buffer: rises instantly to match `bands`, then falls back
+    /// down under gravity (`decay`, run every render tick) when the live
+    /// band drops below it. Independent of the FFT-arrival rate that
+    /// `ingest` runs at, so the fall stays smooth between audio frames.
+    pub(crate) peaks: Box<[f32]>,
+    /// Per-band fall speed backing `peaks`' gravity integration.
+    peak_velocity: Box<[f32]>,
 
     bass_moving_average: f32,
     pub(crate) beat_pulse: f32,
@@ -107,6 +120,8 @@ impl AudioAnalysis {
             ),
             bands: vec![0.0; band_count].into_boxed_slice(),
             waveform: vec![0.0; band_count].into_boxed_slice(),
+            peaks: vec![0.0; band_count].into_boxed_slice(),
+            peak_velocity: vec![0.0; band_count].into_boxed_slice(),
             bass_moving_average: 0.0,
             beat_pulse: 0.0,
             last_beat_time: Instant::now(),
@@ -129,6 +144,8 @@ impl AudioAnalysis {
         self.inv_target_len = inv_target_len;
         self.bands = vec![0.0; band_count].into_boxed_slice();
         self.waveform = vec![0.0; band_count].into_boxed_slice();
+        self.peaks = vec![0.0; band_count].into_boxed_slice();
+        self.peak_velocity = vec![0.0; band_count].into_boxed_slice();
     }
 
     /// Smoothing can change independently of band count, so this is called
@@ -155,6 +172,23 @@ impl AudioAnalysis {
         }
         if self.treble_pulse.abs() < 1e-5 {
             self.treble_pulse = 0.0;
+        }
+
+        // Peak-hold caps: snap up instantly whenever the live band catches
+        // back up to (or passes) its own peak, otherwise keep falling under
+        // constant gravity. Zipped iteration mirrors `ingest`'s band loop.
+        for (peak, (band, velocity)) in self
+            .peaks
+            .iter_mut()
+            .zip(self.bands.iter().zip(self.peak_velocity.iter_mut()))
+        {
+            if *band >= *peak {
+                *peak = *band;
+                *velocity = 0.0;
+            } else {
+                *velocity += PEAK_GRAVITY * delta;
+                *peak = (*peak - *velocity * delta).max(*band).max(0.0);
+            }
         }
     }
 
@@ -373,6 +407,33 @@ mod tests {
         // Treble's faster decay constant (15 vs 12) means it falls further
         // in the same tick.
         assert!(audio.treble_pulse > 0.0 && audio.treble_pulse < audio.beat_pulse);
+    }
+
+    #[test]
+    fn peak_hold_tracks_rising_band_then_falls_under_gravity_once_it_drops() {
+        let mut audio = AudioAnalysis::new(4, 0.7);
+        audio.bands = vec![0.8, 0.0, 0.0, 0.0].into_boxed_slice();
+
+        audio.decay(1.0 / 60.0);
+        assert_eq!(audio.peaks[0], 0.8, "peak snaps up to match a rising band");
+
+        // Band falls away; the peak should still hold this tick (constant
+        // gravity takes at least one tick to move it) then keep dropping.
+        audio.bands[0] = 0.1;
+        audio.decay(1.0 / 60.0);
+        assert!(
+            audio.peaks[0] < 0.8 && audio.peaks[0] > 0.1,
+            "peak fell but hasn't reached the live band yet: {}",
+            audio.peaks[0]
+        );
+
+        for _ in 0..300 {
+            audio.decay(1.0 / 60.0);
+        }
+        assert_eq!(
+            audio.peaks[0], 0.1,
+            "peak eventually settles back onto the live band, never below it"
+        );
     }
 
     #[test]

@@ -421,6 +421,12 @@ mod tests {
             color_bottom: None,
             shader: None,
             dock_art,
+            bar_width_ratio: 0.85,
+            cap_radius: 1.0,
+            reflection: 0.35,
+            peak_hold: false,
+            led_segments: 0,
+            glow_strength: 1.0,
         }
     }
 

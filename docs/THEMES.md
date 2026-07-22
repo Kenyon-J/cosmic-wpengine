@@ -30,7 +30,7 @@ Each element is anchored at its own centre.
 | --- | --- | --- |
 | `position` | `[0.5, 0.5]` | Centre of the cover |
 | `size` | `0.25` | Height as a fraction of screen height |
-| `shape` | `"square"` | `"square"` or `"circular"` |
+| `shape` | `"circular"` | `"square"` or `"circular"` |
 
 ## `[track_info]`, `[lyrics]`, `[weather]`
 
@@ -52,18 +52,26 @@ scales together, so one `size` value keeps the proportions.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `shape` | `"linear"` | `"linear"` (bars), `"circular"` (ring) or `"square"` |
+| `shape` | `"circular"` | `"linear"` (bars), `"circular"` (ring) or `"square"` |
 | `position` | `[0.5, 0.5]` | Centre of the bars / ring |
 | `size` | `0.25` | Bar span (linear) or ring radius (circular), as a fraction of screen height |
 | `rotation` | `0.0` | Degrees, clockwise |
 | `amplitude` | `1.0` | Bar height multiplier |
-| `align` | `"center"` | Band ordering: low frequencies at the `left`, mirrored from `center`, or at the `right` |
+| `align` | `"left"` | Band ordering: low frequencies at the `left`, mirrored from `center`, or at the `right` |
 | `dock_art` | `true` | Circular shape only: while music plays, the album art is captured into the ring and follows its position and size. Turn off to give `[album_art]`'s own position/size full effect |
 | `color_top` | *(album palette)* | `[r, g, b]` 0–1 override for the bar tips |
 | `color_bottom` | *(album palette)* | `[r, g, b]` 0–1 override for the bar bases |
-| `shader` | *(none)* | Custom WGSL visualiser shader file name |
+| `bar_width_ratio` | `0.85` | Bar width as a fraction of the space allotted to each band. `1.0` butts bars together with no gap |
+| `cap_radius` | `1.0` | Corner rounding, `0.0` (hard rectangle) to `1.0` (full capsule/pill once a bar is taller than it is wide) |
+| `reflection` | `0.35` | Mirrored "glass floor" strength below the baseline, `0.0` off, fading with depth |
+| `glow_strength` | `1.0` | Soft glow above each bar's tip, `0.0` for a flat, crisp edge |
+| `led_segments` | `0` | Chops each bar into this many discrete LED-style segments with small gaps. `0` keeps a continuous bar |
+| `peak_hold` | `false` | A small bright cap that holds each bar's recent peak and falls under gravity, independent of the live height |
+| `shader` | *(none)* | Custom WGSL visualiser shader file name - see [CUSTOM_SHADERS.md](CUSTOM_SHADERS.md) for the full uniform layout and how to write one |
 
-Leave the colours unset and the bars follow each track's album palette.
+Leave the colours unset and the bars follow each track's album palette. All
+of the above are also sliders/toggles on the Visualiser tab of the theme
+editor, not just TOML keys.
 
 ## `[effects]`
 

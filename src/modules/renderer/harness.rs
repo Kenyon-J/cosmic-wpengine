@@ -120,6 +120,12 @@ pub async fn render_frame_to_png(
         params.custom_bg_mode,
         params.custom_bg_alpha,
         params.sky_color_data,
+        renderer.theme.visualiser.bar_width_ratio,
+        renderer.theme.visualiser.cap_radius,
+        renderer.theme.visualiser.reflection,
+        renderer.theme.visualiser.led_segments,
+        renderer.theme.visualiser.peak_hold,
+        renderer.theme.visualiser.glow_strength,
     );
 
     draw::encode_frame(
@@ -202,6 +208,13 @@ async fn feed_synthetic_scene(renderer: &mut Renderer) {
         .handle_event(Event::TrackChanged(Box::new(track)))
         .await;
     renderer.handle_event(Event::PlaybackResumed).await;
+
+    // The live loop calls this once per render tick (see `core/mod.rs`),
+    // independent of `AudioFrame` arrival; a one-shot offscreen render has
+    // no tick loop, so it needs one explicit call to seed the peak-hold
+    // buffer from the bands just fed above (otherwise `audio.peaks` would
+    // still be all zeros and the harness could never exercise that path).
+    renderer.audio.decay(1.0 / 60.0);
 }
 
 /// A small synthetic checkerboard - deterministic, no network/filesystem
