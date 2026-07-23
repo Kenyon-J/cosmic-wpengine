@@ -1011,6 +1011,32 @@ impl MprisWatcher {
         // attacker-controlled video URLs.
         let proxy_url = proxy_url?;
 
+        let parsed_url = url::Url::parse(proxy_url).ok()?;
+        let host_str = parsed_url.host_str()?;
+        let port = parsed_url.port_or_known_default().unwrap_or(80);
+
+        let host_port = format!("{}:{}", host_str, port);
+
+        // SSRF Guard (Same tradeoff as video decoder URL fetching): Ensure
+        // the resolved host address is a safe IP before proceeding with the request.
+        // This mitigates attacks where users inject local endpoints.
+        let mut all_safe = true;
+        let mut has_addrs = false;
+        if let Ok(mut addrs) = tokio::net::lookup_host(&host_port).await {
+            for addr in addrs.by_ref() {
+                has_addrs = true;
+                if !crate::modules::utils::is_safe_ip(addr.ip()) {
+                    all_safe = false;
+                    break;
+                }
+            }
+        }
+
+        if !has_addrs || !all_safe {
+            warn!("Security violation: canvas proxy URL host '{}' resolves to a non-public address (SSRF protection)", host_str);
+            return None;
+        }
+
         if let Ok(resp) = client
             .get(proxy_url)
             .query(&[("track_id", track_id)])
