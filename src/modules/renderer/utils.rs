@@ -87,9 +87,9 @@ static LINEAR_TO_SRGB_TABLE: std::sync::OnceLock<[f32; 1025]> = std::sync::OnceL
 fn get_linear_to_srgb_table() -> &'static [f32; 1025] {
     LINEAR_TO_SRGB_TABLE.get_or_init(|| {
         let mut table = [0.0f32; 1025];
-        for i in 0..=1024 {
+        for (i, val) in table.iter_mut().enumerate() {
             let c = i as f32 / 1024.0;
-            table[i] = if c <= 0.003_130_8 {
+            *val = if c <= 0.003_130_8 {
                 c * 12.92
             } else {
                 1.055 * c.powf(1.0 / 2.4) - 0.055
@@ -105,10 +105,9 @@ fn get_linear_to_srgb_table() -> &'static [f32; 1025] {
 // In `gradient_image`, this function is called millions of times per high-res gradient, making `powf` a massive bottleneck.
 // A 1024-interval table (4KB) fits completely in L1 cache while keeping error below 0.0001 (far below 8-bit color precision).
 fn linear_to_srgb(c: f32) -> f32 {
-    // Safe NaN-handling clamp: comparisons with NaN always evaluate to false,
-    // so `!(c >= 0.0)` is true for both negative numbers and NaNs, safely coercing them to 0.0.
-    // This prevents f32::clamp's standard panic on NaNs.
-    let c = if !(c >= 0.0) {
+    // Safe NaN-handling clamp: explicit is_nan() or less-than-zero checks handle NaNs
+    // and negative values gracefully, returning 0.0. This avoids standard f32::clamp's NaN panic.
+    let c = if c.is_nan() || c < 0.0 {
         0.0
     } else if c > 1.0 {
         1.0
