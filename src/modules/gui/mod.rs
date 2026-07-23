@@ -13,6 +13,7 @@ use cosmic::widget::color_picker::{ColorPickerModel, ColorPickerUpdate};
 use cosmic::widget::{icon, nav_bar};
 use cosmic::Application;
 use cosmic_text::fontdb;
+use cosmic_wallpaper::fl;
 use cosmic_wallpaper::modules::config::ResolvedBackground;
 
 // Import the shared modules from your newly created library crate!
@@ -59,7 +60,7 @@ struct SettingsApp {
     lon_input: String,
     /// Parsed layout of `selected_theme`, edited live by the theme editor.
     edit_theme: Option<config::ThemeLayout>,
-    /// Index into `view::THEME_ELEMENTS` - which element's controls show.
+    /// Index into `view::theme_elements()` - which element's controls show.
     theme_element: usize,
     /// Debounce generation for theme-file writes (mirrors `save_generation`).
     theme_save_generation: u64,
@@ -229,7 +230,7 @@ impl SettingsApp {
         };
         let rel = format!("shaders/{name}.toml");
         if !is_safe_path(&rel) {
-            self.status_msg = format!("Blocked unsafe theme name: {name}");
+            self.status_msg = fl!("status-blocked-unsafe-theme-name", name = name.as_str());
             return;
         }
         match toml::to_string_pretty(layout) {
@@ -238,15 +239,19 @@ impl SettingsApp {
                 match std::fs::write(&path, text) {
                     Ok(()) => {
                         self.status_msg = if self.wp_config.audio.style == *name {
-                            format!("Saved {name} - the desktop is showing your change.")
+                            fl!("status-saved-theme-live", name = name.as_str())
                         } else {
-                            format!("Saved {name}. Apply it to see it on the desktop.")
+                            fl!("status-saved-theme-inactive", name = name.as_str())
                         };
                     }
-                    Err(e) => self.status_msg = format!("Error saving theme: {e}"),
+                    Err(e) => {
+                        self.status_msg = fl!("status-error-saving-theme", error = e.to_string())
+                    }
                 }
             }
-            Err(e) => self.status_msg = format!("Error serialising theme: {e}"),
+            Err(e) => {
+                self.status_msg = fl!("status-error-serialising-theme", error = e.to_string())
+            }
         }
     }
 
@@ -532,7 +537,7 @@ beat_pulse = 1.0               # visualiser pulse on detected beats
 "#;
 
 /// Applies one editor change to the element at `element` (index into
-/// `view::THEME_ELEMENTS`: art, track, lyrics, visualiser, weather,
+/// `view::theme_elements()`: art, track, lyrics, visualiser, weather,
 /// effects). Messages that don't apply to the element are ignored.
 fn apply_theme_edit(layout: &mut config::ThemeLayout, element: usize, edit: ThemeEditMsg) {
     use config::{ArtShape, TextAlign, VisAlign, VisShape};
@@ -626,7 +631,7 @@ fn apply_theme_edit(layout: &mut config::ThemeLayout, element: usize, edit: Them
 }
 
 /// Restores the element at `element` (same indexing as `apply_theme_edit`
-/// and `view::THEME_ELEMENTS`) to what `style` actually ships with -
+/// and `view::theme_elements()`) to what `style` actually ships with -
 /// `monstercat`/`symmetric`/`waveform`'s own hand-tuned layout, or the
 /// plain [0.5, 0.5]/circular/etc. baseline for `bars`/any custom name.
 /// Uses `ThemeLayout::builtin_default`, not `load()`: by the time a style
@@ -1244,7 +1249,7 @@ enum Message {
     LocationDetected(Result<(f64, f64), String>),
     /// Index into `view::POLL_MINUTES`.
     PollIntervalSelected(usize),
-    /// Index into `view::THEME_ELEMENTS`.
+    /// Index into `view::theme_elements()`.
     ThemeElementSelected(usize),
     ThemeEdit(ThemeEditMsg),
     /// Restores the currently-viewed element (`theme_element`) to
@@ -1264,7 +1269,12 @@ enum Message {
     BlurOpacityChanged(f32),
     BandsChanged(f32),
     SmoothingChanged(f32),
-    TemperatureUnitSelected(String),
+    /// Index into the temperature-unit dropdown - not the display string,
+    /// which is localized and so can't double as a data value.
+    TemperatureUnitSelected(usize),
+    /// Index into the language dropdown: 0 is "System default" (`None`),
+    /// the rest map to `modules::i18n::AVAILABLE_LANGUAGES`.
+    LanguageSelected(usize),
     /// Fired by the settle timer a slider change starts; the payload is the
     /// generation at scheduling time, so only the most recent change's timer
     /// actually writes config.toml.
@@ -1338,6 +1348,10 @@ impl Application for SettingsApp {
 
         // Load your existing engine configuration
         let wp_config = config::Config::load_or_default().unwrap_or_default();
+        // Before anything below calls `fl!` for the first time (the nav
+        // bar, next) - see `set_language()`'s doc comment on why order
+        // matters here.
+        cosmic_wallpaper::modules::i18n::set_language(wp_config.language.as_deref());
         let available_fonts = load_fonts();
         let available_themes = load_themes();
         let selected_theme = available_themes
@@ -1347,43 +1361,43 @@ impl Application for SettingsApp {
 
         let nav = nav_bar::Model::builder()
             .insert(|b| {
-                b.text("Wallpaper")
+                b.text(fl!("wallpaper-page-title"))
                     .icon(icon::from_name("preferences-desktop-wallpaper-symbolic"))
                     .data(Page::Wallpaper)
                     .activate()
             })
             .insert(|b| {
-                b.text("Live Wallpapers")
+                b.text(fl!("live-wallpapers-page-title"))
                     .icon(icon::from_name("video-display-symbolic"))
                     .data(Page::LiveWallpapers)
             })
             .insert(|b| {
-                b.text("Layout Themes")
+                b.text(fl!("theme-page-title"))
                     .icon(icon::from_name("applications-graphics-symbolic"))
                     .data(Page::Themes)
             })
             .insert(|b| {
-                b.text("Packs")
+                b.text(fl!("packs-page-title"))
                     .icon(icon::from_name("package-x-generic-symbolic"))
                     .data(Page::Packs)
             })
             .insert(|b| {
-                b.text("Now Playing")
+                b.text(fl!("now-playing-page-title"))
                     .icon(icon::from_name("emblem-music-symbolic"))
                     .data(Page::NowPlaying)
             })
             .insert(|b| {
-                b.text("Visualiser")
+                b.text(fl!("visualiser-page-title"))
                     .icon(icon::from_name("audio-speakers-symbolic"))
                     .data(Page::Visualiser)
             })
             .insert(|b| {
-                b.text("Weather")
+                b.text(fl!("weather-page-title"))
                     .icon(icon::from_name("weather-clear-symbolic"))
                     .data(Page::Weather)
             })
             .insert(|b| {
-                b.text("General")
+                b.text(fl!("general-page-title"))
                     .icon(icon::from_name("emblem-system-symbolic"))
                     .data(Page::General)
             })
@@ -1413,7 +1427,7 @@ impl Application for SettingsApp {
                 selected_theme,
                 autostart: autostart_enabled(),
                 new_theme_name: String::new(),
-                status_msg: "Ready.".into(),
+                status_msg: fl!("status-ready"),
                 update_state: UpdateState::Checking,
                 patch_notes: None,
                 wallpaper_preview: None,
@@ -1557,13 +1571,9 @@ impl Application for SettingsApp {
                 self.drop_hover = false;
                 let paths = files.map(|f| f.0).unwrap_or_default();
                 if paths.is_empty() {
-                    self.status_msg = "Nothing usable was dropped - MP4 or WebM files.".into();
+                    self.status_msg = fl!("status-nothing-usable-dropped");
                 } else {
-                    self.status_msg = format!(
-                        "Importing {} file{}...",
-                        paths.len(),
-                        if paths.len() == 1 { "" } else { "s" }
-                    );
+                    self.status_msg = fl!("status-importing-files", count = (paths.len() as i64));
                     return Task::perform(
                         async move {
                             tokio::task::spawn_blocking(move || library::import(paths))
@@ -1624,7 +1634,7 @@ impl Application for SettingsApp {
                 }
             }
             Message::DetectLocation => {
-                self.status_msg = "Detecting location...".into();
+                self.status_msg = fl!("status-detecting-location");
                 return Task::perform(fetch_ip_location(), |result| {
                     Message::LocationDetected(result).into()
                 });
@@ -1635,10 +1645,10 @@ impl Application for SettingsApp {
                 self.wp_config.weather.latitude = lat;
                 self.wp_config.weather.longitude = lon;
                 let _ = self.wp_config.save();
-                self.status_msg = "Location detected.".into();
+                self.status_msg = fl!("status-location-detected");
             }
             Message::LocationDetected(Err(e)) => {
-                self.status_msg = format!("Could not detect location: {e}");
+                self.status_msg = fl!("status-could-not-detect-location", error = e.to_string());
             }
             Message::PollIntervalSelected(idx) => {
                 if let Some(&minutes) = view::POLL_MINUTES.get(idx) {
@@ -1648,9 +1658,9 @@ impl Application for SettingsApp {
             }
             Message::ImportDone { imported, skipped } => {
                 self.status_msg = match (imported, skipped) {
-                    (0, _) => "No videos imported - only MP4, WebM, MKV, MOV and AVI files.".into(),
-                    (n, 0) => format!("Imported {n} video{}.", if n == 1 { "" } else { "s" }),
-                    (n, s) => format!("Imported {n}, skipped {s} (not video files)."),
+                    (0, _) => fl!("status-no-videos-imported"),
+                    (n, 0) => fl!("status-imported-videos", n = (n as i64)),
+                    (n, s) => fl!("status-imported-skipped", n = (n as i64), s = (s as i64)),
                 };
                 return scan_library_task();
             }
@@ -1690,7 +1700,7 @@ impl Application for SettingsApp {
                         continue;
                     };
                     if let Err(e) = toml::from_str::<config::ThemeLayout>(&text) {
-                        self.status_msg = format!("Not a valid theme: {e}");
+                        self.status_msg = fl!("status-invalid-theme", error = e.to_string());
                         continue;
                     }
                     let Some(name) = path.file_name() else {
@@ -1704,12 +1714,9 @@ impl Application for SettingsApp {
                 }
                 if imported > 0 {
                     self.available_themes = load_themes();
-                    self.status_msg = format!(
-                        "Imported {imported} theme{}.",
-                        if imported == 1 { "" } else { "s" }
-                    );
-                } else if self.status_msg.starts_with("Ready") {
-                    self.status_msg = "Nothing imported - drop .toml theme files.".into();
+                    self.status_msg = fl!("status-imported-themes", imported = (imported as i64));
+                } else if self.status_msg == fl!("status-ready") {
+                    self.status_msg = fl!("status-nothing-imported-themes");
                 }
             }
             Message::StartEngine => {
@@ -1725,7 +1732,7 @@ impl Application for SettingsApp {
                         .unwrap_or_else(|_| std::process::Stdio::null());
                     match std::process::Command::new(engine).stderr(stderr).spawn() {
                         Ok(mut child) => {
-                            self.status_msg = "Engine starting...".into();
+                            self.status_msg = fl!("status-engine-starting");
                             return Task::perform(
                                 async move {
                                     tokio::time::sleep(std::time::Duration::from_millis(1500))
@@ -1749,31 +1756,39 @@ impl Application for SettingsApp {
                                 |probe| Message::EngineStartProbed(probe).into(),
                             );
                         }
-                        Err(e) => self.status_msg = format!("Failed to start the engine: {e}"),
+                        Err(e) => {
+                            self.status_msg =
+                                fl!("status-failed-to-start-engine", error = e.to_string())
+                        }
                     }
                 } else {
-                    self.status_msg =
-                        "Could not find the cosmic-wallpaper binary next to Settings.".into();
+                    self.status_msg = fl!("status-could-not-find-engine-binary");
                 }
             }
             Message::EngineStartProbed(probe) => {
                 self.refresh_engine_status();
                 match probe {
                     Some((code, headline)) => {
-                        let code =
-                            code.map_or_else(|| "killed by signal".into(), |c| format!("exit {c}"));
+                        let code = code.map_or_else(
+                            || fl!("status-killed-by-signal"),
+                            |c| fl!("status-exit-code", code = c),
+                        );
                         let detail = if headline.is_empty() {
-                            format!("The engine exited immediately ({code}).")
+                            fl!("status-engine-exited-immediately", code = code.as_str())
                         } else {
-                            format!("The engine exited immediately ({code}): {headline}")
+                            fl!(
+                                "status-engine-exited-immediately-detail",
+                                code = code.as_str(),
+                                headline = headline.as_str()
+                            )
                         };
                         self.status_msg = detail.clone();
                         self.engine_failure = Some(detail);
                     }
                     None => {
                         self.status_msg = match self.engine_pid {
-                            Some(_) => "Engine running.".into(),
-                            None => "The engine did not start - check the logs.".into(),
+                            Some(_) => fl!("status-engine-running"),
+                            None => fl!("status-engine-did-not-start"),
                         };
                     }
                 }
@@ -1800,7 +1815,7 @@ impl Application for SettingsApp {
                                 "0",
                             ])
                             .output();
-                        self.status_msg = "Engine stopping...".into();
+                        self.status_msg = fl!("status-engine-stopping");
                         return Task::perform(
                             tokio::time::sleep(std::time::Duration::from_millis(1500)),
                             |()| Message::RefreshEngineStatus.into(),
@@ -1811,15 +1826,15 @@ impl Application for SettingsApp {
             Message::RefreshEngineStatus => {
                 self.refresh_engine_status();
                 // Resolve the transitional status set by Start/Stop.
-                if self.status_msg.starts_with("Engine start") {
+                if self.status_msg == fl!("status-engine-starting") {
                     self.status_msg = match self.engine_pid {
-                        Some(_) => "Engine running.".into(),
-                        None => "The engine did not start - check the logs.".into(),
+                        Some(_) => fl!("status-engine-running"),
+                        None => fl!("status-engine-did-not-start"),
                     };
-                } else if self.status_msg.starts_with("Engine stop") {
+                } else if self.status_msg == fl!("status-engine-stopping") {
                     self.status_msg = match self.engine_pid {
-                        Some(_) => "The engine is still running.".into(),
-                        None => "Engine stopped.".into(),
+                        Some(_) => fl!("status-engine-still-running"),
+                        None => fl!("status-engine-stopped"),
                     };
                 }
             }
@@ -1827,12 +1842,12 @@ impl Application for SettingsApp {
                 if let Some(theme) = &self.selected_theme {
                     self.wp_config.audio.style = theme.clone();
                     if let Err(e) = self.wp_config.save() {
-                        self.status_msg = format!("Error applying theme: {}", e);
+                        self.status_msg = fl!("status-error-applying-theme", error = e.to_string());
                     } else {
-                        self.status_msg = format!("Applied theme: '{}'", theme);
+                        self.status_msg = fl!("status-applied-theme", theme = theme.as_str());
                     }
                 } else {
-                    self.status_msg = "Select a theme to apply.".into();
+                    self.status_msg = fl!("status-select-theme-to-apply");
                 }
             }
             Message::FpsChanged(fps) => {
@@ -1851,12 +1866,20 @@ impl Application for SettingsApp {
                 self.wp_config.audio.smoothing = smoothing;
                 return self.schedule_debounced_save();
             }
-            Message::TemperatureUnitSelected(unit) => {
-                self.wp_config.weather.temperature_unit = if unit == "Fahrenheit" {
+            Message::TemperatureUnitSelected(idx) => {
+                self.wp_config.weather.temperature_unit = if idx == 1 {
                     config::TemperatureUnit::Fahrenheit
                 } else {
                     config::TemperatureUnit::Celsius
                 };
+                let _ = self.wp_config.save();
+            }
+            Message::LanguageSelected(idx) => {
+                self.wp_config.language = idx
+                    .checked_sub(1)
+                    .and_then(|i| cosmic_wallpaper::modules::i18n::AVAILABLE_LANGUAGES.get(i))
+                    .map(|(tag, _)| tag.clone());
+                cosmic_wallpaper::modules::i18n::set_language(self.wp_config.language.as_deref());
                 let _ = self.wp_config.save();
             }
             Message::DebouncedSave(generation) => {
@@ -1900,7 +1923,7 @@ impl Application for SettingsApp {
                     let file_name = format!("shaders/{}.toml", name);
 
                     if !is_safe_path(&file_name) {
-                        self.status_msg = format!("Blocked unsafe theme name: {}", name);
+                        self.status_msg = fl!("status-blocked-unsafe-theme-name", name = name);
                         return Task::none();
                     }
 
@@ -1915,34 +1938,35 @@ impl Application for SettingsApp {
                             let _ = file.write_all(THEME_TEMPLATE.as_bytes());
                             self.available_themes = load_themes();
                             self.switch_edit_theme(Some(name.to_string()));
-                            self.status_msg = format!("Created {}", file_name);
+                            self.status_msg = fl!("status-created-theme", file_name = file_name);
                             self.new_theme_name.clear();
                         }
                         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                            self.status_msg = format!("Theme '{}' already exists!", name);
+                            self.status_msg = fl!("status-theme-already-exists", name = name);
                         }
                         Err(e) => {
-                            self.status_msg = format!("Error creating theme: {}", e);
+                            self.status_msg =
+                                fl!("status-error-creating-theme", error = e.to_string());
                         }
                     }
                 }
             }
             Message::ShowPatchNotes => {
-                self.status_msg = "Fetching patch notes...".into();
+                self.status_msg = fl!("status-fetching-patch-notes");
                 return Task::perform(fetch_patch_notes(), |notes| {
                     Message::PatchNotesLoaded(notes).into()
                 });
             }
             Message::PatchNotesLoaded(notes) => {
                 self.patch_notes = Some(cosmic::widget::markdown::parse(&notes).collect());
-                self.status_msg = "Ready.".into();
+                self.status_msg = fl!("status-ready");
             }
             Message::PatchNotesLinkClicked(url) => {
                 if let Some(xdg_open) = resolve_binary("xdg-open") {
                     let _ = std::process::Command::new(xdg_open).arg(url).spawn();
                 } else {
                     tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
-                    self.status_msg = "Failed to open link: xdg-open not found".into();
+                    self.status_msg = fl!("status-xdg-open-not-found");
                 }
             }
             Message::ClosePatchNotes => {
@@ -1964,12 +1988,12 @@ impl Application for SettingsApp {
                         .spawn();
                 } else {
                     tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
-                    self.status_msg = "Failed to open link: xdg-open not found".into();
+                    self.status_msg = fl!("status-xdg-open-not-found");
                 }
             }
             Message::CopyDiagnostics => {
                 let text = build_diagnostics_text(self);
-                self.status_msg = "Diagnostics copied to clipboard.".into();
+                self.status_msg = fl!("status-diagnostics-copied");
                 return cosmic::iced::clipboard::write(text);
             }
             Message::UpdateCheckDone(result) => {
@@ -1991,13 +2015,13 @@ impl Application for SettingsApp {
                         Ok(client) => {
                             let client = client.clone();
                             self.update_state = UpdateState::Updating(tag.clone());
-                            self.status_msg = format!("Downloading {tag}...");
+                            self.status_msg = fl!("status-downloading", tag = tag.as_str());
                             return Task::perform(updater::perform_update(client, tag), |res| {
                                 Message::UpdateFinished(res).into()
                             });
                         }
                         Err(e) => {
-                            self.status_msg = format!("Update failed: {e}");
+                            self.status_msg = fl!("status-update-failed", error = e.to_string());
                         }
                     }
                 }
@@ -2005,12 +2029,10 @@ impl Application for SettingsApp {
             Message::UpdateFinished(result) => match result {
                 Ok(tag) => {
                     self.update_state = UpdateState::Installed(tag.clone());
-                    self.status_msg = format!(
-                        "Updated to {tag}! The wallpaper engine restarted automatically; restart Settings to use the new version too."
-                    );
+                    self.status_msg = fl!("status-updated-restart-needed", tag = tag.as_str());
                 }
                 Err(e) => {
-                    self.status_msg = format!("Update failed: {e}");
+                    self.status_msg = fl!("status-update-failed", error = e.to_string());
                     // Fall back to Available so the button offers a retry
                     // instead of getting stuck showing "Updating...".
                     self.update_state = match &self.update_state {
@@ -2026,7 +2048,7 @@ impl Application for SettingsApp {
                         .spawn();
                 } else {
                     tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
-                    self.status_msg = "Failed to open link: xdg-open not found".into();
+                    self.status_msg = fl!("status-xdg-open-not-found");
                 }
             }
             Message::OpenConfigFolder => {
@@ -2035,7 +2057,7 @@ impl Application for SettingsApp {
                     let _ = std::process::Command::new(xdg_open).arg(config_dir).spawn();
                 } else {
                     tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
-                    self.status_msg = "Failed to open folder: xdg-open not found".into();
+                    self.status_msg = fl!("status-xdg-open-folder-not-found");
                 }
             }
             Message::OpenVideosFolder => {
@@ -2045,7 +2067,7 @@ impl Application for SettingsApp {
                     let _ = std::process::Command::new(xdg_open).arg(videos_dir).spawn();
                 } else {
                     tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
-                    self.status_msg = "Failed to open folder: xdg-open not found".into();
+                    self.status_msg = fl!("status-xdg-open-folder-not-found");
                 }
             }
             Message::PackExportThemeSelected(idx) => {
@@ -2053,15 +2075,16 @@ impl Application for SettingsApp {
             }
             Message::ExportPack => {
                 let Some(name) = self.pack_export_theme.clone() else {
-                    self.status_msg = "Select a theme to export.".into();
+                    self.status_msg = fl!("status-select-theme-to-export");
                     return Task::none();
                 };
                 match self.export_pack(&name) {
                     Ok(path) => {
-                        self.status_msg = format!("Exported pack to {}", path.display());
+                        self.status_msg =
+                            fl!("status-exported-pack", path = path.display().to_string());
                     }
                     Err(e) => {
-                        self.status_msg = format!("Error exporting pack: {e}");
+                        self.status_msg = fl!("status-error-exporting-pack", error = e.to_string());
                     }
                 }
             }
@@ -2072,7 +2095,7 @@ impl Application for SettingsApp {
                     let _ = std::process::Command::new(xdg_open).arg(dir).spawn();
                 } else {
                     tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
-                    self.status_msg = "Failed to open folder: xdg-open not found".into();
+                    self.status_msg = fl!("status-xdg-open-folder-not-found");
                 }
             }
             Message::PackFilesDropped(files) => {
@@ -2093,21 +2116,21 @@ impl Application for SettingsApp {
                     // got a chance to reject it.
                     match std::fs::metadata(path) {
                         Ok(meta) if meta.len() > config::pack::MAX_PACK_BYTES => {
-                            messages.push(format!(
-                                "'{}' is too large to be a valid pack (limit {} MB) - skipped.",
-                                path.display(),
-                                config::pack::MAX_PACK_BYTES / (1024 * 1024)
+                            messages.push(fl!(
+                                "status-pack-too-large",
+                                name = path.display().to_string(),
+                                limit = ((config::pack::MAX_PACK_BYTES / (1024 * 1024)) as i64)
                             ));
                             continue;
                         }
                         Err(_) => {
-                            messages.push("Could not read a dropped file.".into());
+                            messages.push(fl!("status-could-not-read-dropped-file"));
                             continue;
                         }
                         _ => {}
                     }
                     let Ok(bytes) = std::fs::read(path) else {
-                        messages.push("Could not read a dropped file.".into());
+                        messages.push(fl!("status-could-not-read-dropped-file"));
                         continue;
                     };
                     match config::pack::parse(&bytes) {
@@ -2117,9 +2140,9 @@ impl Application for SettingsApp {
                             });
                             if let Some(shader) = parsed.shader {
                                 if self.pending_pack_import.is_some() {
-                                    messages.push(format!(
-                                        "Skipped '{}' - import one shader pack at a time.",
-                                        parsed.name
+                                    messages.push(fl!(
+                                        "status-skip-one-shader-at-a-time",
+                                        name = parsed.name.as_str()
                                     ));
                                     continue;
                                 }
@@ -2141,17 +2164,24 @@ impl Application for SettingsApp {
                                         imported += 1;
                                         imported_a_background |= has_background;
                                         if written_as != parsed.name {
-                                            messages.push(format!(
-                                                "'{}' already existed - imported as '{}'.",
-                                                parsed.name, written_as
+                                            messages.push(fl!(
+                                                "status-pack-renamed-on-import",
+                                                original = parsed.name.as_str(),
+                                                written = written_as.as_str()
                                             ));
                                         }
                                     }
-                                    Err(e) => messages.push(format!("'{}': {}", parsed.name, e)),
+                                    Err(e) => messages.push(fl!(
+                                        "status-pack-import-error",
+                                        name = parsed.name.as_str(),
+                                        error = e.to_string()
+                                    )),
                                 }
                             }
                         }
-                        Err(e) => messages.push(format!("Not a valid pack: {e}")),
+                        Err(e) => {
+                            messages.push(fl!("status-not-a-valid-pack", error = e.to_string()))
+                        }
                     }
                 }
                 if imported > 0 {
@@ -2159,19 +2189,16 @@ impl Application for SettingsApp {
                     self.installed_packs = library::scan_installed_packs();
                     messages.insert(
                         0,
-                        format!(
-                            "Imported {imported} pack{}.",
-                            if imported == 1 { "" } else { "s" }
-                        ),
+                        fl!("status-imported-packs", imported = (imported as i64)),
                     );
                 }
                 if self.pending_pack_import.is_some() {
-                    messages.push("A pack includes a custom shader - review it above.".into());
+                    messages.push(fl!("status-pack-includes-shader-review"));
                 }
                 if !messages.is_empty() {
                     self.status_msg = messages.join(" ");
-                } else if self.status_msg.starts_with("Ready") {
-                    self.status_msg = "Nothing imported - drop .cwtheme pack files.".into();
+                } else if self.status_msg == fl!("status-ready") {
+                    self.status_msg = fl!("status-nothing-imported-packs");
                 }
                 if imported_a_background {
                     return scan_library_task();
@@ -2191,15 +2218,22 @@ impl Application for SettingsApp {
                             self.available_themes = load_themes();
                             self.installed_packs = library::scan_installed_packs();
                             let detail = if has_video {
-                                "with video and a custom shader"
+                                fl!("status-pack-detail-video-shader")
                             } else {
-                                "with a custom shader"
+                                fl!("status-pack-detail-shader")
                             };
                             self.status_msg = if written_as == name {
-                                format!("Imported pack '{name}' ({detail}).")
+                                fl!(
+                                    "status-imported-pack-named",
+                                    name = name.as_str(),
+                                    detail = detail.as_str()
+                                )
                             } else {
-                                format!(
-                                    "'{name}' already existed - imported as '{written_as}' ({detail})."
+                                fl!(
+                                    "status-pack-renamed-with-detail",
+                                    name = name.as_str(),
+                                    written = written_as.as_str(),
+                                    detail = detail.as_str()
                                 )
                             };
                             if has_video {
@@ -2207,14 +2241,15 @@ impl Application for SettingsApp {
                             }
                         }
                         Err(e) => {
-                            self.status_msg = format!("Error importing pack: {e}");
+                            self.status_msg =
+                                fl!("status-error-importing-pack", error = e.to_string());
                         }
                     }
                 }
             }
             Message::CancelPackImport => {
                 self.pending_pack_import = None;
-                self.status_msg = "Cancelled - nothing was imported.".into();
+                self.status_msg = fl!("status-cancelled-nothing-imported");
             }
             Message::ApplyPack(name) => {
                 let entry = self.installed_packs.iter().find(|p| p.name == name);
@@ -2252,17 +2287,23 @@ impl Application for SettingsApp {
                 match self.wp_config.save() {
                     Ok(()) => {
                         self.status_msg = match (has_video, video_missing, theme_missing) {
-                            (true, _, _) => format!("Applied pack '{name}' and its background video."),
-                            (false, true, _) => format!(
-                                "Applied pack '{name}' - its background video is missing; re-import the pack to restore it."
-                            ),
-                            (false, false, true) => format!(
-                                "Applied pack '{name}' - its theme file is missing, so generic defaults were used instead."
-                            ),
-                            (false, false, false) => format!("Applied pack '{name}'."),
+                            (true, _, _) => {
+                                fl!("status-applied-pack-with-video", name = name.as_str())
+                            }
+                            (false, true, _) => {
+                                fl!("status-applied-pack-video-missing", name = name.as_str())
+                            }
+                            (false, false, true) => {
+                                fl!("status-applied-pack-theme-missing", name = name.as_str())
+                            }
+                            (false, false, false) => {
+                                fl!("status-applied-pack", name = name.as_str())
+                            }
                         };
                     }
-                    Err(e) => self.status_msg = format!("Error applying pack: {e}"),
+                    Err(e) => {
+                        self.status_msg = fl!("status-error-applying-pack", error = e.to_string())
+                    }
                 }
             }
         }

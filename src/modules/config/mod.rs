@@ -16,6 +16,13 @@ pub struct Config {
     pub weather: WeatherConfig,
     pub audio: AudioConfig,
     pub appearance: AppearanceConfig,
+    /// Manual override for the GUI/tray's display language, as a BCP-47 tag
+    /// matching one of `i18n/<tag>/`'s embedded catalogs (e.g. `"es"`).
+    /// `None` (the default) follows the desktop's own locale, like most
+    /// COSMIC apps - this exists for a language the desktop environment
+    /// itself doesn't offer (e.g. a community catalog for a minority
+    /// language), not as the primary way to pick a language.
+    pub language: Option<String>,
 }
 impl Config {
     /// Clamps hand-editable values whose out-of-range settings would crash or
@@ -249,6 +256,7 @@ impl Default for Config {
                 canvas_proxy_url: None,
             },
             appearance: AppearanceConfig::default(),
+            language: None,
         }
     }
 }

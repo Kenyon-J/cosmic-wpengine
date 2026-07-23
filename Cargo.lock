@@ -1331,13 +1331,16 @@ dependencies = [
 
 [[package]]
 name = "cosmic-wallpaper"
-version = "1.5.1"
+version = "1.6.0"
 dependencies = [
  "anyhow",
  "bytemuck",
  "cosmic-text 0.18.2",
  "ffmpeg-next",
  "flate2",
+ "fluent-bundle",
+ "i18n-embed",
+ "i18n-embed-fl",
  "iced",
  "image",
  "ksni",
@@ -1354,6 +1357,7 @@ dependencies = [
  "raw-window-handle",
  "reqwest",
  "ron",
+ "rust-embed",
  "rustc-hash 2.1.2",
  "rustfft",
  "serde",

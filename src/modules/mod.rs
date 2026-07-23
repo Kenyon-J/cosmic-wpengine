@@ -2,6 +2,7 @@ pub mod audio;
 pub mod colour;
 pub mod config;
 pub mod event;
+pub mod i18n;
 pub mod logging;
 pub mod lrclib;
 pub mod mpris;

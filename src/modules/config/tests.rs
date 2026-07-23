@@ -505,6 +505,22 @@ fn test_canvas_proxy_url_toml_roundtrip() {
     );
 }
 
+/// A config file predating this field (or one where the user never touched
+/// the language picker) must load with `language: None` - "follow the
+/// desktop" - not error out or default to some other language.
+#[test]
+fn test_language_toml_roundtrip() {
+    let absent: crate::modules::config::Config = toml::from_str("").unwrap();
+    assert_eq!(absent.language, None);
+
+    let present: crate::modules::config::Config = toml::from_str("language = \"es\"\n").unwrap();
+    assert_eq!(present.language.as_deref(), Some("es"));
+
+    let text = toml::to_string_pretty(&present).unwrap();
+    let roundtripped: crate::modules::config::Config = toml::from_str(&text).unwrap();
+    assert_eq!(roundtripped.language.as_deref(), Some("es"));
+}
+
 /// A canvas proxy value that reqwest couldn't use (not a URL, or a non-http
 /// scheme) is dropped by sanitise() so canvas stays disabled instead of
 /// failing on every track change; valid http(s) URLs pass through.

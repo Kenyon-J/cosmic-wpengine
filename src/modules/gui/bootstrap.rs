@@ -103,12 +103,7 @@ pub(crate) fn launcher_issue() -> Option<String> {
     if desktop_path.exists() {
         None
     } else {
-        Some(
-            "The app isn't registered with your desktop's launcher yet. This is normally set \
-             up automatically the first time Settings runs - if it's still missing, check that \
-             ~/.local/share/applications is writable, then restart Settings."
-                .to_string(),
-        )
+        Some(cosmic_wallpaper::fl!("general-launcher-issue"))
     }
 }
 

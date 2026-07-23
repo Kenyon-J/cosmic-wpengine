@@ -36,6 +36,7 @@ async fn main() -> Result<()> {
         .run_until(async move {
             let config = Config::load_or_default()?;
             info!("Config loaded: {:?}", config);
+            modules::i18n::set_language(config.language.as_deref());
 
             let state = AppState::new(config.clone());
 

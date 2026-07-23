@@ -1,6 +1,6 @@
 [package]
 name = "cosmic-wallpaper"
-version = "1.5.1"
+version = "1.6.0"
 edition = "2021"
 description = "A live wallpaper engine for the COSMIC desktop"
 license = "MIT"
@@ -72,6 +72,12 @@ minisign-verify = "0.2"
 # ever being pointed at by this app. Both pure-Rust, no new toolchain need.
 tar = "0.4"
 flate2 = "1"
+# Fluent-backed translation, matching the stack libcosmic itself uses
+# internally (see its src/localize.rs) - same crates, same load_fallback_language/
+# DesktopLanguageRequester pattern, just for this app's own strings.
+i18n-embed = { version = "0.16", features = ["fluent-system", "desktop-requester"] }
+i18n-embed-fl = "0.10"
+rust-embed = "8"
 
 # Upstream's native-build path unconditionally passes -march=native
 # -mtune=native to FFmpeg's configure, baking in whatever SIMD extensions the
@@ -122,6 +128,12 @@ name = "cosmic-wallpaper-gui"
 path = "src/modules/gui/mod.rs"
 
 [dev-dependencies]
+# Parses each drafted i18n/<lang>/*.ftl catalog directly in
+# modules::i18n::tests, independent of the i18n-embed pipeline, so a
+# malformed community translation fails a test instead of just silently
+# dropping entries (fluent_bundle logs parse errors via the `log` crate,
+# which this project never bridges to `tracing`).
+fluent-bundle = "0.16"
 tempfile = "3.27.0"
 # Signing side of the updater tests: generates a throwaway keypair and signs
 # test data so minisign-verify's acceptance/rejection paths are both covered.

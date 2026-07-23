@@ -1,0 +1,5 @@
+fallback_language = "en"
+
+[fluent]
+assets_dir = "i18n"
+domain = "io.github.kenyon_j.cosmic_wpengine"

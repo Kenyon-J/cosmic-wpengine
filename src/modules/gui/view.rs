@@ -1,20 +1,28 @@
 use cosmic::iced::widget::{slider, Column, Row};
 use cosmic::iced::Length;
 use cosmic::widget::{button, dropdown, settings, text, text_input};
+use cosmic_wallpaper::fl;
 
 use super::{BackgroundMode, Message, Page, SettingsApp, UpdateState};
 
 /// Labels for the background-style dropdown, index-aligned with
 /// [`BackgroundMode::ALL`].
-const BG_MODE_LABELS: [&str; 5] = [
-    "Frosted Glass",
-    "Transparent",
-    "Album Art",
-    "Album Colour",
-    "Live Wallpaper",
-];
+fn bg_mode_labels() -> Vec<String> {
+    vec![
+        fl!("wallpaper-mode-frosted-glass"),
+        fl!("wallpaper-mode-transparent"),
+        fl!("wallpaper-mode-album-art"),
+        fl!("wallpaper-mode-album-colour"),
+        fl!("wallpaper-mode-live-wallpaper"),
+    ]
+}
 
-const TEXT_COLOR_MODES: [&str; 2] = ["Automatic", "Custom"];
+fn text_color_mode_labels() -> Vec<String> {
+    vec![
+        fl!("text-color-mode-automatic"),
+        fl!("text-color-mode-custom"),
+    ]
+}
 
 pub(crate) fn view_app(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let page = app
@@ -46,12 +54,14 @@ pub(crate) fn view_app(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 /// status line every action reports into.
 fn page<'a>(
     app: &'a SettingsApp,
-    title: &'a str,
-    summary: &'a str,
+    title: impl Into<String>,
+    summary: impl Into<String>,
     sections: Vec<cosmic::Element<'a, Message>>,
 ) -> cosmic::Element<'a, Message> {
-    let mut children: Vec<cosmic::Element<'a, Message>> =
-        vec![text::title3(title).into(), text::caption(summary).into()];
+    let mut children: Vec<cosmic::Element<'a, Message>> = vec![
+        text::title3(title.into()).into(),
+        text::caption(summary.into()).into(),
+    ];
     children.extend(sections);
     children.push(text::caption(&app.status_msg).into());
     settings::view_column(children).into()
@@ -60,7 +70,7 @@ fn page<'a>(
 /// A slider paired with a spin button: drag for coarse changes, click the
 /// steppers for one-step fine tuning. Both drive the same message.
 fn stepped_slider<'a>(
-    name: &'a str,
+    name: impl Into<String>,
     value_label: String,
     value: f32,
     range: std::ops::RangeInclusive<f32>,
@@ -71,7 +81,7 @@ fn stepped_slider<'a>(
     Row::new()
         .push(cosmic::widget::spin_button(
             value_label,
-            name,
+            name.into(),
             value,
             step,
             min,
@@ -148,7 +158,7 @@ fn style_card_preview(app: &SettingsApp, mode: BackgroundMode) -> cosmic::Elemen
         },
         BackgroundMode::Transparent => match preview {
             Some(p) => card_image(&p.card_sharp).opacity(0.25_f32).into(),
-            None => card_box(text::caption("None").into()),
+            None => card_box(text::caption(fl!("wallpaper-preview-none")).into()),
         },
         BackgroundMode::AlbumArt => card_box(
             cosmic::widget::icon::from_name("emblem-music-symbolic")
@@ -222,11 +232,11 @@ fn frosted_preview(app: &SettingsApp) -> Option<cosmic::Element<'_, Message>> {
     let sample = cosmic::widget::container(
         Column::new()
             .push(
-                text::title4("On, and on, and on, and on")
+                text::title4(fl!("wallpaper-preview-sample-title"))
                     .class(cosmic::theme::Text::Color(sample_color)),
             )
             .push(
-                text::caption("I can feel the rush, I can feel the noise")
+                text::caption(fl!("wallpaper-preview-sample-caption"))
                     .class(cosmic::theme::Text::Color(sample_color)),
             )
             .spacing(4)
@@ -265,6 +275,7 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let mode = app.current_background_mode();
 
     // Style cards: preview + label, selected card highlighted.
+    let bg_mode_labels = bg_mode_labels();
     let mut cards: Vec<cosmic::Element<'_, Message>> = Vec::new();
     for (idx, card_mode) in BackgroundMode::ALL.iter().enumerate() {
         let selected = *card_mode == mode;
@@ -272,7 +283,7 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             button::custom(
                 Column::new()
                     .push(style_card_preview(app, *card_mode))
-                    .push(text::caption(BG_MODE_LABELS[idx]))
+                    .push(text::caption(bg_mode_labels[idx].clone()))
                     .spacing(4)
                     .align_x(cosmic::iced::Alignment::Center),
             )
@@ -286,18 +297,21 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         .row_spacing(8)
         .column_spacing(8);
 
-    let mut sections = vec![settings::section().title("Style").add(cards).into()];
+    let mut sections = vec![settings::section()
+        .title(fl!("wallpaper-style-title"))
+        .add(cards)
+        .into()];
 
     if mode == BackgroundMode::FrostedGlass {
-        let mut frosted = settings::section().title("Frosted Glass");
+        let mut frosted = settings::section().title(fl!("wallpaper-frosted-glass-title"));
         if let Some(preview) = frosted_preview(app) {
             frosted = frosted.add(preview);
         }
         frosted = frosted.add(
-            settings::item::builder("Blur amount")
-                .description("How strongly the wallpaper is blurred.")
+            settings::item::builder(fl!("wallpaper-blur-amount"))
+                .description(fl!("wallpaper-blur-amount-desc"))
                 .control(stepped_slider(
-                    "Blur amount",
+                    fl!("wallpaper-blur-amount"),
                     format!("{:.2}", app.wp_config.appearance.blur_opacity),
                     app.wp_config.appearance.blur_opacity,
                     0.0..=1.0,
@@ -311,10 +325,10 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     if mode == BackgroundMode::Video {
         sections.push(
             settings::section()
-                .title("Live Wallpaper")
+                .title(fl!("wallpaper-live-wallpaper-title"))
                 .add(settings::item(
-                    "Video",
-                    text::body("Pick and manage videos on the Live Wallpapers page"),
+                    fl!("wallpaper-video-item"),
+                    text::body(fl!("wallpaper-video-item-desc")),
                 ))
                 .into(),
         );
@@ -327,7 +341,7 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         .spacing(8)
         .align_y(cosmic::iced::Alignment::Center)
         .push(dropdown(
-            &TEXT_COLOR_MODES[..],
+            text_color_mode_labels(),
             Some(usize::from(custom_active)),
             Message::TextColorMode,
         ));
@@ -340,10 +354,10 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     }
     sections.push(
         settings::section()
-            .title("Text")
+            .title(fl!("wallpaper-text-title"))
             .add(
-                settings::item::builder("Text colour")
-                    .description("Automatic picks a colour that stays readable on your wallpaper.")
+                settings::item::builder(fl!("wallpaper-text-colour"))
+                    .description(fl!("wallpaper-text-colour-desc"))
                     .control(colour_row),
             )
             .into(),
@@ -353,15 +367,19 @@ fn wallpaper(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         sections.push(
             app.color_picker
                 .builder(Message::TextColorPicker)
-                .build("Recent colours", "Copy to clipboard", "Copied to clipboard")
+                .build(
+                    fl!("common-recent-colours"),
+                    fl!("common-copy-to-clipboard"),
+                    fl!("common-copied-to-clipboard"),
+                )
                 .into(),
         );
     }
 
     page(
         app,
-        "Wallpaper",
-        "Options for the selected style appear below it.",
+        fl!("wallpaper-page-title"),
+        fl!("wallpaper-page-summary"),
         sections,
     )
 }
@@ -376,9 +394,9 @@ const TILE_THUMB_HEIGHT: f32 = 94.5;
 fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     // Drop zone: accepts text/uri-list drags from the file manager.
     let drop_label = if app.drop_hover {
-        "Release to add to your library"
+        fl!("live-wallpapers-drop-release")
     } else {
-        "Drop video files here to add them (MP4, WebM)"
+        fl!("live-wallpapers-drop-prompt")
     };
     let drop_zone: cosmic::Element<'_, Message> =
         cosmic::widget::dnd_destination::dnd_destination_for_data(
@@ -426,7 +444,7 @@ fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                 .spacing(6)
                 .push(text::caption(entry.file_name.as_str()).width(Length::Fill));
             if is_active {
-                meta = meta.push(text::caption("Active"));
+                meta = meta.push(text::caption(fl!("common-active")));
             }
             if let Some(duration) = &entry.duration {
                 meta = meta.push(text::caption(duration.as_str()));
@@ -461,11 +479,13 @@ fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         grid = grid.push(row);
     }
 
-    let mut library_section = settings::section().title("Library").add(drop_zone);
+    let mut library_section = settings::section()
+        .title(fl!("live-wallpapers-library-title"))
+        .add(drop_zone);
     if app.library.is_empty() {
         library_section = library_section.add(settings::item(
-            "No videos yet",
-            text::body("Drop files above, or use Open Folder to add them by hand"),
+            fl!("live-wallpapers-no-videos"),
+            text::body(fl!("live-wallpapers-no-videos-desc")),
         ));
     } else {
         library_section = library_section.add(grid);
@@ -474,57 +494,79 @@ fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let sections = vec![
         library_section.into(),
         settings::section()
-            .title("Playback")
+            .title(fl!("live-wallpapers-playback-title"))
             .add(
-                settings::item::builder("Prefer Spotify Canvas")
-                    .description(
-                        "When the playing track has a Canvas loop, show it instead of your wallpaper.",
-                    )
+                settings::item::builder(fl!("live-wallpapers-prefer-canvas"))
+                    .description(fl!("live-wallpapers-prefer-canvas-desc"))
                     .toggler(
                         app.wp_config.appearance.prefer_canvas,
                         Message::ToggleWatchCanvas,
                     ),
             )
             .add(
-                settings::item::builder("Library folder")
-                    .description("Videos live in ~/.config/cosmic-wallpaper/videos.")
-                    .control(button::standard("Open Folder").on_press(Message::OpenVideosFolder)),
+                settings::item::builder(fl!("live-wallpapers-library-folder"))
+                    .description(fl!("live-wallpapers-library-folder-desc"))
+                    .control(
+                        button::standard(fl!("common-open-folder"))
+                            .on_press(Message::OpenVideosFolder),
+                    ),
             )
             .into(),
     ];
 
     page(
         app,
-        "Live Wallpapers",
-        "Looping videos that play as your background. Click a tile to set it.",
+        fl!("live-wallpapers-page-title"),
+        fl!("live-wallpapers-page-summary"),
         sections,
     )
 }
 
 // ------------------------------------------------------------------ Themes
 
-pub(crate) const THEME_ELEMENTS: [&str; 6] = [
-    "Album Art",
-    "Track Info",
-    "Lyrics",
-    "Visualiser",
-    "Weather",
-    "Effects",
-];
-const TEXT_ALIGN_LABELS: [&str; 3] = ["Left", "Center", "Right"];
-const ART_SHAPE_LABELS: [&str; 2] = ["Square", "Circular"];
-const VIS_SHAPE_LABELS: [&str; 3] = ["Linear", "Circular", "Square"];
+/// Element tab labels, index-aligned with `app.theme_element`.
+pub(crate) fn theme_elements() -> Vec<String> {
+    vec![
+        fl!("theme-element-album-art"),
+        fl!("theme-element-track-info"),
+        fl!("theme-element-lyrics"),
+        fl!("theme-element-visualiser"),
+        fl!("theme-element-weather"),
+        fl!("theme-element-effects"),
+    ]
+}
+fn text_align_labels() -> Vec<String> {
+    vec![
+        fl!("common-align-left"),
+        fl!("common-align-center"),
+        fl!("common-align-right"),
+    ]
+}
+fn art_shape_labels() -> Vec<String> {
+    vec![fl!("common-shape-square"), fl!("common-shape-circular")]
+}
+fn vis_shape_labels() -> Vec<String> {
+    vec![
+        fl!("common-shape-linear"),
+        fl!("common-shape-circular"),
+        fl!("common-shape-square"),
+    ]
+}
 
-/// One editor slider row: label, live value, TOML key caption.
+/// One editor slider row: label, live value, TOML key caption. `key` is the
+/// literal TOML field name (e.g. `position[0]`), shown verbatim as a
+/// reference for anyone cross-checking against docs/THEMES.md - not
+/// translated, like the docs themselves.
 fn theme_slider<'a>(
-    label: &'a str,
+    label: impl Into<String>,
     key: &'a str,
     value: f32,
     range: std::ops::RangeInclusive<f32>,
     step: f32,
     msg: fn(f32) -> super::ThemeEditMsg,
 ) -> cosmic::Element<'a, Message> {
-    settings::item::builder(label)
+    let label = label.into();
+    settings::item::builder(label.clone())
         .description(key)
         .control(stepped_slider(
             label,
@@ -544,12 +586,12 @@ fn theme_editor_rows<'a>(
     use super::ThemeEditMsg as E;
     use cosmic_wallpaper::modules::config::{ArtShape, TextAlign, VisAlign, VisShape};
 
-    let mut section = settings::section().title(THEME_ELEMENTS[app.theme_element]);
+    let mut section = settings::section().title(theme_elements()[app.theme_element].clone());
 
     let align_row = |align: usize| {
-        settings::item::builder("Align")
+        settings::item::builder(fl!("theme-align"))
             .description("align")
-            .control(dropdown(&TEXT_ALIGN_LABELS[..], Some(align), |idx| {
+            .control(dropdown(text_align_labels(), Some(align), |idx| {
                 Message::ThemeEdit(E::Align(idx))
             }))
     };
@@ -565,13 +607,13 @@ fn theme_editor_rows<'a>(
             let art = &layout.album_art;
             if layout.visualiser.shape == VisShape::Circular && layout.visualiser.dock_art {
                 section = section.add(settings::item(
-                    "Docked",
-                    text::body("While music plays, the art sits inside the circular visualiser and follows its position and size. Turn off docking on the Visualiser tab to use these controls."),
+                    fl!("theme-docked"),
+                    text::body(fl!("theme-docked-desc")),
                 ));
             }
             section = section
                 .add(theme_slider(
-                    "Position X",
+                    fl!("theme-position-x"),
                     "position[0]",
                     art.position[0],
                     0.0..=1.0,
@@ -579,7 +621,7 @@ fn theme_editor_rows<'a>(
                     E::PosX,
                 ))
                 .add(theme_slider(
-                    "Position Y",
+                    fl!("theme-position-y"),
                     "position[1]",
                     art.position[1],
                     0.0..=1.0,
@@ -587,7 +629,7 @@ fn theme_editor_rows<'a>(
                     E::PosY,
                 ))
                 .add(theme_slider(
-                    "Size",
+                    fl!("theme-size"),
                     "size",
                     art.size,
                     0.05..=1.0,
@@ -595,10 +637,10 @@ fn theme_editor_rows<'a>(
                     E::Size,
                 ))
                 .add(
-                    settings::item::builder("Shape")
+                    settings::item::builder(fl!("theme-shape"))
                         .description("shape")
                         .control(dropdown(
-                            &ART_SHAPE_LABELS[..],
+                            art_shape_labels(),
                             Some(match art.shape {
                                 ArtShape::Square => 0,
                                 ArtShape::Circular => 1,
@@ -616,7 +658,7 @@ fn theme_editor_rows<'a>(
             };
             section = section
                 .add(theme_slider(
-                    "Position X",
+                    fl!("theme-position-x"),
                     "position[0]",
                     t.position[0],
                     0.0..=1.0,
@@ -624,7 +666,7 @@ fn theme_editor_rows<'a>(
                     E::PosX,
                 ))
                 .add(theme_slider(
-                    "Position Y",
+                    fl!("theme-position-y"),
                     "position[1]",
                     t.position[1],
                     0.0..=1.0,
@@ -632,7 +674,7 @@ fn theme_editor_rows<'a>(
                     E::PosY,
                 ))
                 .add(theme_slider(
-                    "Text size",
+                    fl!("theme-text-size"),
                     "size",
                     t.size,
                     0.5..=2.5,
@@ -646,10 +688,10 @@ fn theme_editor_rows<'a>(
             let v = &layout.visualiser;
             section = section
                 .add(
-                    settings::item::builder("Shape")
+                    settings::item::builder(fl!("theme-shape"))
                         .description("shape")
                         .control(dropdown(
-                            &VIS_SHAPE_LABELS[..],
+                            vis_shape_labels(),
                             Some(match v.shape {
                                 VisShape::Linear => 0,
                                 VisShape::Circular => 1,
@@ -659,7 +701,7 @@ fn theme_editor_rows<'a>(
                         )),
                 )
                 .add(theme_slider(
-                    "Position X",
+                    fl!("theme-position-x"),
                     "position[0]",
                     v.position[0],
                     0.0..=1.0,
@@ -667,7 +709,7 @@ fn theme_editor_rows<'a>(
                     E::PosX,
                 ))
                 .add(theme_slider(
-                    "Position Y",
+                    fl!("theme-position-y"),
                     "position[1]",
                     v.position[1],
                     0.0..=1.0,
@@ -675,7 +717,7 @@ fn theme_editor_rows<'a>(
                     E::PosY,
                 ))
                 .add(theme_slider(
-                    "Size",
+                    fl!("theme-size"),
                     "size",
                     v.size,
                     0.05..=1.5,
@@ -683,7 +725,7 @@ fn theme_editor_rows<'a>(
                     E::Size,
                 ))
                 .add(theme_slider(
-                    "Rotation",
+                    fl!("theme-rotation"),
                     "rotation (degrees)",
                     v.rotation,
                     -180.0..=180.0,
@@ -691,7 +733,7 @@ fn theme_editor_rows<'a>(
                     E::Rotation,
                 ))
                 .add(theme_slider(
-                    "Amplitude",
+                    fl!("theme-amplitude"),
                     "amplitude",
                     v.amplitude,
                     0.2..=3.0,
@@ -699,10 +741,10 @@ fn theme_editor_rows<'a>(
                     E::Amplitude,
                 ))
                 .add(
-                    settings::item::builder("Band order")
+                    settings::item::builder(fl!("theme-band-order"))
                         .description("align")
                         .control(dropdown(
-                            &TEXT_ALIGN_LABELS[..],
+                            text_align_labels(),
                             Some(match v.align {
                                 VisAlign::Left => 0,
                                 VisAlign::Center => 1,
@@ -712,7 +754,7 @@ fn theme_editor_rows<'a>(
                         )),
                 )
                 .add(theme_slider(
-                    "Bar width",
+                    fl!("theme-bar-width"),
                     "bar_width_ratio",
                     v.bar_width_ratio,
                     0.05..=1.0,
@@ -720,7 +762,7 @@ fn theme_editor_rows<'a>(
                     E::BarWidthRatio,
                 ))
                 .add(theme_slider(
-                    "Cap roundness",
+                    fl!("theme-cap-roundness"),
                     "cap_radius",
                     v.cap_radius,
                     0.0..=1.0,
@@ -728,7 +770,7 @@ fn theme_editor_rows<'a>(
                     E::CapRadius,
                 ))
                 .add(theme_slider(
-                    "Glow",
+                    fl!("theme-glow"),
                     "glow_strength",
                     v.glow_strength,
                     0.0..=1.0,
@@ -736,7 +778,7 @@ fn theme_editor_rows<'a>(
                     E::GlowStrength,
                 ))
                 .add(theme_slider(
-                    "Reflection",
+                    fl!("theme-reflection"),
                     "reflection",
                     v.reflection,
                     0.0..=1.0,
@@ -744,7 +786,7 @@ fn theme_editor_rows<'a>(
                     E::Reflection,
                 ))
                 .add(theme_slider(
-                    "LED segments",
+                    fl!("theme-led-segments"),
                     "led_segments (0 = off)",
                     v.led_segments as f32,
                     0.0..=32.0,
@@ -752,14 +794,14 @@ fn theme_editor_rows<'a>(
                     E::LedSegments,
                 ))
                 .add(
-                    settings::item::builder("Peak-hold caps")
-                        .description("peak_hold - a small bright cap that holds each bar's recent peak and falls under gravity")
+                    settings::item::builder(fl!("theme-peak-hold"))
+                        .description(fl!("theme-peak-hold-desc"))
                         .toggler(v.peak_hold, |on| Message::ThemeEdit(E::PeakHold(on))),
                 );
             if matches!(v.shape, VisShape::Circular) {
                 section = section.add(
-                    settings::item::builder("Dock album art in the ring")
-                        .description("dock_art - the art follows the ring's position and size")
+                    settings::item::builder(fl!("theme-dock-art"))
+                        .description(fl!("theme-dock-art-desc"))
                         .toggler(v.dock_art, |on| Message::ThemeEdit(E::DockArt(on))),
                 );
             }
@@ -769,7 +811,7 @@ fn theme_editor_rows<'a>(
             let fx = &layout.effects;
             section = section
                 .add(theme_slider(
-                    "Lyric bounce",
+                    fl!("theme-lyric-bounce"),
                     "lyric_bounce",
                     fx.lyric_bounce,
                     0.0..=3.0,
@@ -777,7 +819,7 @@ fn theme_editor_rows<'a>(
                     E::Bounce,
                 ))
                 .add(theme_slider(
-                    "Spring stiffness",
+                    fl!("theme-spring-stiffness"),
                     "lyric_spring_stiffness",
                     fx.lyric_spring_stiffness,
                     30.0..=400.0,
@@ -785,7 +827,7 @@ fn theme_editor_rows<'a>(
                     E::Stiffness,
                 ))
                 .add(theme_slider(
-                    "Spring damping",
+                    fl!("theme-spring-damping"),
                     "lyric_spring_damping",
                     fx.lyric_spring_damping,
                     2.0..=40.0,
@@ -793,7 +835,7 @@ fn theme_editor_rows<'a>(
                     E::Damping,
                 ))
                 .add(theme_slider(
-                    "Beat pulse",
+                    fl!("theme-beat-pulse"),
                     "beat_pulse",
                     fx.beat_pulse,
                     0.0..=3.0,
@@ -804,12 +846,12 @@ fn theme_editor_rows<'a>(
     }
 
     section = section.add(
-        settings::item::builder("Reset this section")
-            .description(format!(
-                "Restores {} to its default values.",
-                THEME_ELEMENTS[app.theme_element]
+        settings::item::builder(fl!("theme-reset-section"))
+            .description(fl!(
+                "theme-reset-section-desc",
+                element = theme_elements()[app.theme_element].clone()
             ))
-            .control(button::destructive("Reset").on_press(Message::ResetThemeElement)),
+            .control(button::destructive(fl!("common-reset")).on_press(Message::ResetThemeElement)),
     );
 
     section.into()
@@ -829,21 +871,21 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let is_active = app.selected_theme.as_deref() == Some(app.wp_config.audio.style.as_str());
 
     let mut sections = vec![settings::section()
-        .title("Theme")
+        .title(fl!("theme-page-theme-title"))
         .add(
-            settings::item::builder("Editing")
+            settings::item::builder(fl!("theme-editing"))
                 .description(if is_active {
-                    "This theme is live - changes appear on your desktop as you make them."
+                    fl!("theme-editing-live-desc")
                 } else {
-                    "Not the active theme - changes save to its file; Apply to see them."
+                    fl!("theme-editing-inactive-desc")
                 })
                 .control(
                     Row::new()
                         .push(theme_picker)
                         .push(if is_active {
-                            button::standard("Active")
+                            button::standard(fl!("common-active"))
                         } else {
-                            button::suggested("Apply").on_press(Message::ApplyTheme)
+                            button::suggested(fl!("common-apply")).on_press(Message::ApplyTheme)
                         })
                         .spacing(8)
                         .align_y(cosmic::iced::Alignment::Center),
@@ -854,10 +896,10 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     if let Some(layout) = &app.edit_theme {
         // Element tabs.
         let mut tabs = Row::new().spacing(6);
-        for (idx, label) in THEME_ELEMENTS.iter().enumerate() {
+        for (idx, label) in theme_elements().into_iter().enumerate() {
             let selected = idx == app.theme_element;
             tabs = tabs.push(
-                button::custom(text::body(*label))
+                button::custom(text::body(label))
                     .class(card_class(selected))
                     .padding([4, 10])
                     .on_press(Message::ThemeElementSelected(idx)),
@@ -869,20 +911,21 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 
     sections.push(
         settings::section()
-            .title("Manage")
+            .title(fl!("theme-manage-title"))
             .add(
-                settings::item::builder("Create new theme")
-                    .description("Starts from a fully-commented template layout.")
+                settings::item::builder(fl!("theme-create-new"))
+                    .description(fl!("theme-create-new-desc"))
                     .control({
                         let name = app.new_theme_name.trim();
                         let is_empty = name.is_empty();
                         let already_exists = app.available_themes.iter().any(|t| t == name);
                         let is_valid = !is_empty && !already_exists;
 
-                        let mut input = text_input("Theme name", &app.new_theme_name)
-                            .on_input(Message::NewThemeNameChanged)
-                            .width(Length::Fixed(180.0));
-                        let mut btn = button::standard("Create");
+                        let mut input =
+                            text_input(fl!("theme-name-placeholder"), &app.new_theme_name)
+                                .on_input(Message::NewThemeNameChanged)
+                                .width(Length::Fixed(180.0));
+                        let mut btn = button::standard(fl!("common-create"));
 
                         if is_valid {
                             input = input.on_submit(|_| Message::CreateTheme);
@@ -893,13 +936,13 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                             btn.into()
                         } else {
                             let error_msg = if is_empty {
-                                "Theme name cannot be empty"
+                                fl!("theme-name-empty-error")
                             } else {
-                                "A theme with this name already exists"
+                                fl!("theme-name-exists-error")
                             };
                             cosmic::widget::tooltip(
                                 btn,
-                                error_msg,
+                                text::body(error_msg),
                                 cosmic::widget::tooltip::Position::Top,
                             )
                             .into()
@@ -913,17 +956,20 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                     }),
             )
             .add(
-                settings::item::builder("Import")
-                    .description("Drop .toml theme files anywhere on this page to add them.")
-                    .control(button::standard("Open Folder").on_press(Message::OpenConfigFolder)),
+                settings::item::builder(fl!("theme-import"))
+                    .description(fl!("theme-import-desc"))
+                    .control(
+                        button::standard(fl!("common-open-folder"))
+                            .on_press(Message::OpenConfigFolder),
+                    ),
             )
             .into(),
     );
 
     let content = page(
         app,
-        "Layout Themes",
-        "Where everything sits on screen. Slide something and watch your desktop follow.",
+        fl!("theme-page-title"),
+        fl!("theme-page-summary"),
         sections,
     );
 
@@ -942,28 +988,29 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 /// when it has one) live in one click - no separate trip to Layout Themes
 /// to Apply and Live Wallpapers to pick the video.
 fn pack_gallery_section(app: &SettingsApp) -> cosmic::Element<'_, Message> {
-    let mut section = settings::section().title("Your Packs");
+    let mut section = settings::section().title(fl!("packs-your-packs-title"));
     if app.installed_packs.is_empty() {
         section = section.add(settings::item(
-            "No packs imported yet",
-            text::body("Drop a .cwtheme file below to see it here."),
+            fl!("packs-none-yet"),
+            text::body(fl!("packs-none-yet-desc")),
         ));
     } else {
         for pack in &app.installed_packs {
             let is_active = app.wp_config.audio.style == pack.name;
             let description = match (pack.background.is_some(), is_active) {
-                (true, true) => "Includes a background video - active now.",
-                (true, false) => "Includes a background video.",
-                (false, true) => "Active now.",
-                (false, false) => "Layout only.",
+                (true, true) => fl!("packs-includes-video-active"),
+                (true, false) => fl!("packs-includes-video"),
+                (false, true) => fl!("common-active-now"),
+                (false, false) => fl!("packs-layout-only"),
             };
             section = section.add(
                 settings::item::builder(pack.name.as_str())
                     .description(description)
                     .control(if is_active {
-                        button::standard("Active")
+                        button::standard(fl!("common-active"))
                     } else {
-                        button::suggested("Apply").on_press(Message::ApplyPack(pack.name.clone()))
+                        button::suggested(fl!("common-apply"))
+                            .on_press(Message::ApplyPack(pack.name.clone()))
                     }),
             );
         }
@@ -982,22 +1029,16 @@ fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     // rather than implying "this theme's video", which could be a
     // completely unrelated clip to the theme you're about to bundle.
     let export_description = match app.wp_config.appearance.video_background_path.as_deref() {
-        Some(file) => format!(
-            "Bundles this theme's layout, its custom shader if set, and your currently \
-             active background video ({file}) - videos aren't tied to a specific theme, \
-             so double check this is the one you want to share."
-        ),
-        None => "Bundles this theme's layout and its custom shader, if set. No background \
-                  video is currently active, so the pack won't include one."
-            .to_string(),
+        Some(file) => fl!("packs-export-desc-with-video", file = file),
+        None => fl!("packs-export-desc-no-video"),
     };
 
     let sections = vec![
         pack_gallery_section(app),
         settings::section()
-            .title("Export")
+            .title(fl!("packs-export-title"))
             .add(
-                settings::item::builder("Theme to bundle")
+                settings::item::builder(fl!("packs-theme-to-bundle"))
                     .description(export_description)
                     .control(
                         Row::new()
@@ -1006,30 +1047,30 @@ fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                                 export_selected,
                                 Message::PackExportThemeSelected,
                             ))
-                            .push(button::suggested("Export Pack").on_press(Message::ExportPack))
+                            .push(
+                                button::suggested(fl!("packs-export-pack"))
+                                    .on_press(Message::ExportPack),
+                            )
                             .spacing(8)
                             .align_y(cosmic::iced::Alignment::Center),
                     ),
             )
             .add(
-                settings::item::builder("Packs folder")
-                    .description(
-                        "Exported .cwtheme files land in ~/.config/cosmic-wallpaper/packs.",
-                    )
-                    .control(button::standard("Open Folder").on_press(Message::OpenPacksFolder)),
+                settings::item::builder(fl!("packs-folder"))
+                    .description(fl!("packs-folder-desc"))
+                    .control(
+                        button::standard(fl!("common-open-folder"))
+                            .on_press(Message::OpenPacksFolder),
+                    ),
             )
             .into(),
-        settings::item(
-            "Import",
-            text::body("Drop a .cwtheme file anywhere on this page to add it."),
-        )
-        .into(),
+        settings::item(fl!("packs-import"), text::body(fl!("packs-import-desc"))).into(),
     ];
 
     let content = page(
         app,
-        "Packs",
-        "Share a full look - layout, background video, and a custom visualiser shader - as one file.",
+        fl!("packs-page-title"),
+        fl!("packs-page-summary"),
         sections,
     );
 
@@ -1054,10 +1095,10 @@ fn now_playing(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 
     let sections = vec![
         settings::section()
-            .title("Album Art")
+            .title(fl!("now-playing-album-art-title"))
             .add(
-                settings::item::builder("Show album art")
-                    .description("The current cover, placed by the active layout theme.")
+                settings::item::builder(fl!("now-playing-show-album-art"))
+                    .description(fl!("now-playing-show-album-art-desc"))
                     .toggler(
                         app.wp_config.appearance.show_album_art,
                         Message::ToggleShowAlbumArt,
@@ -1065,24 +1106,26 @@ fn now_playing(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             )
             .into(),
         settings::section()
-            .title("Lyrics & Text")
+            .title(fl!("now-playing-lyrics-text-title"))
             .add(
-                settings::item::builder("Show lyrics")
-                    .description("Synced lyrics for the current track, when available.")
+                settings::item::builder(fl!("now-playing-show-lyrics"))
+                    .description(fl!("now-playing-show-lyrics-desc"))
                     .toggler(app.wp_config.audio.show_lyrics, Message::ToggleShowLyrics),
             )
-            .add(settings::item::builder("Font family").control(dropdown(
-                &app.available_fonts[..],
-                Some(current_font),
-                Message::FontSelected,
-            )))
+            .add(
+                settings::item::builder(fl!("now-playing-font-family")).control(dropdown(
+                    &app.available_fonts[..],
+                    Some(current_font),
+                    Message::FontSelected,
+                )),
+            )
             .into(),
     ];
 
     page(
         app,
-        "Now Playing",
-        "What appears when music plays: album art, track info, and lyrics.",
+        fl!("now-playing-page-title"),
+        fl!("now-playing-page-summary"),
         sections,
     )
 }
@@ -1091,12 +1134,12 @@ fn now_playing(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 
 fn visualiser(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     let sections = vec![settings::section()
-        .title("Audio Response")
+        .title(fl!("visualiser-audio-response-title"))
         .add(
-            settings::item::builder("Bands")
-                .description("How many bars the visualiser draws.")
+            settings::item::builder(fl!("visualiser-bands"))
+                .description(fl!("visualiser-bands-desc"))
                 .control(stepped_slider(
-                    "Bands",
+                    fl!("visualiser-bands"),
                     format!("{}", app.wp_config.audio.bands),
                     app.wp_config.audio.bands as f32,
                     16.0..=128.0,
@@ -1105,10 +1148,10 @@ fn visualiser(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                 )),
         )
         .add(
-            settings::item::builder("Smoothing")
-                .description("Higher is calmer; lower is snappier.")
+            settings::item::builder(fl!("visualiser-smoothing"))
+                .description(fl!("visualiser-smoothing-desc"))
                 .control(stepped_slider(
-                    "Smoothing",
+                    fl!("visualiser-smoothing"),
                     format!("{:.2}", app.wp_config.audio.smoothing),
                     app.wp_config.audio.smoothing,
                     0.0..=0.95,
@@ -1120,16 +1163,25 @@ fn visualiser(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 
     page(
         app,
-        "Visualiser",
-        "Bars that move with whatever is playing.",
+        fl!("visualiser-page-title"),
+        fl!("visualiser-page-summary"),
         sections,
     )
 }
 
 // ----------------------------------------------------------------- Weather
 
-const TEMPERATURE_UNITS: [&str; 2] = ["Celsius", "Fahrenheit"];
-const POLL_LABELS: [&str; 4] = ["5 minutes", "15 minutes", "30 minutes", "1 hour"];
+fn temperature_unit_labels() -> Vec<String> {
+    vec![fl!("weather-unit-celsius"), fl!("weather-unit-fahrenheit")]
+}
+fn poll_labels() -> Vec<String> {
+    vec![
+        fl!("weather-poll-5min"),
+        fl!("weather-poll-15min"),
+        fl!("weather-poll-30min"),
+        fl!("weather-poll-1hour"),
+    ]
+}
 pub(crate) const POLL_MINUTES: [u64; 4] = [5, 15, 30, 60];
 
 fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
@@ -1139,51 +1191,53 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     };
 
     let sections = vec![settings::section()
-        .title("Weather")
+        .title(fl!("weather-page-title"))
         .add(
-            settings::item::builder("Show weather")
-                .description("Current conditions on the desktop.")
+            settings::item::builder(fl!("weather-show-weather"))
+                .description(fl!("weather-show-weather-desc"))
                 .toggler(app.wp_config.weather.enabled, Message::ToggleWeatherEnabled),
         )
         .add(
-            settings::item::builder("Hide animated effects")
-                .description("Turns off rain and snow animations to save power.")
+            settings::item::builder(fl!("weather-hide-effects"))
+                .description(fl!("weather-hide-effects-desc"))
                 .toggler(
                     app.wp_config.weather.hide_effects,
                     Message::ToggleHideWeatherEffects,
                 ),
         )
-        .add(settings::item::builder("Units").control(dropdown(
-            &TEMPERATURE_UNITS[..],
-            Some(current_unit),
-            |idx| Message::TemperatureUnitSelected(TEMPERATURE_UNITS[idx].to_string()),
-        )))
         .add(
-            settings::item::builder("Location")
-                .description(
-                    "Latitude and longitude for the forecast. \"Use my location\" estimates \
-                     these from your IP address via ipapi.co.",
-                )
+            settings::item::builder(fl!("weather-units")).control(dropdown(
+                temperature_unit_labels(),
+                Some(current_unit),
+                Message::TemperatureUnitSelected,
+            )),
+        )
+        .add(
+            settings::item::builder(fl!("weather-location"))
+                .description(fl!("weather-location-desc"))
                 .control(
                     Row::new()
                         .push(
-                            text_input("Latitude", &app.lat_input)
+                            text_input(fl!("weather-latitude-placeholder"), &app.lat_input)
                                 .on_input(Message::LatitudeChanged)
                                 .width(Length::Fixed(100.0)),
                         )
                         .push(
-                            text_input("Longitude", &app.lon_input)
+                            text_input(fl!("weather-longitude-placeholder"), &app.lon_input)
                                 .on_input(Message::LongitudeChanged)
                                 .width(Length::Fixed(100.0)),
                         )
-                        .push(button::standard("Use my location").on_press(Message::DetectLocation))
+                        .push(
+                            button::standard(fl!("weather-use-my-location"))
+                                .on_press(Message::DetectLocation),
+                        )
                         .spacing(8)
                         .align_y(cosmic::iced::Alignment::Center),
                 ),
         )
         .add(
-            settings::item::builder("Update every").control(dropdown(
-                &POLL_LABELS[..],
+            settings::item::builder(fl!("weather-update-every")).control(dropdown(
+                poll_labels(),
                 POLL_MINUTES
                     .iter()
                     .position(|m| *m == app.wp_config.weather.poll_interval_minutes),
@@ -1194,8 +1248,8 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 
     page(
         app,
-        "Weather",
-        "Conditions and effects layered over the wallpaper.",
+        fl!("weather-page-title"),
+        fl!("weather-page-summary"),
         sections,
     )
 }
@@ -1209,60 +1263,102 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     // misleading given GitHub's unauthenticated API is capped at 60
     // requests/hour per IP and shared with anything else on the network.
     let update_control: cosmic::Element<'_, Message> = match &app.update_state {
-        UpdateState::Checking => text::body("Checking for updates...").into(),
+        UpdateState::Checking => text::body(fl!("general-checking-for-updates")).into(),
         UpdateState::UpToDate => Row::new()
-            .push(text::body("Up to date"))
-            .push(button::standard("Check for Updates").on_press(Message::CheckForUpdates))
+            .push(text::body(fl!("general-up-to-date")))
+            .push(
+                button::standard(fl!("general-check-for-updates"))
+                    .on_press(Message::CheckForUpdates),
+            )
             .spacing(8)
             .align_y(cosmic::iced::Alignment::Center)
             .into(),
         UpdateState::CheckFailed(reason) => Row::new()
-            .push(text::body(format!("Couldn't check: {reason}")))
-            .push(button::standard("Retry").on_press(Message::CheckForUpdates))
+            .push(text::body(fl!(
+                "general-check-failed",
+                reason = reason.as_str()
+            )))
+            .push(button::standard(fl!("common-retry")).on_press(Message::CheckForUpdates))
             .spacing(8)
             .align_y(cosmic::iced::Alignment::Center)
             .into(),
         UpdateState::Available(tag) if super::updater::is_self_updatable() => {
-            button::suggested(format!("Update to {tag}"))
+            button::suggested(fl!("general-update-to", tag = tag.as_str()))
                 .on_press(Message::StartUpdate)
                 .into()
         }
         // Installed via a system package - point at the release page instead.
-        UpdateState::Available(tag) => button::standard(format!("{tag} release page"))
-            .on_press(Message::OpenUpdateLink)
-            .into(),
-        UpdateState::Updating(tag) => text::body(format!("Updating to {tag}...")).into(),
-        UpdateState::Installed(tag) => text::body(format!("{tag} installed - restart")).into(),
+        UpdateState::Available(tag) => {
+            button::standard(fl!("general-release-page", tag = tag.as_str()))
+                .on_press(Message::OpenUpdateLink)
+                .into()
+        }
+        UpdateState::Updating(tag) => {
+            text::body(fl!("general-updating-to", tag = tag.as_str())).into()
+        }
+        UpdateState::Installed(tag) => {
+            text::body(fl!("general-installed-restart", tag = tag.as_str())).into()
+        }
     };
+
+    let language_labels: Vec<String> = std::iter::once(fl!("general-language-system-default"))
+        .chain(
+            cosmic_wallpaper::modules::i18n::AVAILABLE_LANGUAGES
+                .iter()
+                .map(|(_, name)| name.clone()),
+        )
+        .collect();
+    let language_selected = app
+        .wp_config
+        .language
+        .as_deref()
+        .and_then(|tag| {
+            cosmic_wallpaper::modules::i18n::AVAILABLE_LANGUAGES
+                .iter()
+                .position(|(t, _)| t == tag)
+        })
+        .map_or(0, |idx| idx + 1);
 
     let mut sections = vec![
         settings::section()
-            .title("Engine")
+            .title(fl!("general-language-title"))
             .add(
-                settings::item::builder("Wallpaper engine")
+                settings::item::builder(fl!("general-language-title"))
+                    .description(fl!("general-language-desc"))
+                    .control(dropdown(
+                        language_labels,
+                        Some(language_selected),
+                        Message::LanguageSelected,
+                    )),
+            )
+            .into(),
+        settings::section()
+            .title(fl!("general-engine-title"))
+            .add(
+                settings::item::builder(fl!("general-wallpaper-engine"))
                     .description(match (app.engine_pid, &app.engine_failure) {
-                        (Some(pid), _) => format!("Running (pid {pid})."),
+                        (Some(pid), _) => fl!("general-engine-running", pid = pid),
                         // A binary that dies before main() (linker failure
                         // after a system update) is otherwise invisible.
                         (None, Some(failure)) => failure.clone(),
-                        (None, None) => "Not running.".to_string(),
+                        (None, None) => fl!("general-engine-not-running"),
                     })
                     .control(if app.engine_pid.is_some() {
-                        button::standard("Stop").on_press(Message::StopEngine)
+                        button::standard(fl!("common-stop")).on_press(Message::StopEngine)
                     } else {
-                        button::suggested("Start").on_press(Message::StartEngine)
+                        button::suggested(fl!("common-start")).on_press(Message::StartEngine)
                     }),
             )
             .add(
-                settings::item::builder("Start on login")
-                    .description("Launches the wallpaper engine when you log in.")
+                settings::item::builder(fl!("general-start-on-login"))
+                    .description(fl!("general-start-on-login-desc"))
                     .toggler(app.autostart, Message::ToggleAutostart),
             )
             .add(
-                settings::item::builder("Frame rate limit")
-                    .description("Lower saves power; the engine idles when nothing animates.")
+                settings::item::builder(fl!("general-frame-rate-limit"))
+                    .description(fl!("general-frame-rate-limit-desc"))
                     .control(stepped_slider(
-                        "Frame rate limit",
+                        fl!("general-frame-rate-limit"),
                         format!("{} fps", app.wp_config.fps),
                         app.wp_config.fps as f32,
                         15.0..=144.0,
@@ -1271,36 +1367,44 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                     )),
             )
             .add(
-                settings::item::builder("Config folder")
-                    .description("All engine configuration lives here.")
-                    .control(button::standard("Open Folder").on_press(Message::OpenConfigFolder)),
+                settings::item::builder(fl!("general-config-folder"))
+                    .description(fl!("general-config-folder-desc"))
+                    .control(
+                        button::standard(fl!("common-open-folder"))
+                            .on_press(Message::OpenConfigFolder),
+                    ),
             )
             .into(),
         settings::section()
-            .title("About")
+            .title(fl!("general-about-title"))
             .add(
-                settings::item::builder("Version")
+                settings::item::builder(fl!("general-version"))
                     .description(env!("CARGO_PKG_VERSION"))
                     .control(update_control),
             )
             .add(
-                settings::item::builder("Patch notes")
-                    .description("What changed in the latest release.")
+                settings::item::builder(fl!("general-patch-notes"))
+                    .description(fl!("general-patch-notes-desc"))
                     .control(if app.patch_notes.is_some() {
-                        button::standard("Hide").on_press(Message::ClosePatchNotes)
+                        button::standard(fl!("common-hide")).on_press(Message::ClosePatchNotes)
                     } else {
-                        button::standard("Show").on_press(Message::ShowPatchNotes)
+                        button::standard(fl!("common-show")).on_press(Message::ShowPatchNotes)
                     }),
             )
             .add(
-                settings::item::builder("Diagnostics")
-                    .description("Version, log tail and GPU info, for pasting into a report.")
-                    .control(button::standard("Copy").on_press(Message::CopyDiagnostics)),
+                settings::item::builder(fl!("general-diagnostics"))
+                    .description(fl!("general-diagnostics-desc"))
+                    .control(
+                        button::standard(fl!("common-copy")).on_press(Message::CopyDiagnostics),
+                    ),
             )
             .add(
-                settings::item::builder("Something broken?")
-                    .description("Opens a pre-filled bug report with recent errors attached.")
-                    .control(button::standard("Report an Issue").on_press(Message::ReportIssue)),
+                settings::item::builder(fl!("general-something-broken"))
+                    .description(fl!("general-something-broken-desc"))
+                    .control(
+                        button::standard(fl!("general-report-an-issue"))
+                            .on_press(Message::ReportIssue),
+                    ),
             )
             .into(),
     ];
@@ -1311,9 +1415,9 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         sections.insert(
             0,
             settings::section()
-                .title("Setup")
+                .title(fl!("general-setup-title"))
                 .add(settings::item(
-                    "Not in your app launcher",
+                    fl!("general-not-in-launcher"),
                     text::body(issue.clone()),
                 ))
                 .into(),
@@ -1335,7 +1439,7 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         );
         sections.push(
             settings::section()
-                .title("Patch Notes")
+                .title(fl!("general-patch-notes-section-title"))
                 .add(
                     Column::new()
                         .push(
@@ -1351,8 +1455,8 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
 
     page(
         app,
-        "General",
-        "Engine behaviour and housekeeping.",
+        fl!("general-page-title"),
+        fl!("general-page-summary"),
         sections,
     )
 }

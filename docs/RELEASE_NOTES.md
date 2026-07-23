@@ -1,3 +1,43 @@
+# cosmic-wallpaper 1.6.0
+
+Localization: the GUI and tray now speak seven languages, with a manual
+picker for when the desktop's own locale isn't enough.
+
+## Added
+
+- **Full Fluent-based i18n**, wired the same way libcosmic wires its own:
+  every string in the Settings window, the tray menu, and the status line
+  now goes through a translation catalog instead of a hardcoded literal.
+  Hand-rolled plurals ("Imported 3 videos") became real Fluent plural
+  selectors, each following its own language's grammar rather than
+  English's one/other split.
+- **Six community-drafted translations**: Spanish, French, German,
+  Italian, Dutch, and Portuguese ship today alongside English. These are
+  AI-translated as a starting point, not yet reviewed by a native
+  speaker - genuinely good first drafts, not a substitute for real
+  translator review. Contributions and corrections welcome as PRs against
+  `i18n/<lang>/*.ftl`; Weblate registration is next once there's
+  translator interest.
+- **Manual language picker** on the General page. The app follows the
+  desktop's own language by default, like most COSMIC apps - but COSMIC's
+  own locale list won't include every language a community translation
+  might target (Kernewek/Cornish, for one), so this picker lists whatever
+  catalogs are actually embedded in the binary and lets you choose
+  directly, independent of your desktop's language setting. A future
+  community catalog needs no code change to appear here. Applies
+  immediately in the Settings window; the engine's tray labels pick up a
+  saved choice on their next start rather than live.
+
+## Fixed
+
+- Two latent bugs the localization sweep surfaced: a temperature-unit
+  dropdown and three status-line state checks were comparing against
+  hardcoded English display text, which would have silently broken in
+  any language other than English. Both now compare against
+  language-independent values instead.
+
+---
+
 # cosmic-wallpaper 1.5.1
 
 Five bugs found in a full-codebase sweep, fixed.

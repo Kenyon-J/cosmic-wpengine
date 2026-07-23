@@ -1,3 +1,4 @@
+use crate::fl;
 use ksni::menu::StandardItem;
 use tokio::sync::mpsc;
 
@@ -51,7 +52,7 @@ impl ksni::Tray for WallpaperTray {
     }
 
     fn title(&self) -> String {
-        "COSMIC Wallpaper".into()
+        fl!("tray-title")
     }
 
     // This is triggered when the user left-clicks the tray icon
@@ -62,7 +63,7 @@ impl ksni::Tray for WallpaperTray {
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         vec![
             StandardItem {
-                label: "Open Settings...".into(),
+                label: fl!("tray-open-settings"),
                 activate: Box::new(|this: &mut Self| {
                     this.launch_gui();
                 }),
@@ -71,7 +72,7 @@ impl ksni::Tray for WallpaperTray {
             .into(),
             ksni::MenuItem::Separator,
             StandardItem {
-                label: "Quit Engine".into(),
+                label: fl!("tray-quit-engine"),
                 activate: Box::new(|this: &mut Self| {
                     // Send a shutdown signal instead of exiting directly.
                     if let Err(e) = this.shutdown_tx.blocking_send(()) {

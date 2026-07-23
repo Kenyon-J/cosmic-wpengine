@@ -31,122 +31,6 @@ phases, file anchors, and why system76-power was considered and rejected
 for the battery detection (not running on non-Pop!_OS COSMIC installs;
 confirmed absent on this project's own dev machine).
 
-## Renderer decomposition (done — see PLAN-renderer-decomposition.md)
-
-The ~100-field `Renderer` + ~850-line `draw_frame` split into five phases
-(`FrameParams`, `AudioAnalysis`, `ArtLayer`/`BackgroundLayer`, a headless
-render-target + offscreen `--render-frame` harness, and a `TextSubsystem`
-carved out of the per-output loop) — all landed 2026-07-19/21, each phase
-pixel-verified via the harness against its own before/after baseline. Full
-phase-by-phase history is in the git log and
-[PLAN-renderer-decomposition.md](PLAN-renderer-decomposition.md); the one
-thing not fully hit was the plan's line-count target (`draw.rs` landed at
-655 lines against a ~300 target - `write_frame_uniforms` in particular is
-still ~170 lines and could be split further per buffer kind, fair game for
-a future pass on its own).
-
-The harness (`modules::renderer::render_frame_to_png`, a hidden
-`--render-frame <out.png> [--compare <baseline.png>] [--style <name>]`
-engine flag) turned out to be broadly useful beyond this refactor - it's
-now the standard way to verify any renderer change without a live desktop
-session, and backed the theme-packs shader-loading investigation below.
-
-## 1.2.x — first-run desktop integration (in progress)
-
-Manual installs (release tarball, and every install thereafter kept alive by
-the self-updater) are just two binaries in `~/.local/bin`: nothing installs
-the `.desktop` entry or icons, so the app never appears in COSMIC's app
-library/launcher — tray and terminal are the only ways in (gap found
-2026-07-19 while adding the app icon). On GUI startup, bootstrap the
-integration for exactly those installs:
-
-- Skip entirely under Flatpak (`/.flatpak-info`) and for package-managed
-  binaries under `/usr` — those installs ship the files themselves
-- Write `~/.local/share/applications/<app-id>.desktop` from the repo's
-  canonical entry with an absolute `Exec` (launcher sessions don't reliably
-  have `~/.local/bin` on PATH) when it's missing, or when its `Exec` points
-  at a binary that no longer exists (healing moved installs without
-  clobbering user edits)
-- Install the embedded icon set into `~/.local/share/icons/hicolor/...`,
-  rewriting on content change so icon updates propagate
-
-## 1.2 — "The Themes Release" (SHIPPED as v1.2.0/v1.2.1, 2026-07-19)
-
-Turn the engine's live TOML reload into the product's signature feature:
-the desktop itself is the theme editor's preview. Approved direction
-2026-07-18; interactive mockup exists (ask Joshua for the artifact link).
-
-1. **Live theme editor** — the Layout Themes page grows per-element
-   controls (album art, track info, lyrics, visualiser, weather) mapped
-   1:1 onto `ThemeLayout` fields: position sliders, size/rotation/
-   amplitude, shape and align toggles, effects (lyric bounce/spring,
-   beat pulse). Every change debounce-writes the theme TOML; the engine's
-   live reload shows it on the real desktop instantly. Built with the
-   same libcosmic widget vocabulary as the rest of the app
-   (`settings::section` rows, dropdowns, native sliders) — the HTML
-   mockup is a wireframe, not a styling target.
-   - Includes a NEW `TextLayout.size` scale field (serde-default 1.0):
-     lyric/track/weather font sizes are currently hardcoded in draw.rs
-     (`logical_height * 0.04` for lyrics); the theme value multiplies in,
-     giving each text element a Size slider.
-2. **Full starter template** — `Create Theme` writes the complete default
-   layout with every key commented, not the current 6-line stub.
-3. **`docs/THEMES.md`** — every field, range, default; annotated examples.
-4. **Sharing** — "Import Theme..." button; `themes/` gallery directory in
-   the repo for community layouts.
-5. **Engine status row** — Settings → General shows running/stopped with a
-   Start/Stop button (gap found 2026-07-18: GUI had no way to restart a
-   quit engine).
-
-## Theme packs (bundle sharing) — SHIPPED v1.4.0
-
-Extends the 1.2 Themes Release's "Import Theme" / gallery model from a bare
-layout TOML into a full pack: background video, visualiser layout, and
-(optionally) a custom `.wgsl` shader, bundled so a pack works like a
-Wallpaper Engine workshop item — one file to install a whole look. Idea
-from Joshua 2026-07-21; built and hardened the same day.
-
-Lives on its own **Packs** page (kept separate from Layout Themes so that
-page doesn't get cluttered), `src/modules/config/pack.rs` holds the
-format (`PackManifest`/`PackContents`/`ParsedPack`, `build()`/`parse()`):
-
-- **Plain gzipped tar, extension `.cwtheme`.** Deliberately not a custom
-  container — `tar tzf` (or an archive manager) opens one like any other,
-  so a shader can be inspected before this app ever reads it.
-- **A custom shader gates on an explicit review.** A pack that bundles one
-  stashes everything in `pending_pack_import` and blocks on a native
-  `Application::dialog()` modal showing the actual WGSL source
-  (Cancel/"Enable anyway") before anything is written; a pack without one
-  imports immediately, same as a plain theme-file drop.
-- **Extensible by construction**, mirroring `ThemeLayout`'s own convention:
-  every table optional (`#[serde(default)]`, no `deny_unknown_fields`), so
-  a pack sharing one thing stays a two-line manifest and a future asset
-  kind is one new table plus one new match arm in extraction, not a format
-  redesign. `schema_version` gates the pack *format*; `app_version`
-  (the exporting build's version) rides along purely so a `theme.toml`
-  parse failure — e.g. a newer `VisShape` variant an older build has never
-  heard of — can name which version made the pack instead of surfacing a
-  bare TOML error.
-- **A "Your Packs" gallery** on the same page lists every import with a
-  one-click Apply (sets the layout and, if the pack bundled one, the
-  background video together) — added after the first cut left an
-  imported video's file copied to disk but otherwise inert.
-- **Collision-safe writes.** A theme, shader, or video sharing a file name
-  with an unrelated pack's asset lands under a numbered suffix instead of
-  silently overwriting it (or being silently shadowed by it); re-importing
-  a pack you already have (byte-identical content) is a no-op rather than
-  piling up duplicates.
-- **Video is embedded directly** (bytes in the archive), not left as a
-  path/URL reference — a self-contained one-file share was worth the size
-  tradeoff over a smaller-but-dependent pack.
-
-Runtime shader loading (`src/modules/visualiser_pass.rs`, reads
-`ThemeLayout.visualiser.shader` at runtime, path-traversal hardened, falls
-back cleanly on a bad/missing shader) turned out to already exist since
-March 2026 — the renderer decomposition above was valuable in its own
-right but was never actually a prerequisite for this feature, since it
-ran on a separate code path the decomposition didn't touch.
-
 ## Known upstream issue — libcosmic's ColorPickerModel (pinned rev 6359a94)
 
 Found 2026-07-20 while using the custom text-colour picker (Wallpaper →
@@ -176,126 +60,82 @@ Neither is masked by anything in our own view.rs (confirmed: the picker is
 just one more section in a plain stacked `Column`, no overlay/absolute
 positioning on our side).
 
-## 1.3 candidate — i18n groundwork
+## 1.3 candidate — i18n groundwork (code complete 2026-07-23, unreleased)
 
-Adopt the COSMIC-native translation stack before the string count grows
-further (~80-100 user-facing strings as of 1.2):
+Adopted the COSMIC-native translation stack (the same `i18n-embed` +
+`i18n-embed-fl` + `rust-embed` combination libcosmic itself uses internally,
+mirroring its own `src/localize.rs`) before the string count grew further -
+around 190 `fl!` call sites landed in one pass:
 
-- Fluent catalogs under `i18n/<lang>/io.github.kenyon_j.cosmic_wpengine.ftl`,
-  embedded via `i18n-embed`/`rust-embed`; language follows the desktop's
-  locale automatically (`DesktopLanguageRequester`), per-string English
-  fallback
-- Mechanical `fl!` sweep over the GUI's literals (view.rs + status
-  messages) and the engine's tray menu labels
-- Move hand-rolled plural strings ("Imported {n} video{s}") into Fluent
-  selectors
-- Contribution flow: `.ftl` files as PRs, then Weblate registration once
-  there's translator interest
-- Out of scope: docs/THEMES.md and release notes; RTL layout mirroring is
-  an upstream iced limitation
-
-## WGSL shader pass — SHIPPED v1.4.1
-
-Triggered by a bug hunt 2026-07-21 that found "Square" (a real `VisShape`
-variant, selectable in the theme editor) silently rendering as an
-oversized circular ring - the shader only ever branched on `shape == 1u`
-(Linear) vs. an "else" catch-all it built for Circular, so Square was
-never actually implemented. Hidden from the picker in v1.4.0 rather than
-shipped broken; fixed for real here.
-
-- **`VisShape::Square` implemented.** Bars now walk a genuine square
-  perimeter - four sides, each a base position + outward normal + tangent
-  (the square counterpart of Circular's cos/sin radial math) - reusing
-  Circular's band-folding (`norm_angle`/`f_band`) so the two "ring-like"
-  shapes share the same audio-mapping feel and differ only in geometry.
-  Verified pixel-by-pixel with the offscreen harness's `--style` flag,
-  plus a regression pass across all four built-in themes to confirm
-  Linear/Circular were unaffected, before re-enabling the picker option.
-- **Formatting cleanup across every `.wgsl` file** (linting only, no
-  functional issues, per Joshua): trailing whitespace stripped
-  (45 lines in `visualiser.wgsl` alone), the mixed `if (cond) {`/`if cond {`
-  styles unified onto the latter (both appeared within `visualiser.wgsl`
-  itself), a stray double-blank-line in `album_art.wgsl` removed.
-
-The five items originally deferred out of this pass (capsule SDF/AA,
-mirror reflection, energy-scaled glow, peak-hold caps, and exposing them
-all as `ThemeLayout` options) landed in the follow-up pass below.
-
-## Visualiser bar polish — SHIPPED v1.5.0
-
-The five items deferred out of the WGSL shader pass above, plus a real
-Monstercat aesthetic fix and GUI exposure for the new knobs.
-
-- **Capsule SDF with real anti-aliasing.** `eval_shape` is now a rounded-box
-  SDF (`sd_round_box`) with `fwidth()`-based antialiasing on every edge,
-  replacing the old hard per-axis cutoff; `cap_radius` (0=rectangle,
-  1=full pill) controls the rounding, and `bar_width_ratio` (was hardcoded
-  0.85) controls bar width vs. gap. Glow deliberately stayed confined to
-  directly above each bar's own footprint rather than following the full
-  rounded SDF - an early attempt at the latter bled sideways into
-  neighbouring bars' gaps and washed a ring of many thin bars into one
-  smooth haze instead of distinct spikes.
-- **Mirror reflection** ("glass floor") below the baseline, fading with
-  depth and a `reflection` strength - reuses `eval_shape` on the mirrored
-  point rather than a separate code path, including the colour gradient
-  (an early version flattened the reflection to solid `color_bottom`
-  since it forgot to mirror the gradient's sample position too).
-- **Glow scaled by the bar's own band energy** (`0.3 + energy*0.7`,
-  capped at 1.0 - i.e. never brighter than the old always-on glow, only
-  dimmer for quiet bars) rather than just `lyric_pulse`. Capped
-  deliberately: an uncapped boost pushed the glow's visible reach past
-  `glow_pad_y`, the fixed quad padding sized for the old formula, and
-  hard-clipped at the quad's own edge instead of fading out - found via a
-  live desktop screenshot, not the offscreen harness's synthetic scene.
-- **Peak-hold caps that fall with gravity** - `AudioAnalysis` gained a
-  `peaks`/`peak_velocity` pair (rises instantly, falls at a constant
-  `PEAK_GRAVITY`, integrated every render tick in `decay()`, independent of
-  audio-frame arrival rate), uploaded as a second read-only storage buffer
-  (binding 2). **Shipped off by default** (`peak_hold = false`) - live
-  desktop review found the marker rendered as a visually disconnected
-  "floating pill" rather than a clean cap; kept as an opt-in toggle rather
-  than dropped, since the underlying mechanism works fine, it's purely a
-  look-and-feel call.
-- **All five, plus LED/segmented mode, exposed as `ThemeLayout` options**
-  (`bar_width_ratio`, `cap_radius`, `reflection`, `glow_strength`,
-  `led_segments`, `peak_hold`) - and as sliders/toggles on the theme
-  editor's Visualiser tab, not just TOML keys. The uniform buffer only
-  ever grew by *appending* fields (96 → 112 bytes) and the peaks buffer is
-  an additional, independent binding, so an existing custom shader from a
-  theme pack keeps compiling and running unchanged.
-- **Monstercat's shipped theme restyled to match its real-world namesake**
-  (flat rectangular bars, no glow, tightly packed - `cap_radius`/
-  `reflection`/`glow_strength` = 0, `bar_width_ratio` = 0.7, all sampled/
-  measured directly off a reference screenshot rather than eyeballed).
-  Colour was deliberately left adaptive (unset, following the album/
-  wallpaper palette as before) rather than pinned to Monstercat's own
-  green - real Monstercat-style visualisers vary fill colour by genre,
-  and this theme is about the *shape*, not a fixed hue.
-- **`reset_theme_element`** (the theme editor's per-element Reset button)
-  needed no code change - it already replaces the whole `VisualiserLayout`
-  struct rather than field-by-field - but gained a regression test
-  covering all six new fields specifically, given how easy it would have
-  been for a future field to be added to the struct but missed by reset.
-- Found and documented along the way, for anyone writing a custom shader:
-  a literal `0.0` height on even a handful of the many instances sharing
-  one instanced draw call can blank out the *entire* draw call on this
-  project's dev hardware (AMD RADV/Vulkan), with no validation error to
-  point at why - always floor a band value above exactly zero
-  (`max(val, 0.02)`) before it touches `clip_position`. See
-  [CUSTOM_SHADERS.md](CUSTOM_SHADERS.md).
-
-Deferred out of *this* pass:
-
-- **Solid fill-colour override as a GUI control.** `color_top`/
-  `color_bottom` already exist as `ThemeLayout` fields (TOML-only today -
-  see THEMES.md) and can be hardcoded by hand for a pack that wants one,
-  so there's no functional gap, just a missing theme-editor control.
-  Worth adding for pack creators who want a one-click fixed colour instead
-  of the adaptive album palette, but it needs a colour-picker widget in
-  the Visualiser tab, and the project's existing text-colour picker has
-  already surfaced a couple of upstream `libcosmic` `ColorPickerModel`
-  bugs (see "Known upstream issue" above) worth weighing before adding a
-  second picker instance.
+- `i18n.toml` + `i18n/en/io.github.kenyon_j.cosmic_wpengine.ftl`, embedded
+  via `src/modules/i18n.rs`'s `LANGUAGE_LOADER`; language follows the
+  desktop's locale automatically (`DesktopLanguageRequester`), with English
+  as the fallback for every key - `fl!` initializes it lazily on first call,
+  so no separate startup wiring was needed in either binary
+- Mechanical `fl!` sweep over the GUI's literals (`view.rs`'s ~185 strings,
+  every `status_msg` assignment in `mod.rs`, `bootstrap.rs`'s launcher-issue
+  text) and the engine's tray menu labels (`tray.rs`)
+- Hand-rolled plurals ("Imported {n} video{s}") moved into Fluent `[one]`/
+  `*[other]` selectors (imported videos/themes/packs, importing files)
+- **Found and fixed two latent locale bugs the sweep would otherwise have
+  introduced**: `Message::TemperatureUnitSelected` compared its dropdown
+  payload against the literal string `"Fahrenheit"` (would silently break
+  once that label was translated) - changed to an index like
+  `PollIntervalSelected` already was; three `status_msg.starts_with("Ready"/
+  "Engine start"/"Engine stop")` sentinel checks compared against
+  now-localized text - changed to compare against the same `fl!(...)` call
+  used to set them, so the check stays correct in whatever language is
+  active
+- Verified: `cargo test --workspace` (131 tests, added two covering
+  fallback-to-English and named-arg interpolation), `cargo clippy`,
+  `cargo fmt`, and a live launch on this machine's COSMIC session
+  (screenshot of the General page) confirming real rendering - no
+  message-id leaking through, `{ $pid }` interpolation correct
+- **Six community-drafted catalogs added the same day**: `es`, `fr`, `de`,
+  `it`, `nl`, `pt` - AI-translated in one pass at the user's request as a
+  "99% done, needs a native speaker's pass" starting point, not a
+  substitute for real translator review (see the "AI-translated,
+  unreviewed" caveat below). Each has exact key parity with `en` (guarded
+  by a test) and its own `[one]`/`*[other]` plural forms per its own CLDR
+  rule, not copies of the English split. Verified: every catalog parses as
+  valid Fluent (`fluent-bundle` dev-dep, directly - `fluent_bundle` logs
+  parse errors via the `log` crate, which this project never bridges to
+  `tracing`, so a broken message would otherwise fail silently instead of
+  failing a test), every catalog actually gets selected over the English
+  fallback when requested, every plural message resolves both categories
+  without panicking in every locale, and a live launch with
+  `LANGUAGE=es:en` (screenshot) confirmed real rendering - accented
+  characters, no tofu, no leaked message IDs.
+  - **AI-translated, unreviewed by a native speaker.** Confidently within
+    the assistant's strongest language tier, but still worth flagging
+    explicitly here rather than silently treating as production-quality:
+    should get an actual native-speaker pass (via the PR flow below)
+    before being pointed at from anywhere user-facing (a language picker,
+    a release note claiming "N languages supported").
+  - Found one real bug while writing these, not just translating: the
+    `TemperatureUnitSelected`/`starts_with("Ready"/"Engine start"/"Engine
+    stop")` fixes above were driven by actually trying to translate the
+    strings those checks compared against, not by reading the Rust
+    separately - localizing surfaces this class of bug for free.
+- Contribution flow open next: the six drafts above as a starting point
+  for `.ftl` files as PRs (real native-speaker review still needed on all
+  six), then Weblate registration once there's translator interest -
+  further languages beyond these six also welcome
+- **Manual language picker added on General**, at the user's request:
+  COSMIC's own locale list won't include every language a community
+  catalog might target (e.g. Kernewek/Cornish has no COSMIC-level locale
+  support), so a "follow the desktop" default alone would leave such a
+  catalog unreachable however good the translation. `Config.language:
+  Option<String>` (`None` = follow the desktop, same as before) persists
+  the choice; the picker itself is built from
+  `modules::i18n::AVAILABLE_LANGUAGES`, which asks every embedded catalog
+  for its own `language-name` message rather than a hardcoded list - a
+  future `i18n/kw/*.ftl` needs no code change to appear. Applies live in
+  the GUI; the engine (tray labels) picks up a saved override on its next
+  start, not live, since it isn't already watching config for this the way
+  it does for a few other hot-reloaded settings.
+- Out of scope (unchanged): docs/THEMES.md and release notes; RTL layout
+  mirroring is an upstream iced limitation
 
 ## Unscheduled ideas
 
@@ -312,3 +152,18 @@ Deferred out of *this* pass:
 - Rudimentary scene builder: visual z-ordering so elements (visualiser bars,
   other objects) can be layered/hidden behind one another (2026-07-21,
   explicitly far off — not to be designed for yet, just not foreclosed)
+- **Solid fill-colour override as a GUI control.** `color_top`/
+  `color_bottom` already exist as `ThemeLayout` fields (TOML-only today -
+  see THEMES.md) and can be hardcoded by hand for a pack that wants one,
+  so there's no functional gap, just a missing theme-editor control.
+  Worth adding for pack creators who want a one-click fixed colour instead
+  of the adaptive album palette, but it needs a colour-picker widget in
+  the Visualiser tab, and the project's existing text-colour picker has
+  already surfaced a couple of upstream `libcosmic` `ColorPickerModel`
+  bugs (see "Known upstream issue" above) worth weighing before adding a
+  second picker instance. (Deferred out of the v1.5.0 visualiser bar
+  polish pass.)
+- **Further split `write_frame_uniforms`** (~170 lines, one function per
+  buffer kind) - the one target the renderer decomposition didn't fully
+  hit; `draw.rs` landed at 655 lines against a ~300 line goal. Fair game
+  for a future pass on its own, not urgent.
