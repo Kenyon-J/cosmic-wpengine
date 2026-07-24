@@ -1,5 +1,7 @@
 # Plan: Renderer decomposition
 
+**Status: Active, deferred post-1.0.** Not started as of 2026-07-24.
+
 Goal: split the ~100-field `Renderer` god struct and the ~850-line
 `draw_frame` into owned subsystems with local invariants, so cross-cutting
 state bugs (like the 2026-07-19 stale blur chain, which lived in the gap

@@ -1,5 +1,8 @@
 # Plan: Live wallpaper feature additions
 
+**Status: Active.** None of the four phases below are implemented yet
+(checked 2026-07-24 against master).
+
 Goal: implement four features identified 2026-07-20 that fit this project's
 existing architecture cleanly - config.toml + theme system, the video
 library, the per-output render loop - rather than needing new

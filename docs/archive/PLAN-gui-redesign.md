@@ -1,5 +1,10 @@
 # PLAN: Settings GUI redesign
 
+**Status: Archived — shipped.** All 3 phases' described structure (nav/pages,
+DnD library, style cards + colour picker) is live in current `gui/mod.rs`,
+which has since moved well past this plan (e.g. theme-pack import postdates
+it entirely). Verified 2026-07-24. Kept for history.
+
 Graduated from [ROADMAP.md](ROADMAP.md). Reshapes the single-page settings
 window into a sidebar-paged app in the COSMIC System Settings idiom, with a
 drag-and-drop Live Wallpapers library. An interactive HTML mockup of the

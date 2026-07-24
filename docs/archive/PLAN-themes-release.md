@@ -1,5 +1,10 @@
 # PLAN: 1.2 "The Themes Release"
 
+**Status: Archived — shipped.** All 5 work items verified present in code
+(`TextLayout.size`, `THEME_TEMPLATE`, `themes/` gallery, engine status row,
+DnD import) as of 2026-07-24, several releases past the 1.2 this plan
+targeted. Kept for history.
+
 Graduated from [ROADMAP.md](ROADMAP.md) on 2026-07-18 (Joshua's go).
 Interactive mockup exists (artifact; ask Joshua). Keep this file updated —
 it is the handoff document.
