@@ -1326,7 +1326,7 @@ dependencies = [
  "ksni",
  "libc",
  "libcosmic",
- "lru",
+ "lru 0.18.1",
  "mimalloc",
  "minisign",
  "minisign-verify",
@@ -1431,7 +1431,7 @@ source = "git+https://github.com/iced-rs/cryoglyph.git?rev=e429a025df36ab8145708
 dependencies = [
  "cosmic-text 0.19.0",
  "etagere",
- "lru",
+ "lru 0.16.4",
  "rustc-hash 2.1.2",
  "wgpu 28.0.0",
 ]
@@ -2544,6 +2544,8 @@ version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
+ "allocator-api2",
+ "equivalent",
  "foldhash 0.2.0",
 ]
 
@@ -3746,11 +3748,17 @@ dependencies = [
 
 [[package]]
 name = "lru"
-version = "0.16.3"
+version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1dc47f592c06f33f8e3aea9591776ec7c9f9e4124778ff8a3c3b87159f7e593"
+checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
+
+[[package]]
+name = "lru"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b6180140927ee907000b0aa540091f6ea512ead4447c92b8fc35bc72788a5a6"
 dependencies = [
- "hashbrown 0.16.1",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]

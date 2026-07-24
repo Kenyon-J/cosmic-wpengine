@@ -56,7 +56,7 @@ ksni = "0.3"
 cosmic = { package = "libcosmic", git = "https://github.com/pop-os/libcosmic.git", rev = "6359a9465b8fe4c3b0ada0cd2b87cddf644ca732", features = ["markdown"] }
 iced = { git = "https://github.com/pop-os/libcosmic.git", package = "iced", rev = "6359a9465b8fe4c3b0ada0cd2b87cddf644ca732", features = ["highlighter"] }
 mimalloc = "0.1"
-lru = "0.16"
+lru = "0.18"
 ffmpeg-next = "8.1.0"
 rustc-hash = "2.1.2"
 # Already in the lockfile via wgpu/softbuffer; taken as a direct dep so GPU
