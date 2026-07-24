@@ -112,7 +112,7 @@ jobs:
 
       # The in-app updater only trusts hashes from a SHA256SUMS.txt whose
       # minisign signature verifies against the public key embedded in
-      # src/modules/gui/updater.rs. The secret key exists ONLY in the
+      # src/bin/cosmic-wallpaper-gui/updater.rs. The secret key exists ONLY in the
       # MINISIGN_SECRET_KEY repository secret (generated 2026-07,
       # passwordless so CI can sign non-interactively) - never in the tree.
       # A missing secret hard-fails the release: publishing an unsigned

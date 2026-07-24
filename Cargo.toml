@@ -125,7 +125,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "cosmic-wallpaper-gui"
-path = "src/modules/gui/mod.rs"
+path = "src/bin/cosmic-wallpaper-gui/main.rs"
 
 [dev-dependencies]
 # Parses each drafted i18n/<lang>/*.ftl catalog directly in

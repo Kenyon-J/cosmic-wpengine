@@ -27,7 +27,7 @@ other three don't.
 |---|---|
 | `src/modules/config/types.rs:75-95` | `AppearanceConfig` - `custom_background_path`, `video_background_path` already exist as plain `Option<String>` fields. Phases 1-2 add fields alongside these, not new subsystems. |
 | `src/modules/config/types.rs:397` (`resolved_background`) | Already reads `custom_background_path` first, falls back to cosmic-bg's own resolved wallpaper. Phase 2's picker just needs to *set* this field via GUI; the engine-side plumbing is done. |
-| `src/modules/gui/library.rs` | `videos_dir()`, `Config::available_videos()`, `scan()`. Phase 1's rotation picks from the same list already shown on the Live Wallpapers page. |
+| `src/bin/cosmic-wallpaper-gui/library.rs` | `videos_dir()`, `Config::available_videos()`, `scan()`. Phase 1's rotation picks from the same list already shown on the Live Wallpapers page. |
 | `src/modules/renderer/core/mod.rs:213-218` | The run loop's per-tick FPS re-read (`self.state.config.fps.max(1)`) - the exact pattern phase 3's battery-throttle follows: read a cheap, cached signal once per loop iteration, react if it changed. |
 | `src/modules/renderer/draw.rs:234` (`for (i_idx, gpu_out) in renderer.outputs.iter_mut().enumerate()`) | The per-output render loop. Phase 4 is the only phase that touches this - everything else stays global-config-driven. |
 | `src/modules/wayland.rs:38-49` (`WaylandWindowInfo`) | Holds `output: wl_output::WlOutput` but **no name/description** today. Phase 4's monitor identification needs to add this via smithay-client-toolkit's `OutputState::info(&output)` (already a dependency, just not called for this yet) - confirmed by grep: no `.info(` call exists in `wayland.rs` currently. |
