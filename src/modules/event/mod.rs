@@ -50,10 +50,7 @@ pub enum Event {
     PlaybackResumed,
     PlayerShutDown,
     PlaybackPosition(std::time::Duration),
-    AudioFrame {
-        bands: PooledAudioBuffer<f32>,
-        waveform: PooledAudioBuffer<f32>,
-    },
+    AudioFrame(Box<(PooledAudioBuffer<f32>, PooledAudioBuffer<f32>)>),
     BackgroundVideoFrame(Box<super::video::PooledImage>),
     CanvasVideoFrame(Box<super::video::PooledImage>),
     WeatherUpdated(Box<WeatherData>),

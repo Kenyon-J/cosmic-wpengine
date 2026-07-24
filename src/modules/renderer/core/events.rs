@@ -240,13 +240,14 @@ impl Renderer {
                 self.state.playback_position = pos;
             }
 
-            Event::AudioFrame { bands, waveform } => {
+            Event::AudioFrame(boxed_data) => {
                 // Beat/treble detection, band smoothing, and waveform peak
                 // tracking all live in AudioAnalysis; a detected beat is
                 // reported back as data rather than reaching into the theme
                 // itself, since the lyric-bounce spring it kicks is themed
                 // and owned here.
-                let result = self.audio.ingest(&bands, &waveform);
+                let (bands, waveform) = &*boxed_data;
+                let result = self.audio.ingest(bands, waveform);
                 self.state.audio_energy = result.avg_energy;
                 if let Some(spike) = result.beat_spike {
                     self.lyric_bounce_velocity += (15.0 * spike) * self.theme.effects.lyric_bounce;

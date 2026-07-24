@@ -9,3 +9,14 @@
 ## 04-03-2025- Fast sRGB Interpolation and NaN-Safe Clamping
 **Learning:** High-curvature functions like `x^(1/2.4)` have extremely steep derivatives near zero, causing significant linear interpolation errors on coarse grids. Increasing the interval count (e.g., from 256 to 1024) reduces the interpolation error by $O(h^2)$ (16x), well below visual and 8-bit precision limits, while keeping the lookup table inside L1 cache (4KB). Additionally, standard `f32::clamp` panics on `NaN` values, which must be safely bypassed using manual comparison checks.
 **Action:** For high-frequency color or signal math, use fine-grained (1024-entry) linear-interpolated lookup tables to model high-curvature segments accurately, and always employ NaN-safe branch-free comparison clamping to prevent runtime panics on invalid values.
+## 2025-03-05 - Avoid Redundant `wgpu` Buffer Writes in Hot Loops
+**Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when data hasn't changed, needlessly consumes PCIe bandwidth and CPU/GPU cycles.
+**Action:** Always diff the incoming uniform/vertex/buffer data against a cached version (e.g., storing the last slice on the `Renderer` state) and only dispatch `write_buffer` if the data actually differs.
+
+## 2025-03-05 - Box Large `tokio::sync::mpsc` Enums
+**Learning:** Enums passed through async channels take up the size of their largest variant. `Event::AudioFrame` contained two heavy `PooledAudioBuffer` structures, bloating the entire `Event` footprint and wasting memory for simpler variants.
+**Action:** When working with large enum variants traversing MPSC channels, box the large payloads (e.g., `AudioFrame(Box<(PooledAudioBuffer<f32>, PooledAudioBuffer<f32>)>)`) to drastically shrink the enum's stack/queue footprint.
+
+## 2025-03-05 - Modern Standard Library Lazy Initialization
+**Learning:** Relying on `lazy_static` or `once_cell` for simple static initializations requires adding external crate dependencies, which may fail compilation if missing from `Cargo.toml`.
+**Action:** For simple static caches or lookup tables (like SRGB curves), use `std::sync::OnceLock::new()` and `.get_or_init()` available in standard Rust 1.70+ to avoid introducing unnecessary dependencies.
