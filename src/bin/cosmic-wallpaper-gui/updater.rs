@@ -444,6 +444,25 @@ mod tests {
             .expect("embedded MINISIGN_PUBLIC_KEY must be valid base64 minisign key");
     }
 
+    /// Regression check against a known SHA-256 test vector - `parse_sha256sums`
+    /// has its own coverage, but nothing previously exercised the actual
+    /// `sha2::Sha256` hashing `download_and_verify` runs against every
+    /// downloaded release asset.
+    #[test]
+    fn test_sha256_matches_known_vector() {
+        let mut hasher = Sha256::new();
+        hasher.update(b"abc");
+        let hex: String = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(
+            hex,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
     #[test]
     fn test_parse_sha256sums_valid() {
         let text = "\
