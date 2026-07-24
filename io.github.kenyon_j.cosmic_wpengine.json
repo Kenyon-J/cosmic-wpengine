@@ -1,5 +1,5 @@
 {
-    "app-id": "com.system76.CosmicWallpaper",
+    "app-id": "io.github.kenyon_j.cosmic_wpengine",
     "runtime": "org.freedesktop.Platform",
     "runtime-version": "23.08",
     "sdk": "org.freedesktop.Sdk",
