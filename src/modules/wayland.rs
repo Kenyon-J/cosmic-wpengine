@@ -13,8 +13,8 @@ use wayland_client::{
 };
 
 use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_layer, delegate_output, delegate_registry,
+    compositor::{CompositorHandler, CompositorState, FrameCallbackData},
+    delegate_dispatch2, delegate_registry,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -49,9 +49,7 @@ pub struct WaylandWindowInfo {
 }
 
 delegate_registry!(AppData);
-delegate_output!(AppData);
-delegate_compositor!(AppData);
-delegate_layer!(AppData);
+delegate_dispatch2!(AppData);
 
 impl Dispatch<WlRegion, ()> for AppData {
     fn event(
@@ -375,7 +373,10 @@ impl WaylandManager {
         if let Some(win) = self.app_data.windows.get_mut(index) {
             win.frame_pending = true;
             win.last_frame_request = std::time::Instant::now();
-            win.frame_callback = Some(win.surface.frame(&qh, win.surface.clone()));
+            win.frame_callback = Some(
+                win.surface
+                    .frame(&qh, FrameCallbackData(win.surface.clone())),
+            );
         }
     }
 

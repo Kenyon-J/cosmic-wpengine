@@ -20,7 +20,7 @@ static-ffmpeg = ["ffmpeg-next/build"]
 
 [dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync", "net"] }
-smithay-client-toolkit = { version = "0.19", features = ["calloop"] }
+smithay-client-toolkit = { version = "0.21", features = ["calloop"] }
 wayland-client = "0.31"
 raw-window-handle = "0.6"
 wayland-backend = { version = "0.3", features = ["client_system"] }
