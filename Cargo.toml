@@ -137,7 +137,7 @@ fluent-bundle = "0.16"
 tempfile = "3.27.0"
 # Signing side of the updater tests: generates a throwaway keypair and signs
 # test data so minisign-verify's acceptance/rejection paths are both covered.
-minisign = "0.7"
+minisign = "0.9"
 
 [lib]
 path = "src/lib.rs"
