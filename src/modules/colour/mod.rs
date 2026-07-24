@@ -145,14 +145,52 @@ pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
     }
 }
 
+/// Fast fine-grained static lookup table for sRGB linearisation curve.
+/// Computes exactly the standard piecewise curve with 1024 segments.
+static SRGB_LIN_LUT: std::sync::OnceLock<[f32; 1024]> = std::sync::OnceLock::new();
+
+fn get_srgb_lut() -> &'static [f32; 1024] {
+    SRGB_LIN_LUT.get_or_init(|| {
+        let mut lut = [0.0; 1024];
+        for (i, v) in lut.iter_mut().enumerate() {
+            let u = i as f32 / 1023.0;
+            *v = if u <= 0.04045 {
+                u / 12.92
+            } else {
+                ((u + 0.055) / 1.055).powf(2.4)
+            };
+        }
+        lut
+    })
+}
+
 /// WCAG relative luminance of an sRGB color (components 0.0-1.0).
 pub fn relative_luminance(c: [f32; 3]) -> f32 {
     fn lin(u: f32) -> f32 {
-        if u <= 0.04045 {
-            u / 12.92
-        } else {
-            ((u + 0.055) / 1.055).powf(2.4)
+        if u.is_nan() {
+            return 0.0;
         }
+        #[allow(clippy::manual_clamp)]
+        let u_clamped = if u < 0.0 {
+            0.0
+        } else if u > 1.0 {
+            1.0
+        } else {
+            u
+        };
+
+        let lut = get_srgb_lut();
+        let index_f = u_clamped * 1023.0;
+        let index = index_f as usize;
+        if index >= 1023 {
+            return lut[1023];
+        }
+
+        let weight = index_f - index as f32;
+        let y0 = lut[index];
+        let y1 = lut[index + 1];
+
+        y0 + (y1 - y0) * weight
     }
     0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2])
 }

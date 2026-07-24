@@ -188,10 +188,10 @@ async fn feed_synthetic_scene(renderer: &mut Renderer) {
     let (recycle_bands_tx, _recycle_bands_rx) = tokio::sync::mpsc::channel(1);
     let (recycle_waveform_tx, _recycle_waveform_rx) = tokio::sync::mpsc::channel(1);
     renderer
-        .handle_event(Event::AudioFrame {
-            bands: PooledAudioBuffer::new(raw_bands.into_boxed_slice(), recycle_bands_tx),
-            waveform: PooledAudioBuffer::new(raw_waveform.into_boxed_slice(), recycle_waveform_tx),
-        })
+        .handle_event(Event::AudioFrame(Box::new((
+            PooledAudioBuffer::new(raw_bands.into_boxed_slice(), recycle_bands_tx),
+            PooledAudioBuffer::new(raw_waveform.into_boxed_slice(), recycle_waveform_tx),
+        ))))
         .await;
 
     let track = TrackInfo {

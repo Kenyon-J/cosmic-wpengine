@@ -261,6 +261,8 @@ impl Renderer {
             vis_target_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
             vis_prev_colors: ([1.0, 0.2, 0.5], [0.2, 0.5, 1.0]),
             last_occluded: None,
+            last_audio_bands: Vec::new(),
+            last_audio_peaks: Vec::new(),
         };
 
         let bg = renderer.state.config.appearance.resolved_background().await;
