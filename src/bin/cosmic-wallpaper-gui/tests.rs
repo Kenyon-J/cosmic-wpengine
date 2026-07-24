@@ -120,23 +120,25 @@ fn gallery_themes_parse() {
 fn parse_unit_failure_maps_failure_states() {
     // Healthy states: no message.
     assert_eq!(
-        super::parse_unit_failure("ActiveState=active\nExecMainStatus=0\n"),
+        super::diagnostics::parse_unit_failure("ActiveState=active\nExecMainStatus=0\n"),
         None
     );
     assert_eq!(
-        super::parse_unit_failure("ActiveState=inactive\nExecMainStatus=0\n"),
+        super::diagnostics::parse_unit_failure("ActiveState=inactive\nExecMainStatus=0\n"),
         None
     );
     // Unknown unit / empty output: no message.
-    assert_eq!(super::parse_unit_failure(""), None);
+    assert_eq!(super::diagnostics::parse_unit_failure(""), None);
 
     // Exit 127 (dynamic linker refused the binary): the specific diagnosis.
-    let msg = super::parse_unit_failure("ActiveState=failed\nExecMainStatus=127\n").unwrap();
+    let msg =
+        super::diagnostics::parse_unit_failure("ActiveState=failed\nExecMainStatus=127\n").unwrap();
     assert!(msg.contains("exit 127"));
     assert!(msg.contains("missing libraries"));
 
     // Any other failure: generic message that points at the journal.
-    let msg = super::parse_unit_failure("ActiveState=failed\nExecMainStatus=1\n").unwrap();
+    let msg =
+        super::diagnostics::parse_unit_failure("ActiveState=failed\nExecMainStatus=1\n").unwrap();
     assert!(msg.contains("exit 1"));
     assert!(msg.contains("journalctl"));
 }
@@ -146,11 +148,14 @@ fn stderr_headline_prefers_the_linker_error() {
     let stderr = "\nsome warning\n\
         /home/u/.local/bin/cosmic-wallpaper: error while loading shared libraries: \
         libavutil.so.58: cannot open shared object file: No such file or directory\n";
-    assert!(super::stderr_headline(stderr).contains("libavutil.so.58"));
+    assert!(super::diagnostics::stderr_headline(stderr).contains("libavutil.so.58"));
 
     // No linker line: first non-empty line wins.
-    assert_eq!(super::stderr_headline("\n\npanic: boom\n"), "panic: boom");
-    assert_eq!(super::stderr_headline(""), "");
+    assert_eq!(
+        super::diagnostics::stderr_headline("\n\npanic: boom\n"),
+        "panic: boom"
+    );
+    assert_eq!(super::diagnostics::stderr_headline(""), "");
 }
 
 /// The prefilled bug-report body: always carries version/OS context, and
@@ -163,7 +168,7 @@ fn issue_body_includes_version_and_omits_empty_error_section() {
     let prev = std::env::var("XDG_CONFIG_HOME").ok();
     std::env::set_var("XDG_CONFIG_HOME", tmp.path());
 
-    let body = super::build_issue_body();
+    let body = super::diagnostics::build_issue_body();
 
     match prev {
         Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
@@ -194,7 +199,7 @@ fn issue_body_attaches_recent_engine_errors_when_present() {
     )
     .unwrap();
 
-    let body = super::build_issue_body();
+    let body = super::diagnostics::build_issue_body();
 
     match prev {
         Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
@@ -388,7 +393,7 @@ fn export_then_import_round_trip_recovers_theme_video_and_shader() {
         std::fs::create_dir_all(&videos_dir).unwrap();
         std::fs::write(videos_dir.join("clip.mp4"), b"fake video bytes").unwrap();
 
-        let bytes = super::build_pack_bytes("my-look", Some("clip.mp4")).unwrap();
+        let bytes = super::pack_export::build_pack_bytes("my-look", Some("clip.mp4")).unwrap();
         let parsed = cosmic_wallpaper::modules::config::pack::parse(&bytes).unwrap();
 
         assert_eq!(parsed.name, "my-look");
@@ -406,7 +411,7 @@ fn export_then_import_round_trip_recovers_theme_video_and_shader() {
         std::fs::remove_file(shaders_dir.join("cool.wgsl")).unwrap();
         std::fs::remove_file(videos_dir.join("clip.mp4")).unwrap();
 
-        let written_as = super::write_pack_to_disk(
+        let written_as = super::pack_export::write_pack_to_disk(
             &parsed.name,
             &parsed.theme_toml,
             parsed.background.clone(),
@@ -448,7 +453,8 @@ fn write_pack_to_disk_rejects_a_path_traversing_theme_name() {
     let prev = std::env::var("XDG_CONFIG_HOME").ok();
     std::env::set_var("XDG_CONFIG_HOME", tmp.path());
 
-    let result = super::write_pack_to_disk("../../evil", "font_family = \"x\"", None, None);
+    let result =
+        super::pack_export::write_pack_to_disk("../../evil", "font_family = \"x\"", None, None);
 
     match prev {
         Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
@@ -475,9 +481,13 @@ fn write_pack_to_disk_does_not_clobber_an_existing_theme_of_the_same_name() {
         std::fs::create_dir_all(&shaders_dir).unwrap();
         std::fs::write(shaders_dir.join("bars.toml"), "font_family = \"MyOwnEdit\"").unwrap();
 
-        let written_as =
-            super::write_pack_to_disk("bars", "font_family = \"SomeoneElses\"", None, None)
-                .unwrap();
+        let written_as = super::pack_export::write_pack_to_disk(
+            "bars",
+            "font_family = \"SomeoneElses\"",
+            None,
+            None,
+        )
+        .unwrap();
 
         assert_eq!(written_as, "bars-1");
         assert_eq!(
@@ -492,8 +502,13 @@ fn write_pack_to_disk_does_not_clobber_an_existing_theme_of_the_same_name() {
 
         // A second same-name import doesn't collide with the first
         // dedup either.
-        let written_as_again =
-            super::write_pack_to_disk("bars", "font_family = \"AThirdOne\"", None, None).unwrap();
+        let written_as_again = super::pack_export::write_pack_to_disk(
+            "bars",
+            "font_family = \"AThirdOne\"",
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(written_as_again, "bars-2");
     }
 
@@ -516,9 +531,11 @@ fn re_importing_the_identical_pack_does_not_create_a_duplicate() {
 
     {
         let first =
-            super::write_pack_to_disk("sunset", "font_family = \"Inter\"", None, None).unwrap();
+            super::pack_export::write_pack_to_disk("sunset", "font_family = \"Inter\"", None, None)
+                .unwrap();
         let second =
-            super::write_pack_to_disk("sunset", "font_family = \"Inter\"", None, None).unwrap();
+            super::pack_export::write_pack_to_disk("sunset", "font_family = \"Inter\"", None, None)
+                .unwrap();
         assert_eq!(first, "sunset");
         assert_eq!(second, "sunset");
 
@@ -549,7 +566,7 @@ fn colliding_shader_names_are_deduped_and_the_theme_is_repointed() {
         layout_a.visualiser.shader = Some("cool.wgsl".to_string());
         let mut layout_b = layout_a.clone();
 
-        super::write_pack_to_disk(
+        super::pack_export::write_pack_to_disk(
             "pack-a",
             &toml::to_string_pretty(&layout_a).unwrap(),
             None,
@@ -560,7 +577,7 @@ fn colliding_shader_names_are_deduped_and_the_theme_is_repointed() {
         // A different pack, unrelated to pack-a, whose own shader happens
         // to share the exact same file name but has different content.
         layout_b.visualiser.shader = Some("cool.wgsl".to_string());
-        super::write_pack_to_disk(
+        super::pack_export::write_pack_to_disk(
             "pack-b",
             &toml::to_string_pretty(&layout_b).unwrap(),
             None,
@@ -606,14 +623,14 @@ fn colliding_video_names_are_deduped_not_silently_shadowed() {
     std::env::set_var("XDG_CONFIG_HOME", tmp.path());
 
     {
-        super::write_pack_to_disk(
+        super::pack_export::write_pack_to_disk(
             "pack-a",
             "font_family = \"Inter\"",
             Some(("clip.mp4".to_string(), b"pack a's video".to_vec())),
             None,
         )
         .unwrap();
-        super::write_pack_to_disk(
+        super::pack_export::write_pack_to_disk(
             "pack-b",
             "font_family = \"Inter\"",
             Some(("clip.mp4".to_string(), b"pack b's DIFFERENT video".to_vec())),

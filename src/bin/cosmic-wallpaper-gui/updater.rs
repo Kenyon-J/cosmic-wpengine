@@ -243,6 +243,151 @@ pub async fn perform_update(client: reqwest::Client, target_tag: String) -> Resu
     Ok(target_tag)
 }
 
+#[derive(serde::Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    body: String,
+}
+
+static HTTP_CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> =
+    std::sync::OnceLock::new();
+
+pub(crate) fn get_http_client() -> Result<&'static reqwest::Client, &'static String> {
+    HTTP_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .user_agent("cosmic-wallpaper/1.0")
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .as_ref()
+}
+
+#[derive(serde::Deserialize)]
+struct IpLocationResponse {
+    latitude: f64,
+    longitude: f64,
+}
+
+/// Estimates the user's location from their public IP via ipapi.co - opt-in
+/// only, fired by the "Use my location" button, never automatically. No
+/// SSRF concern here (unlike the mpris/video fetch paths): the URL is a
+/// fixed constant, not derived from any untrusted input.
+pub(crate) async fn fetch_ip_location() -> Result<(f64, f64), String> {
+    let client = get_http_client().map_err(Clone::clone)?;
+    let resp = client
+        .get("https://ipapi.co/json/")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("location service returned HTTP {}", resp.status()));
+    }
+
+    const MAX_JSON_SIZE: usize = 1024 * 1024;
+    let bytes = cosmic_wallpaper::modules::utils::read_capped(resp, MAX_JSON_SIZE)
+        .await
+        .map_err(|e| e.to_string())?;
+    let data: IpLocationResponse = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+
+    if !(-90.0..=90.0).contains(&data.latitude) || !(-180.0..=180.0).contains(&data.longitude) {
+        return Err("location service returned out-of-range coordinates".to_string());
+    }
+    Ok((data.latitude, data.longitude))
+}
+
+pub(crate) async fn fetch_patch_notes() -> String {
+    let url = "https://api.github.com/repos/Kenyon-J/cosmic-wpengine/releases/latest";
+
+    let client = match get_http_client() {
+        Ok(c) => c,
+        Err(e) => return format!("Failed to build HTTP client: {}", e),
+    };
+
+    match client.get(url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            const MAX_JSON_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
+            let bytes =
+                match cosmic_wallpaper::modules::utils::read_capped(resp, MAX_JSON_SIZE).await {
+                    Ok(b) => b,
+                    Err(e) => return format!("Failed to fetch patch notes: {}", e),
+                };
+            match serde_json::from_slice::<GitHubRelease>(&bytes) {
+                Ok(release) => format!(
+                    "COSMIC Wallpaper Engine {}\n\n{}",
+                    release.tag_name, release.body
+                ),
+                Err(e) => format!("Failed to parse patch notes from GitHub: {}", e),
+            }
+        }
+        Ok(resp) => format!("Failed to fetch patch notes: HTTP {}", resp.status()),
+        Err(e) => format!("Failed to fetch patch notes: {}", e),
+    }
+}
+
+/// `Ok(Some(tag))` - an update is available; `Ok(None)` - confirmed already
+/// current; `Err(msg)` - the check itself failed (network, rate limit,
+/// malformed response) and nothing was actually confirmed either way.
+/// Callers must not fold `Err` into "up to date" - GitHub's unauthenticated
+/// API is capped at 60 requests/hour per IP, shared with anything else on
+/// the same network, and a transient failure there is common enough that
+/// silently reporting it as "you're current" is actively misleading.
+pub(crate) async fn check_for_updates() -> Result<Option<String>, String> {
+    let url = "https://api.github.com/repos/Kenyon-J/cosmic-wpengine/releases/latest";
+
+    let client = get_http_client().map_err(|e| format!("Couldn't build HTTP client: {e}"))?;
+
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Couldn't reach GitHub: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err(if status.as_u16() == 403 {
+            "GitHub API rate limit hit - try again in a bit".to_string()
+        } else {
+            format!("GitHub returned HTTP {status}")
+        });
+    }
+
+    const MAX_JSON_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
+    let bytes = cosmic_wallpaper::modules::utils::read_capped(resp, MAX_JSON_SIZE)
+        .await
+        .map_err(|e| format!("Couldn't read GitHub's response: {e}"))?;
+    let release: GitHubRelease = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("Couldn't parse GitHub's response: {e}"))?;
+    let latest_version = release.tag_name.trim_start_matches('v');
+    let current_version = env!("CARGO_PKG_VERSION");
+
+    let is_newer = match (
+        latest_version.split('.').collect::<Vec<_>>(),
+        current_version.split('.').collect::<Vec<_>>(),
+    ) {
+        (l, c) if l.len() == 3 && c.len() == 3 => {
+            let l_major: u32 = l[0].parse().unwrap_or(0);
+            let l_minor: u32 = l[1].parse().unwrap_or(0);
+            let l_patch: u32 = l[2].parse().unwrap_or(0);
+            let c_major: u32 = c[0].parse().unwrap_or(0);
+            let c_minor: u32 = c[1].parse().unwrap_or(0);
+            let c_patch: u32 = c[2].parse().unwrap_or(0);
+
+            l_major > c_major
+                || (l_major == c_major && l_minor > c_minor)
+                || (l_major == c_major && l_minor == c_minor && l_patch > c_patch)
+        }
+        _ => latest_version != current_version,
+    };
+
+    Ok(if is_newer {
+        Some(release.tag_name)
+    } else {
+        None
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
