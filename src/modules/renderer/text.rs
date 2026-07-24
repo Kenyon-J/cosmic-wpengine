@@ -213,7 +213,6 @@ impl TextRenderer {
         height: f32,
     ) {
         text_renderer.cpu_vertices.clear();
-        text_renderer.cpu_indices.clear();
 
         // Optimization: Pre-calculate the constants for NDC transformation.
         // This allows us to replace multiple multiplications and divisions inside
@@ -355,7 +354,6 @@ impl TextRenderer {
 
                         let color = p_buf.color;
 
-                        let base_index = text_renderer.cpu_vertices.len() as u32;
                         let [u_min, v_min, u_max, v_max] = cached.uv;
 
                         text_renderer.cpu_vertices.extend([
@@ -380,18 +378,33 @@ impl TextRenderer {
                                 color,
                             },
                         ]);
-
-                        text_renderer.cpu_indices.extend([
-                            base_index,
-                            base_index + 1,
-                            base_index + 2,
-                            base_index + 1,
-                            base_index + 3,
-                            base_index + 2,
-                        ]);
                     }
                 }
             }
         }
+
+        // Optimization: Cache/reuse the index buffer to completely eliminate O(N) index-generation
+        // in the main 60FPS loop. Since the index sequence pattern (quad topology) is completely static,
+        // we only generate new indices when the on-screen glyph count exceeds our historical maximum,
+        // reducing the index generation overhead to O(1) in the steady state.
+        let num_glyphs = text_renderer.cpu_vertices.len() / 4;
+        let num_indices = num_glyphs * 6;
+        let current_len = text_renderer.cpu_indices.len();
+        if num_indices > current_len {
+            let current_glyphs = current_len / 6;
+            text_renderer.cpu_indices.reserve(num_indices - current_len);
+            for g in current_glyphs..num_glyphs {
+                let base = (g * 4) as u32;
+                text_renderer.cpu_indices.extend_from_slice(&[
+                    base,
+                    base + 1,
+                    base + 2,
+                    base + 1,
+                    base + 3,
+                    base + 2,
+                ]);
+            }
+        }
+        text_renderer.cpu_indices.truncate(num_indices);
     }
 }
