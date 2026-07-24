@@ -48,7 +48,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # recent log lines regardless of launch path, and journalctl only covers
 # the engine when it's running under its systemd autostart unit.
 tracing-appender = "0.2"
-ksni = "0.2"
+ksni = "0.3"
 # Pinned to the rev the release was built and tested against: libcosmic has
 # no stable releases and tracking master breaks builds without warning (the
 # COSMIC 1.3 bump removed the no-arg row()/column() helpers, for example).

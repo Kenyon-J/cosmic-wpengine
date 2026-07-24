@@ -1,6 +1,7 @@
 use cosmic_wallpaper::modules;
 
 use anyhow::Result;
+use ksni::TrayMethods;
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -79,7 +80,12 @@ async fn main() -> Result<()> {
             let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
 
             let tray = WallpaperTray::new(shutdown_tx);
-            ksni::TrayService::new(tray).spawn();
+            // The returned Handle only holds a Weak reference to the spawned
+            // service - dropping it does not stop the tray, which keeps
+            // running via its own background task. Nothing here currently
+            // needs to push a live update or shut it down through the
+            // handle, so it's discarded.
+            tray.spawn().await?;
 
             let mut wayland_manager = WaylandManager::new()?;
 

@@ -47,6 +47,12 @@ impl WallpaperTray {
 }
 
 impl ksni::Tray for WallpaperTray {
+    // Matches this project's own reverse-DNS app id (see main.rs's
+    // Application::APP_ID) - ksni just needs it stable across sessions.
+    fn id(&self) -> String {
+        "io.github.kenyon_j.cosmic_wpengine".into()
+    }
+
     fn icon_name(&self) -> String {
         "preferences-desktop-wallpaper".into()
     }
