@@ -107,10 +107,10 @@ impl AudioCapture {
                             };
 
                             let _ = tx
-                                .send(Event::AudioFrame {
-                                    bands: PooledAudioBuffer::new(normalised.into_boxed_slice(), recycle_bands_tx.clone()),
-                                    waveform: PooledAudioBuffer::new(original_waveform.into_boxed_slice(), recycle_waveform_tx.clone()),
-                                })
+                                .send(Event::AudioFrame(Box::new((
+                                    PooledAudioBuffer::new(normalised.into_boxed_slice(), recycle_bands_tx.clone()),
+                                    PooledAudioBuffer::new(original_waveform.into_boxed_slice(), recycle_waveform_tx.clone()),
+                                ))))
                                 .await;
                         }
                         Ok(None) => break,
@@ -130,10 +130,10 @@ impl AudioCapture {
                             wave_buffer.extend(std::iter::repeat_n(0.0, FFT_SIZE));
 
                             let _ = tx
-                                .send(Event::AudioFrame {
-                                    bands: PooledAudioBuffer::new(norm_buffer.into_boxed_slice(), recycle_bands_tx.clone()),
-                                    waveform: PooledAudioBuffer::new(wave_buffer.into_boxed_slice(), recycle_waveform_tx.clone()),
-                                })
+                                .send(Event::AudioFrame(Box::new((
+                                    PooledAudioBuffer::new(norm_buffer.into_boxed_slice(), recycle_bands_tx.clone()),
+                                    PooledAudioBuffer::new(wave_buffer.into_boxed_slice(), recycle_waveform_tx.clone()),
+                                ))))
                                 .await;
                         }
                     }

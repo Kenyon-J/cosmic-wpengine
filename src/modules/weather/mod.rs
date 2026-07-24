@@ -113,7 +113,14 @@ impl WeatherWatcher {
         const MAX_JSON_SIZE: usize = 10 * 1024 * 1024; // 10 MB limit
         let bytes = crate::modules::utils::read_capped(resp, MAX_JSON_SIZE).await?;
 
-        let response: OpenMeteoResponse = serde_json::from_slice(&bytes)?;
+        // Optimization: Offload CPU-heavy JSON parsing to the blocking thread pool
+        // to prevent stalling the tokio async executor.
+        let response: OpenMeteoResponse =
+            tokio::task::spawn_blocking(move || serde_json::from_slice(&bytes))
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!("Tokio spawn_blocking failed for weather JSON: {}", e)
+                })??;
 
         let code = response.current.weather_code;
         let temp = response.current.temperature_2m;

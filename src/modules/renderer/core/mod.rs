@@ -148,6 +148,8 @@ pub struct Renderer {
     pub(crate) vis_target_colors: ([f32; 3], [f32; 3]),
     pub(crate) vis_prev_colors: ([f32; 3], [f32; 3]),
     pub(crate) last_occluded: Option<bool>,
+    pub(crate) last_audio_bands: Vec<f32>,
+    pub(crate) last_audio_peaks: Vec<f32>,
 }
 
 impl Renderer {
@@ -281,7 +283,7 @@ impl Renderer {
                 // visual effect is already captured by the energy terms in
                 // scene_is_animating(). Blanket-marking them dirty would
                 // keep redrawing a silent, motionless scene forever.
-                scene_dirty |= !matches!(event, Event::AudioFrame { .. });
+                scene_dirty |= !matches!(event, Event::AudioFrame(_));
                 self.handle_event(event).await;
             }
 

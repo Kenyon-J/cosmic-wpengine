@@ -394,16 +394,27 @@ pub(crate) fn draw_frame(
         } else {
             &renderer.audio.bands
         };
-        renderer.queue.write_buffer(
-            &renderer.visualiser_pass.bands_buffer,
-            0,
-            bytemuck::cast_slice(audio_data),
-        );
-        renderer.queue.write_buffer(
-            &renderer.visualiser_pass.peaks_buffer,
-            0,
-            bytemuck::cast_slice(&renderer.audio.peaks),
-        );
+
+        if renderer.last_audio_bands != audio_data {
+            renderer.last_audio_bands.clear();
+            renderer.last_audio_bands.extend_from_slice(audio_data);
+            renderer.queue.write_buffer(
+                &renderer.visualiser_pass.bands_buffer,
+                0,
+                bytemuck::cast_slice(audio_data),
+            );
+        }
+
+        let peaks_data: &[f32] = &renderer.audio.peaks;
+        if renderer.last_audio_peaks != peaks_data {
+            renderer.last_audio_peaks.clear();
+            renderer.last_audio_peaks.extend_from_slice(peaks_data);
+            renderer.queue.write_buffer(
+                &renderer.visualiser_pass.peaks_buffer,
+                0,
+                bytemuck::cast_slice(peaks_data),
+            );
+        }
     }
 
     // The owned family from FrameParams rebuilt into a borrow-free Attrs:
