@@ -1,0 +1,24 @@
+# ==============================================================================
+# Symmetric Theme
+# ==============================================================================
+# A center-aligned visualizer layout that mirrors frequencies perfectly.
+
+# font_family = "Inter" # Optional: font name for all text (falls back to system default)
+
+[album_art]
+position = [0.5, 0.3]
+size = 0.15
+
+[track_info]
+position = [0.5, 0.15]
+align = "center"
+
+[lyrics]
+position = [0.5, 0.55]
+align = "center"
+
+[visualiser]
+shape = "linear"
+position = [0.5, 0.85]
+size = 0.8
+align = "center"

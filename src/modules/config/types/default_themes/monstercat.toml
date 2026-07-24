@@ -1,0 +1,39 @@
+# ==============================================================================
+# Monstercat Theme
+# ==============================================================================
+# A sleek, linear audio visualiser layout inspired by Monstercat's videos.
+
+# font_family = "Inter" # Optional: font name for all text (falls back to system default)
+
+[album_art]
+position = [0.24, 0.59]
+size = 0.15
+shape = "square"
+
+[track_info]
+position = [0.29, 0.56]
+align = "left"
+
+[lyrics]
+position = [0.49, 0.72]
+align = "left"
+
+[weather]
+position = [0.98, 0.03]
+align = "right"
+
+[visualiser]
+shape = "linear"
+position = [0.5, 0.5]
+size = 0.6
+rotation = 0
+amplitude = 1.5
+# Matches the real Monstercat visualiser's shape: flat bars, no glow,
+# tightly packed. Colour is left adaptive (unset) rather than pinned to
+# green - real Monstercat-style visualisers vary fill colour by genre.
+# color_top = [1.0, 0.2, 0.5]      # Optional: pin a fixed colour instead
+# color_bottom = [0.2, 0.5, 1.0]
+cap_radius = 0.0
+reflection = 0.0
+glow_strength = 0.0
+bar_width_ratio = 0.7

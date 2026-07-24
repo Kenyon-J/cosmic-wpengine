@@ -1,0 +1,39 @@
+# ==============================================================================
+# Bars Theme (Default)
+# ==============================================================================
+# A central, circular floating hub that radiates frequency bands outward.
+
+# font_family = "Inter" # Optional: font name for all text (falls back to system default)
+
+[album_art]
+position = [0.5, 0.5]
+size = 0.25
+shape = "circular"
+
+[track_info]
+position = [0.5, 0.08]
+align = "center"
+
+[lyrics]
+position = [0.5, 0.82]
+align = "center"
+
+[weather]
+position = [0.98, 0.03]
+align = "right"
+
+[visualiser]
+shape = "circular"
+position = [0.5, 0.5]
+size = 0.25
+rotation = 0.0 # Visualiser angle in degrees (0.0 to 360.0)
+amplitude = 1.0
+# shader = "my_custom_shader.wgsl" # Optional: Path to a custom .wgsl shader in this folder
+
+[effects]
+lyric_bounce = 0.5 # Dialed down for cleaner UI
+lyric_spring_stiffness = 150.0
+lyric_spring_damping = 12.0 # Slightly underdamped for a natural spring overshoot
+beat_pulse = 0.5
+# color_top = [1.0, 0.2, 0.5]      # Optional fixed colours (RGB 0.0 - 1.0)
+# color_bottom = [0.2, 0.5, 1.0]

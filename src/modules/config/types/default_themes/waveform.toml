@@ -1,0 +1,39 @@
+# ==============================================================================
+# Waveform Theme
+# ==============================================================================
+# Same layout as "bars", but optimized for the waveform audio style.
+
+# font_family = "Fira Sans" # Optional: font name for all text (falls back to system default)
+
+[album_art]
+position = [0.5, 0.5]
+size = 0.25
+shape = "circular"
+
+[track_info]
+position = [0.5, 0.08]
+align = "center"
+
+[lyrics]
+position = [0.5, 0.82]
+align = "center"
+
+[weather]
+position = [0.98, 0.03]
+align = "right"
+
+[visualiser]
+shape = "circular"
+position = [0.5, 0.5]
+size = 0.25
+rotation = 0.0 # Visualiser angle in degrees
+amplitude = 1.0
+# shader = "my_custom_shader.wgsl" # Optional: Path to a custom .wgsl shader in this folder
+
+[effects]
+lyric_bounce = 0.5
+lyric_spring_stiffness = 150.0
+lyric_spring_damping = 12.0
+beat_pulse = 0.5
+# color_top = [1.0, 0.2, 0.5]      # Optional fixed colours (RGB 0.0 - 1.0)
+# color_bottom = [0.2, 0.5, 1.0]
