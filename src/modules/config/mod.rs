@@ -194,6 +194,16 @@ impl Config {
 
         while let Some(res) = notify_rx.recv().await {
             if let Ok(event) = res {
+                // notify 8's default watch reports non-mutating access (open/close/exec)
+                // events, not just changes - a file *read*, not just a write, hits this.
+                // Reacting to those turned the reload below into a self-sustaining loop:
+                // load_strict() opens config.toml to read it, that open is itself an
+                // Access event on the exact path being watched, which re-triggers this
+                // same reload forever. Only Create/Modify/Remove (and the catch-all Any,
+                // used on platforms that can't distinguish) represent an actual change.
+                if matches!(event.kind, notify::EventKind::Access(_)) {
+                    continue;
+                }
                 let is_our_config = event.paths.iter().any(|p| p == &path_clone);
                 let is_our_shader = event.paths.iter().any(|p| p.starts_with(&shaders_dir));
                 let is_cosmic_bg = event.paths.iter().any(|p| p.starts_with(&cosmic_bg_dir));
