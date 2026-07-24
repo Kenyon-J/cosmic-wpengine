@@ -1293,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "cosmic-wallpaper"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "bytemuck",

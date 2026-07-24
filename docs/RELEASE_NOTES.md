@@ -1,3 +1,41 @@
+# cosmic-wallpaper 1.6.2
+
+Dependency catch-up: nine crates bumped to their current major/minor
+versions (minisign, sha2, ksni, lru, smithay-client-toolkit, reqwest,
+toml, notify, cosmic-text), each checked against its changelog and
+verified individually rather than bumped blind. No new features.
+
+## Fixed
+
+- **A file-watcher regression from the notify 6->8 bump, caught before
+  release.** The engine's config/theme reload could enter a
+  self-sustaining loop: notify 8 reports file *opens* (not just
+  writes) by default, and the reload handler's own read of
+  config.toml was being misread as "the config changed," triggering
+  another reload, another read, forever. Fixed by ignoring access-only
+  filesystem events; confirmed live (zero spurious reloads with no
+  file edits at all, exactly the expected count for real edits).
+- **A text-rendering regression from the cosmic-text 0.18->0.19 bump,
+  caught before release.** That version made `Buffer`'s setter methods
+  lazy (they mark text dirty instead of reshaping immediately), which
+  would have left lyrics/track-info/weather text unshaped - rendering
+  as blank - the first time a text buffer was built or its alignment
+  didn't change. Fixed by forcing a shape pass unconditionally after
+  every text update; confirmed via a pixel-perfect render comparison
+  against the pre-bump output.
+
+## Changed
+
+- The tray icon library (ksni) moved off its old dbus-rs/clap 2.x
+  dependency chain onto zbus, dropping several unmaintained transitive
+  crates (`ansi_term`, `atty`, `dbus-codegen`, and others) from the
+  build entirely.
+- cosmic-text now shares a single build with the version libcosmic
+  itself already depends on internally, instead of compiling two
+  separate copies.
+
+---
+
 # cosmic-wallpaper 1.6.1
 
 Internal restructuring pass - no new features, but a real bug fell out
