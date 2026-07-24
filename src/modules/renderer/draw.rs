@@ -656,8 +656,12 @@ mod tests {
         let text = "This is a deliberately long lyric line that would previously run past the right edge of the monitor before wrapping";
 
         let mut old_buf = Buffer::new(&mut font_system, metrics);
-        old_buf.set_size(&mut font_system, Some(width_f), Some(1000.0));
-        old_buf.set_text(&mut font_system, text, &attrs, Shaping::Advanced, None);
+        old_buf.set_size(Some(width_f), Some(1000.0));
+        old_buf.set_text(text, &attrs, Shaping::Advanced, None);
+        // Buffer setters are lazy as of cosmic-text 0.19 (mark dirty, don't
+        // reshape); the bare Buffer::layout_runs() used below doesn't resolve
+        // that itself, unlike the BorrowedWithFontSystem wrapper's version.
+        old_buf.shape_until_scroll(&mut font_system, false);
         let old_max_line_w = old_buf
             .layout_runs()
             .map(|r| r.line_w)
@@ -669,8 +673,9 @@ mod tests {
         );
 
         let mut new_buf = Buffer::new(&mut font_system, metrics);
-        new_buf.set_size(&mut font_system, Some(available), Some(1000.0));
-        new_buf.set_text(&mut font_system, text, &attrs, Shaping::Advanced, None);
+        new_buf.set_size(Some(available), Some(1000.0));
+        new_buf.set_text(text, &attrs, Shaping::Advanced, None);
+        new_buf.shape_until_scroll(&mut font_system, false);
         let new_max_line_w = new_buf
             .layout_runs()
             .map(|r| r.line_w)

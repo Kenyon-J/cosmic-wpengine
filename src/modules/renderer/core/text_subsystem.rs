@@ -80,30 +80,29 @@ impl TextSubsystem {
     ) -> Buffer {
         let mut buffer = self.text_buffer_cache.remove(&text_key).unwrap_or_else(|| {
             let mut b = Buffer::new(&mut self.font_system, metrics);
-            b.set_metrics(&mut self.font_system, metrics);
-            b.set_size(&mut self.font_system, Some(width_f), Some(height_f));
-            b.set_text(
-                &mut self.font_system,
-                text,
-                attrs,
-                Shaping::Advanced,
-                Some(align),
-            );
+            b.set_metrics(metrics);
+            b.set_size(Some(width_f), Some(height_f));
+            b.set_text(text, attrs, Shaping::Advanced, Some(align));
             b
         });
 
         // Re-apply metrics/size even for a cached buffer: a monitor swap can
         // change DPI/resolution without changing the text content or its cache key.
-        buffer.set_metrics(&mut self.font_system, metrics);
-        buffer.set_size(&mut self.font_system, Some(width_f), Some(height_f));
+        buffer.set_metrics(metrics);
+        buffer.set_size(Some(width_f), Some(height_f));
 
-        let mut realigned = false;
         buffer.lines.iter_mut().for_each(|line: &mut BufferLine| {
-            realigned |= line.set_align(Some(align));
+            line.set_align(Some(align));
         });
-        if realigned {
-            buffer.shape_until_scroll(&mut self.font_system, false);
-        }
+        // Buffer setters (set_metrics/set_size/set_text/set_align) are lazy as
+        // of cosmic-text 0.19 - they mark the buffer dirty but don't reshape
+        // it. The bare Buffer::layout_runs() this struct's callers use (not
+        // the auto-resolving BorrowedWithFontSystem wrapper) does NOT resolve
+        // that dirty state itself, so this must run unconditionally on every
+        // call, not just when realignment actually changed something -
+        // otherwise a freshly-built buffer above is returned never-shaped and
+        // renders as empty.
+        buffer.shape_until_scroll(&mut self.font_system, false);
 
         buffer
     }

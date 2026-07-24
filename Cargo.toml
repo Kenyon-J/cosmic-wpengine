@@ -25,7 +25,7 @@ wayland-client = "0.31"
 raw-window-handle = "0.6"
 wayland-backend = { version = "0.3", features = ["client_system"] }
 wgpu = "30"
-cosmic-text = "0.18"
+cosmic-text = "0.19"
 mpris = "2"
 pipewire = "0.10"
 rustfft = "6"
