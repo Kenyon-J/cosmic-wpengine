@@ -1,3 +1,23 @@
+# cosmic-wallpaper 1.6.1
+
+Internal restructuring pass - no new features, but a real bug fell out
+of it.
+
+## Fixed
+
+- **Fresh installs shipped a stale default visualiser shader.**
+  `shaders/visualiser.wgsl` (written on first run purely so anyone
+  pointing a theme's `shader` field at a tweaked copy has a starting
+  point) was a hand-copied snapshot frozen at an old "v20" era of the
+  shader. The renderer itself always uses its own compiled-in copy and
+  never read the disk one in the normal case, so this went unnoticed -
+  but the two had quietly drifted, missing several releases' worth of
+  visualiser changes (glass-floor reflection, LED segments, peak-hold,
+  the square shape) on the disk copy. Both now load from the same
+  source and can't drift again.
+
+---
+
 # cosmic-wallpaper 1.6.0
 
 Localization: the GUI and tray now speak seven languages, with a manual
