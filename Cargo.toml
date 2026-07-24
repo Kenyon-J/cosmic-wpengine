@@ -38,7 +38,7 @@ serde_json = "1.0"
 # Parses cosmic-bg's RON config entries (already in the lockfile via libcosmic)
 # so colour/gradient wallpapers resolve instead of only Path(...) sources.
 ron = "0.12"
-toml = "0.8"
+toml = "1"
 notify = "6"
 anyhow = "1"
 tracing = "0.1"
