@@ -9,6 +9,7 @@ pub(crate) use art_layer::ArtLayer;
 pub(crate) use background_layer::BackgroundLayer;
 use std::time::{Duration, Instant};
 pub(crate) use text_subsystem::{LyricPhysics, TextSubsystem};
+use crate::modules::renderer::types::{AmbUniforms, ArtUniforms, VisUniforms};
 use tokio::sync::mpsc::Receiver;
 use tracing::{info, warn};
 
@@ -150,6 +151,11 @@ pub struct Renderer {
     pub(crate) last_occluded: Option<bool>,
     pub(crate) last_audio_bands: Vec<f32>,
     pub(crate) last_audio_peaks: Vec<f32>,
+    pub(crate) last_vis_uniforms: Option<VisUniforms>,
+    pub(crate) last_art_bg_uniforms: Option<ArtUniforms>,
+    pub(crate) last_art_fg_uniforms: Option<ArtUniforms>,
+    pub(crate) last_custom_bg_uniforms: Option<ArtUniforms>,
+    pub(crate) last_amb_uniforms: Option<AmbUniforms>,
 }
 
 impl Renderer {

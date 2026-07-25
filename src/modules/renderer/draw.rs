@@ -23,6 +23,11 @@ pub(crate) fn write_frame_uniforms(
     visualiser_uniform_buffer: &wgpu::Buffer,
     art: &ArtLayer,
     background: &BackgroundLayer,
+    last_vis_uniforms: &mut Option<VisUniforms>,
+    last_art_bg_uniforms: &mut Option<ArtUniforms>,
+    last_art_fg_uniforms: &mut Option<ArtUniforms>,
+    last_custom_bg_uniforms: &mut Option<ArtUniforms>,
+    last_amb_uniforms: &mut Option<AmbUniforms>,
     width: u32,
     height: u32,
     has_audio: bool,
@@ -69,7 +74,7 @@ pub(crate) fn write_frame_uniforms(
     let screen_res_f = [width as f32, height as f32];
     let screen_aspect = screen_res_f[0] / screen_res_f[1];
 
-    // 1. Process visualizer uniforms
+    // 1. Process visualizer uniforms (Only write if the values changed)
     if has_audio {
         let vis_uniforms = VisUniforms {
             res: screen_res_f,
@@ -91,14 +96,17 @@ pub(crate) fn write_frame_uniforms(
             glow_strength,
             _padding: 0,
         };
-        queue.write_buffer(
-            visualiser_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&vis_uniforms),
-        );
+        if last_vis_uniforms.as_ref() != Some(&vis_uniforms) {
+            queue.write_buffer(
+                visualiser_uniform_buffer,
+                0,
+                bytemuck::bytes_of(&vis_uniforms),
+            );
+            *last_vis_uniforms = Some(vis_uniforms);
+        }
     }
 
-    // 2. Process album art uniforms
+    // 2. Process album art uniforms (Only write if the values changed)
     if (show_art_fg || show_art_bg || show_color_bg) && has_track {
         let color = art_tint_color;
 
@@ -118,7 +126,10 @@ pub(crate) fn write_frame_uniforms(
             screen_aspect,
             _padding: 0,
         };
-        queue.write_buffer(&art.bg_uniform_buffer, 0, bytemuck::bytes_of(&bg_uniforms));
+        if last_art_bg_uniforms.as_ref() != Some(&bg_uniforms) {
+            queue.write_buffer(&art.bg_uniform_buffer, 0, bytemuck::bytes_of(&bg_uniforms));
+            *last_art_bg_uniforms = Some(bg_uniforms);
+        }
 
         // Optimization: Use pre-calculated constants to minimize arithmetic in the monitor loop
         let fg_scale_x = screen_aspect * fg_k1;
@@ -141,13 +152,16 @@ pub(crate) fn write_frame_uniforms(
             screen_aspect,
             _padding: 0,
         };
-        queue.write_buffer(&art.fg_uniform_buffer, 0, bytemuck::bytes_of(&fg_uniforms));
+        if last_art_fg_uniforms.as_ref() != Some(&fg_uniforms) {
+            queue.write_buffer(&art.fg_uniform_buffer, 0, bytemuck::bytes_of(&fg_uniforms));
+            *last_art_fg_uniforms = Some(fg_uniforms);
+        }
     }
 
     if background.bind_group().is_some() {
         let bg_uv_transform = get_uv_transform(0, screen_aspect, custom_bg_aspect);
 
-        // 4. Process custom background uniforms
+        // 4. Process custom background uniforms (Only write if the values changed)
         let custom_bg_uniforms = ArtUniforms {
             color_and_transition: [1.0, 1.0, 1.0, 1.0], // Don't tint the desktop wallpaper
             uv_transform: bg_uv_transform,
@@ -162,13 +176,16 @@ pub(crate) fn write_frame_uniforms(
             screen_aspect,
             _padding: 0,
         };
-        queue.write_buffer(
-            &background.custom_bg_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&custom_bg_uniforms),
-        );
+        if last_custom_bg_uniforms.as_ref() != Some(&custom_bg_uniforms) {
+            queue.write_buffer(
+                &background.custom_bg_uniform_buffer,
+                0,
+                bytemuck::bytes_of(&custom_bg_uniforms),
+            );
+            *last_custom_bg_uniforms = Some(custom_bg_uniforms);
+        }
     } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
-        // 3. Process ambient uniforms
+        // 3. Process ambient uniforms (Only write if the values changed)
         let amb_uniforms = AmbUniforms {
             res: screen_res_f,
             time: elapsed,
@@ -177,11 +194,14 @@ pub(crate) fn write_frame_uniforms(
             bg_alpha: custom_bg_alpha, // Can reuse the same bg_alpha logic
             _padding: [0.0; 3],
         };
-        queue.write_buffer(
-            &background.ambient_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&amb_uniforms),
-        );
+        if last_amb_uniforms.as_ref() != Some(&amb_uniforms) {
+            queue.write_buffer(
+                &background.ambient_uniform_buffer,
+                0,
+                bytemuck::bytes_of(&amb_uniforms),
+            );
+            *last_amb_uniforms = Some(amb_uniforms);
+        }
     }
 }
 
@@ -461,6 +481,11 @@ pub(crate) fn draw_frame(
                 &renderer.visualiser_pass.uniform_buffer,
                 &renderer.art,
                 &renderer.background,
+                &mut renderer.last_vis_uniforms,
+                &mut renderer.last_art_bg_uniforms,
+                &mut renderer.last_art_fg_uniforms,
+                &mut renderer.last_custom_bg_uniforms,
+                &mut renderer.last_amb_uniforms,
                 current_res.0,
                 current_res.1,
                 has_audio,
