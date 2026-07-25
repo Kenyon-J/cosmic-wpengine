@@ -263,6 +263,11 @@ impl Renderer {
             last_occluded: None,
             last_audio_bands: Vec::new(),
             last_audio_peaks: Vec::new(),
+            last_vis_uniforms: None,
+            last_art_bg_uniforms: None,
+            last_art_fg_uniforms: None,
+            last_custom_bg_uniforms: None,
+            last_amb_uniforms: None,
         };
 
         let bg = renderer.state.config.appearance.resolved_background().await;
