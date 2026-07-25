@@ -418,12 +418,16 @@ impl TextSubsystem {
 
         if self.text_renderer.cpu_vertices != self.text_renderer.last_vertices {
             queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
-            self.text_renderer.last_vertices.clone_from(&self.text_renderer.cpu_vertices);
+            self.text_renderer
+                .last_vertices
+                .clone_from(&self.text_renderer.cpu_vertices);
         }
 
         if self.text_renderer.cpu_indices != self.text_renderer.last_indices {
             queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
-            self.text_renderer.last_indices.clone_from(&self.text_renderer.cpu_indices);
+            self.text_renderer
+                .last_indices
+                .clone_from(&self.text_renderer.cpu_indices);
         }
         self.text_renderer.num_indices = self.text_renderer.cpu_indices.len() as u32;
     }
