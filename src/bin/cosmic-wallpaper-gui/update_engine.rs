@@ -187,8 +187,26 @@ impl SettingsApp {
         &mut self,
         url: cosmic::widget::markdown::Uri,
     ) -> Task<cosmic::Action<Message>> {
+        let url_str = url.as_ref();
+        let parsed = match url::Url::parse(url_str) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("Rejecting malformed URL '{}': {}", url_str, e);
+                return Task::none();
+            }
+        };
+
+        let scheme = parsed.scheme();
+        if scheme != "http" && scheme != "https" {
+            tracing::warn!(
+                "Rejecting unsafe URL scheme '{}' (only http/https are allowed)",
+                scheme
+            );
+            return Task::none();
+        }
+
         if let Some(xdg_open) = resolve_binary("xdg-open") {
-            let _ = std::process::Command::new(xdg_open).arg(url).spawn();
+            let _ = std::process::Command::new(xdg_open).arg(url_str).spawn();
         } else {
             tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
             self.status_msg = fl!("status-xdg-open-not-found");
