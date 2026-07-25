@@ -4,12 +4,12 @@ mod events;
 mod init;
 mod text_subsystem;
 mod updates;
+use crate::modules::renderer::types::{AmbUniforms, ArtUniforms, VisUniforms};
 use anyhow::Result;
 pub(crate) use art_layer::ArtLayer;
 pub(crate) use background_layer::BackgroundLayer;
 use std::time::{Duration, Instant};
 pub(crate) use text_subsystem::{LyricPhysics, TextSubsystem};
-use crate::modules::renderer::types::{AmbUniforms, ArtUniforms, VisUniforms};
 use tokio::sync::mpsc::Receiver;
 use tracing::{info, warn};
 
