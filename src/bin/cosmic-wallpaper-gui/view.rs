@@ -1263,7 +1263,12 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
     // misleading given GitHub's unauthenticated API is capped at 60
     // requests/hour per IP and shared with anything else on the network.
     let update_control: cosmic::Element<'_, Message> = match &app.update_state {
-        UpdateState::Checking => text::body(fl!("general-checking-for-updates")).into(),
+        UpdateState::Checking => Row::new()
+            .push(cosmic::widget::icon::from_name("process-working-symbolic"))
+            .push(text::body(fl!("general-checking-for-updates")))
+            .spacing(8)
+            .align_y(cosmic::iced::Alignment::Center)
+            .into(),
         UpdateState::UpToDate => Row::new()
             .push(text::body(fl!("general-up-to-date")))
             .push(
@@ -1293,9 +1298,12 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                 .on_press(Message::OpenUpdateLink)
                 .into()
         }
-        UpdateState::Updating(tag) => {
-            text::body(fl!("general-updating-to", tag = tag.as_str())).into()
-        }
+        UpdateState::Updating(tag) => Row::new()
+            .push(cosmic::widget::icon::from_name("process-working-symbolic"))
+            .push(text::body(fl!("general-updating-to", tag = tag.as_str())))
+            .spacing(8)
+            .align_y(cosmic::iced::Alignment::Center)
+            .into(),
         UpdateState::Installed(tag) => {
             text::body(fl!("general-installed-restart", tag = tag.as_str())).into()
         }
