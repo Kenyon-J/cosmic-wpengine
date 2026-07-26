@@ -479,11 +479,19 @@ impl Renderer {
         // Weather particle physics runs a compute pass every frame.
         let weather_active = self.is_weather_active && self.active_particles > 0;
 
+        // Calculate if album art background or album color background is currently visible.
+        // If either is visible, it completely covers the procedural sky background.
+        let has_media_check_gpu = self.art.fg_bind_group().is_some();
+        let force_art = self.state.config.mode == crate::modules::config::WallpaperMode::AlbumArt;
+        let show_art_bg = (has_media_check_gpu || force_art) && self.state.config.appearance.album_art_background;
+        let show_color_bg = (has_media_check_gpu || force_art) && self.state.config.appearance.album_color_background;
+
         // The procedural sky shader animates with time (cloud drift, rain
         // streaks). It can be on screen whenever no custom background
-        // texture exists; conservatively treat that as always-animating
-        // rather than replicating draw_frame's exact layering rules here.
-        let ambient_possible = self.background.bind_group().is_none();
+        // texture exists and neither album art background nor album color background covers it;
+        // treat that as always-animating.
+        let ambient_possible = self.background.bind_group().is_none()
+            && !(show_art_bg || show_color_bg);
 
         audio_active || lyrics_moving || fading || weather_active || ambient_possible
     }
