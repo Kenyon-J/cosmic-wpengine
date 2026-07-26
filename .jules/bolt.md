@@ -20,3 +20,7 @@
 ## 2025-03-05 - Modern Standard Library Lazy Initialization
 **Learning:** Relying on `lazy_static` or `once_cell` for simple static initializations requires adding external crate dependencies, which may fail compilation if missing from `Cargo.toml`.
 **Action:** For simple static caches or lookup tables (like SRGB curves), use `std::sync::OnceLock::new()` and `.get_or_init()` available in standard Rust 1.70+ to avoid introducing unnecessary dependencies.
+
+## 05-03-2025 - Precise Background Redraw Gating for Offscreen Decoupling
+**Learning:** Conservatively treating a procedural/ambient sky shader as always-animating to simplify layering logic forces continuous, battery-draining redraws at the target FPS even when the sky is fully covered by static layers (such as a static blurred album art background or a static album color background). Evaluating layering visibility gates dynamically inside the animation detection function allows the frame-scheduler to safely pause redraws once the scene settles.
+**Action:** Always refine animation-state and redraw-scheduling predicates to mirror the exact visibility and layering precedence of the rendering pipelines so that inactive or hidden layers do not prevent frame-rate throttling or static scene pausing.
