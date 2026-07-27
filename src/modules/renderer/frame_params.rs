@@ -66,10 +66,6 @@ pub(crate) struct FrameParams {
     pub(crate) lyrics_align: cosmic_text::Align,
     pub(crate) track_info_align: cosmic_text::Align,
     pub(crate) weather_align: cosmic_text::Align,
-    /// Owned (not borrowed from renderer state) so the loop can build a
-    /// borrow-free `Attrs` while holding `&mut Renderer` - see the borrow
-    /// note on `prepare_text_buffer`.
-    pub(crate) font_family: Option<String>,
     pub(crate) lyric_bounce: f32,
     /// `beat_pulse * 2.0` - the multiplier guarantees visible beat effects.
     pub(crate) beat_pulse_mul: f32,
@@ -308,10 +304,6 @@ impl FrameParams {
             lyrics_align: map_align(&renderer.theme.lyrics.align),
             track_info_align: map_align(&renderer.theme.track_info.align),
             weather_align: map_align(&renderer.theme.weather.align),
-            font_family: appearance
-                .font_family
-                .clone()
-                .or_else(|| renderer.theme.font_family.clone()),
             lyric_bounce: renderer.lyric_bounce_value,
             beat_pulse_mul: renderer.audio.beat_pulse * 2.0,
         }
