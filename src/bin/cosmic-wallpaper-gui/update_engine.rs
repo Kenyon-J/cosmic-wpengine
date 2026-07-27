@@ -188,7 +188,23 @@ impl SettingsApp {
         url: cosmic::widget::markdown::Uri,
     ) -> Task<cosmic::Action<Message>> {
         if let Some(xdg_open) = resolve_binary("xdg-open") {
-            let _ = std::process::Command::new(xdg_open).arg(url).spawn();
+            // Parse the URL to ensure it's a safe scheme before opening it
+            if let Ok(parsed_url) = url::Url::parse(&url) {
+                match parsed_url.scheme() {
+                    "http" | "https" => {
+                        let _ = std::process::Command::new(xdg_open)
+                            .arg(url.as_str())
+                            .spawn();
+                    }
+                    _ => {
+                        tracing::warn!("Blocked opening link with untrusted scheme: {}", url);
+                        self.status_msg = fl!("status-untrusted-link-scheme");
+                    }
+                }
+            } else {
+                tracing::warn!("Blocked opening unparseable link: {}", url);
+                self.status_msg = fl!("status-unparseable-link");
+            }
         } else {
             tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
             self.status_msg = fl!("status-xdg-open-not-found");
