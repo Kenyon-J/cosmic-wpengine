@@ -1033,6 +1033,21 @@ fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         None => fl!("packs-export-desc-no-video"),
     };
 
+    let mut export_btn = button::suggested(fl!("packs-export-pack"));
+    if export_selected.is_some() {
+        export_btn = export_btn.on_press(Message::ExportPack);
+    }
+    let export_btn_element: cosmic::Element<'_, Message> = if export_selected.is_some() {
+        export_btn.into()
+    } else {
+        cosmic::widget::tooltip(
+            export_btn,
+            text::body(fl!("status-select-theme-to-export")),
+            cosmic::widget::tooltip::Position::Top,
+        )
+        .into()
+    };
+
     let sections = vec![
         pack_gallery_section(app),
         settings::section()
@@ -1047,10 +1062,7 @@ fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                                 export_selected,
                                 Message::PackExportThemeSelected,
                             ))
-                            .push(
-                                button::suggested(fl!("packs-export-pack"))
-                                    .on_press(Message::ExportPack),
-                            )
+                            .push(export_btn_element)
                             .spacing(8)
                             .align_y(cosmic::iced::Alignment::Center),
                     ),
