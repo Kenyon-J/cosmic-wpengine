@@ -346,7 +346,6 @@ pub(crate) fn draw_frame(
         lyrics_align,
         track_info_align,
         weather_align,
-        font_family,
         lyric_bounce,
         beat_pulse_mul,
     } = FrameParams::compute(renderer);
@@ -417,12 +416,16 @@ pub(crate) fn draw_frame(
         }
     }
 
-    // The owned family from FrameParams rebuilt into a borrow-free Attrs:
-    // TextSubsystem::prepare() below needs `&mut renderer.text` and `&attrs`
-    // in the same call, which a borrow through renderer would reject.
-    let family = font_family
+    // Borrow the font family directly from renderer.state and renderer.theme using disjoint fields,
+    // completely avoiding the heap allocation and cloning overhead of Option<String> every frame.
+    let font_family_borrow = renderer
+        .state
+        .config
+        .appearance
+        .font_family
         .as_deref()
-        .map_or(Family::SansSerif, Family::Name);
+        .or(renderer.theme.font_family.as_deref());
+    let family = font_family_borrow.map_or(Family::SansSerif, Family::Name);
     let attrs = Attrs::new().family(family);
 
     renderer.text.evict_stale_cache();
