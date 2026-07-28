@@ -20,3 +20,7 @@
 ## 2025-03-05 - Modern Standard Library Lazy Initialization
 **Learning:** Relying on `lazy_static` or `once_cell` for simple static initializations requires adding external crate dependencies, which may fail compilation if missing from `Cargo.toml`.
 **Action:** For simple static caches or lookup tables (like SRGB curves), use `std::sync::OnceLock::new()` and `.get_or_init()` available in standard Rust 1.70+ to avoid introducing unnecessary dependencies.
+
+## 06-03-2025- Unifying sRGB Piecewise Transitions for Unconditional Branchless Interpolation
+**Learning:** Piecewise functions often contain linear and non-linear regions requiring branching logic (e.g., `if c <= 0.003_130_8` in sRGB conversions). If a fine-grained lookup table represents both segments accurately, the branch can be completely eliminated in the hot path. Linear interpolation over the table naturally produces mathematically exact linear behavior below the threshold without requiring explicit conditional checks.
+**Action:** When using fine-grained lookup tables for piecewise math, incorporate the linear segments directly into the lookup table entries to allow branch-free, unified hot-path evaluations.

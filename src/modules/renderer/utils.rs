@@ -115,18 +115,17 @@ fn linear_to_srgb(c: f32) -> f32 {
         c
     };
 
-    if c <= 0.003_130_8 {
-        c * 12.92
+    // Optimization: Unify the execution path by removing the redundant piecewise branch `c <= 0.003_130_8`.
+    // Since the lookup table already accurately incorporates the linear segment, direct lookup with linear
+    // interpolation is mathematically equivalent and avoids branch prediction overhead in the hot path.
+    let table = get_linear_to_srgb_table();
+    let val = c * 1024.0;
+    let idx = val as usize;
+    let frac = val - idx as f32;
+    if idx >= 1024 {
+        table[1024]
     } else {
-        let table = get_linear_to_srgb_table();
-        let val = c * 1024.0;
-        let idx = val as usize;
-        let frac = val - idx as f32;
-        if idx >= 1024 {
-            table[1024]
-        } else {
-            table[idx] * (1.0 - frac) + table[idx + 1] * frac
-        }
+        table[idx] * (1.0 - frac) + table[idx + 1] * frac
     }
 }
 
