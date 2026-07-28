@@ -400,8 +400,6 @@ impl TextSubsystem {
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            // Clear diff cache on GPU buffer recreation to ensure the newly allocated buffer
-            // receives the current data (otherwise the write will be skipped).
             self.text_renderer.last_vertices.clear();
         }
         if self.text_renderer.index_capacity < self.text_renderer.cpu_indices.len() {
@@ -413,18 +411,15 @@ impl TextSubsystem {
                 usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            // Clear diff cache on GPU buffer recreation.
             self.text_renderer.last_indices.clear();
         }
 
-        // Optimization: Diff against previous data to avoid redundant wgpu writes.
         if self.text_renderer.cpu_vertices != self.text_renderer.last_vertices {
             queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
             self.text_renderer
                 .last_vertices
                 .clone_from(&self.text_renderer.cpu_vertices);
         }
-        // Optimization: Diff against previous data to avoid redundant wgpu writes.
         if self.text_renderer.cpu_indices != self.text_renderer.last_indices {
             queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
             self.text_renderer

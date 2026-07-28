@@ -20,3 +20,7 @@
 ## 2025-03-05 - Modern Standard Library Lazy Initialization
 **Learning:** Relying on `lazy_static` or `once_cell` for simple static initializations requires adding external crate dependencies, which may fail compilation if missing from `Cargo.toml`.
 **Action:** For simple static caches or lookup tables (like SRGB curves), use `std::sync::OnceLock::new()` and `.get_or_init()` available in standard Rust 1.70+ to avoid introducing unnecessary dependencies.
+
+## 2025-03-05 - Clear wgpu Diff Caches on Buffer Reallocation
+**Learning:** When diffing CPU-side wgpu data against a cache to prevent redundant \`queue.write_buffer\` calls, if the underlying GPU buffer is recreated (e.g., to increase capacity), the cache must be explicitly cleared.
+**Action:** Always clear the diff cache whenever a new wgpu buffer is allocated to replace an old one, ensuring the first write to the new buffer is not skipped.
