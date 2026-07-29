@@ -300,8 +300,9 @@ impl SettingsApp {
     }
 
     pub(super) fn on_open_config_folder(&mut self) -> Task<cosmic::Action<Message>> {
+        let config_dir = config::Config::config_dir();
+        let _ = std::fs::create_dir_all(&config_dir);
         if let Some(xdg_open) = resolve_binary("xdg-open") {
-            let config_dir = config::Config::config_dir();
             let _ = std::process::Command::new(xdg_open).arg(config_dir).spawn();
         } else {
             tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
