@@ -38,7 +38,7 @@ pub struct CachedGlyph {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TextVertex {
     pub pos: [f32; 2],
     pub tex_pos: [f32; 2],
@@ -61,6 +61,8 @@ pub struct TextRenderer {
     pub cache_row_height: u32,
     pub cpu_vertices: Vec<TextVertex>,
     pub cpu_indices: Vec<u32>,
+    pub cached_vertices: Vec<TextVertex>,
+    pub cached_indices: Vec<u32>,
 }
 
 impl TextRenderer {
@@ -199,6 +201,8 @@ impl TextRenderer {
             cache_row_height: 0,
             cpu_vertices: Vec::with_capacity(vertex_capacity),
             cpu_indices: Vec::with_capacity(index_capacity),
+            cached_vertices: Vec::with_capacity(vertex_capacity),
+            cached_indices: Vec::with_capacity(index_capacity),
         })
     }
 }

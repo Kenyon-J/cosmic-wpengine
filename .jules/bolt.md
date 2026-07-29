@@ -20,3 +20,4 @@
 ## 2025-03-05 - Modern Standard Library Lazy Initialization
 **Learning:** Relying on `lazy_static` or `once_cell` for simple static initializations requires adding external crate dependencies, which may fail compilation if missing from `Cargo.toml`.
 **Action:** For simple static caches or lookup tables (like SRGB curves), use `std::sync::OnceLock::new()` and `.get_or_init()` available in standard Rust 1.70+ to avoid introducing unnecessary dependencies.
+## 2025-03-05 - Avoid Redundant `wgpu` Buffer Writes in Hot Loops\n**Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when data hasn't changed, needlessly consumes PCIe bandwidth and CPU/GPU cycles.\n**Action:** Always diff the incoming uniform/vertex/buffer data against a cached version (e.g., storing the last slice on the `Renderer` state) and only dispatch `write_buffer` if the data actually differs.
