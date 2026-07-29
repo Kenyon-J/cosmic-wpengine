@@ -389,6 +389,7 @@ impl TextSubsystem {
         let vertices_bytes: &[u8] = bytemuck::cast_slice(&self.text_renderer.cpu_vertices);
         let indices_bytes: &[u8] = bytemuck::cast_slice(&self.text_renderer.cpu_indices);
 
+        let mut vertices_recreated = false;
         if self.text_renderer.vertex_capacity < self.text_renderer.cpu_vertices.len() {
             self.text_renderer.vertex_capacity =
                 self.text_renderer.cpu_vertices.len().next_power_of_two();
@@ -400,7 +401,11 @@ impl TextSubsystem {
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            vertices_recreated = true;
+            self.text_renderer.cached_vertices.clear();
         }
+
+        let mut indices_recreated = false;
         if self.text_renderer.index_capacity < self.text_renderer.cpu_indices.len() {
             self.text_renderer.index_capacity =
                 self.text_renderer.cpu_indices.len().next_power_of_two();
@@ -410,10 +415,26 @@ impl TextSubsystem {
                 usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            indices_recreated = true;
+            self.text_renderer.cached_indices.clear();
         }
 
-        queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
-        queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
+        if vertices_recreated
+            || self.text_renderer.cpu_vertices != self.text_renderer.cached_vertices
+        {
+            queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
+            self.text_renderer
+                .cached_vertices
+                .clone_from(&self.text_renderer.cpu_vertices);
+        }
+
+        if indices_recreated || self.text_renderer.cpu_indices != self.text_renderer.cached_indices
+        {
+            queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
+            self.text_renderer
+                .cached_indices
+                .clone_from(&self.text_renderer.cpu_indices);
+        }
         self.text_renderer.num_indices = self.text_renderer.cpu_indices.len() as u32;
     }
 }
