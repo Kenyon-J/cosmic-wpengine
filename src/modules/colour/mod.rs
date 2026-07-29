@@ -207,22 +207,25 @@ pub fn contrast_ratio(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// with `bg`) until it reaches `min_ratio` against `bg`, preserving hue for
 /// as long as possible. Returns `text` unchanged if it already passes.
 pub fn ensure_contrast(text: [f32; 3], bg: [f32; 3], min_ratio: f32) -> [f32; 3] {
-    if contrast_ratio(text, bg) >= min_ratio {
+    // Optimization: Precompute relative luminance of `bg` and `text` to avoid
+    // up to 18 redundant re-evaluations inside the contrast checks and interpolation loop.
+    let l_bg = relative_luminance(bg);
+    let l_text = relative_luminance(text);
+    let (l1, l2) = (l_text.max(l_bg), l_text.min(l_bg));
+    if (l1 + 0.05) / (l2 + 0.05) >= min_ratio {
         return text;
     }
     // 0.179 is the background luminance at which black and white text give
     // equal contrast (WCAG's own crossover point).
-    let target = if relative_luminance(bg) > 0.179 {
-        [0.0; 3]
-    } else {
-        [1.0; 3]
-    };
+    let target = if l_bg > 0.179 { [0.0; 3] } else { [1.0; 3] };
     // 16 fixed steps is plenty of resolution for a wallpaper text color;
     // binary search would be overkill for a range this small.
     for i in 1..=16 {
         let t = i as f32 / 16.0;
         let candidate = lerp_colour(text, target, t);
-        if contrast_ratio(candidate, bg) >= min_ratio {
+        let l_candidate = relative_luminance(candidate);
+        let (l1, l2) = (l_candidate.max(l_bg), l_candidate.min(l_bg));
+        if (l1 + 0.05) / (l2 + 0.05) >= min_ratio {
             return candidate;
         }
     }

@@ -20,3 +20,7 @@
 ## 2025-03-05 - Modern Standard Library Lazy Initialization
 **Learning:** Relying on `lazy_static` or `once_cell` for simple static initializations requires adding external crate dependencies, which may fail compilation if missing from `Cargo.toml`.
 **Action:** For simple static caches or lookup tables (like SRGB curves), use `std::sync::OnceLock::new()` and `.get_or_init()` available in standard Rust 1.70+ to avoid introducing unnecessary dependencies.
+
+## 05-03-2025- Optimize Adaptive Contrast Re-computation
+**Learning:** Calculating WCAG contrast ratios repeatedly in interpolation or optimization loops causes redundant evaluations of unchanging variables (such as background luminance). Pre-calculating the static relative luminance upfront reduces loop calculations to simple division and comparison.
+**Action:** Always hoist invariant luminance and contrast calculations out of loops to avoid redundant color-space math and LUT lookup operations.
