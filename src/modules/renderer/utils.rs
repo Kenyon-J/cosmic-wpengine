@@ -104,7 +104,7 @@ fn get_linear_to_srgb_table() -> &'static [f32; 1025] {
 // Optimization: Replace extremely expensive `powf(1.0 / 2.4)` with an O(1) linear-interpolated lookup table.
 // In `gradient_image`, this function is called millions of times per high-res gradient, making `powf` a massive bottleneck.
 // A 1024-interval table (4KB) fits completely in L1 cache while keeping error below 0.0001 (far below 8-bit color precision).
-fn linear_to_srgb(c: f32) -> f32 {
+fn linear_to_srgb_lut(c: f32, table: &[f32; 1025]) -> f32 {
     // Safe NaN-handling clamp: explicit is_nan() or less-than-zero checks handle NaNs
     // and negative values gracefully, returning 0.0. This avoids standard f32::clamp's NaN panic.
     let c = if c.is_nan() || c < 0.0 {
@@ -118,7 +118,6 @@ fn linear_to_srgb(c: f32) -> f32 {
     if c <= 0.003_130_8 {
         c * 12.92
     } else {
-        let table = get_linear_to_srgb_table();
         let val = c * 1024.0;
         let idx = val as usize;
         let frac = val - idx as f32;
@@ -128,6 +127,12 @@ fn linear_to_srgb(c: f32) -> f32 {
             table[idx] * (1.0 - frac) + table[idx + 1] * frac
         }
     }
+}
+
+#[cfg(test)]
+fn linear_to_srgb(c: f32) -> f32 {
+    let table = get_linear_to_srgb_table();
+    linear_to_srgb_lut(c, table)
 }
 
 /// A tiny uniform texture standing in for a solid-colour desktop wallpaper;
@@ -177,23 +182,33 @@ pub fn gradient_image(
         0.0
     };
 
-    image::RgbaImage::from_fn(width, height, |x, y| {
-        let t = ((x as f32 * dx + y as f32 * dy) - proj_min) * inv_range;
-        let linear = if last == 0 {
-            stops[0]
-        } else {
-            let pos = t.clamp(0.0, 1.0) * last as f32;
-            let i = (pos as usize).min(last - 1);
-            let frac = pos - i as f32;
-            std::array::from_fn(|k| stops[i][k] + (stops[i + 1][k] - stops[i][k]) * frac)
-        };
-        image::Rgba([
-            srgb_byte(linear_to_srgb(linear[0])),
-            srgb_byte(linear_to_srgb(linear[1])),
-            srgb_byte(linear_to_srgb(linear[2])),
-            255,
-        ])
-    })
+    let table = get_linear_to_srgb_table();
+    let mut buf = Vec::with_capacity(width as usize * height as usize * 4);
+
+    for y in 0..height {
+        let y_term = y as f32 * dy - proj_min;
+        for x in 0..width {
+            let t = (x as f32 * dx + y_term) * inv_range;
+            let linear = if last == 0 {
+                stops[0]
+            } else {
+                let pos = t.clamp(0.0, 1.0) * last as f32;
+                let i = (pos as usize).min(last - 1);
+                let frac = pos - i as f32;
+                [
+                    stops[i][0] + (stops[i + 1][0] - stops[i][0]) * frac,
+                    stops[i][1] + (stops[i + 1][1] - stops[i][1]) * frac,
+                    stops[i][2] + (stops[i + 1][2] - stops[i][2]) * frac,
+                ]
+            };
+            buf.push(srgb_byte(linear_to_srgb_lut(linear[0], table)));
+            buf.push(srgb_byte(linear_to_srgb_lut(linear[1], table)));
+            buf.push(srgb_byte(linear_to_srgb_lut(linear[2], table)));
+            buf.push(255);
+        }
+    }
+
+    image::RgbaImage::from_raw(width, height, buf).unwrap()
 }
 
 #[cfg(test)]
