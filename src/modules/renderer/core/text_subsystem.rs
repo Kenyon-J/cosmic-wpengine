@@ -389,6 +389,7 @@ impl TextSubsystem {
         let vertices_bytes: &[u8] = bytemuck::cast_slice(&self.text_renderer.cpu_vertices);
         let indices_bytes: &[u8] = bytemuck::cast_slice(&self.text_renderer.cpu_indices);
 
+        let mut buffers_recreated = false;
         if self.text_renderer.vertex_capacity < self.text_renderer.cpu_vertices.len() {
             self.text_renderer.vertex_capacity =
                 self.text_renderer.cpu_vertices.len().next_power_of_two();
@@ -400,6 +401,7 @@ impl TextSubsystem {
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            buffers_recreated = true;
         }
         if self.text_renderer.index_capacity < self.text_renderer.cpu_indices.len() {
             self.text_renderer.index_capacity =
@@ -410,10 +412,24 @@ impl TextSubsystem {
                 usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            buffers_recreated = true;
         }
 
-        queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
-        queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
+        if buffers_recreated || self.text_renderer.cpu_vertices != self.text_renderer.last_vertices
+        {
+            queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
+            self.text_renderer
+                .last_vertices
+                .clone_from(&self.text_renderer.cpu_vertices);
+        }
+
+        if buffers_recreated || self.text_renderer.cpu_indices != self.text_renderer.last_indices {
+            queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
+            self.text_renderer
+                .last_indices
+                .clone_from(&self.text_renderer.cpu_indices);
+        }
+
         self.text_renderer.num_indices = self.text_renderer.cpu_indices.len() as u32;
     }
 }
