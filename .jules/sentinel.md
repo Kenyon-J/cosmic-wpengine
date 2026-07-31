@@ -7,3 +7,8 @@
 **Vulnerability:** A Server-Side Request Forgery (SSRF) vulnerability existed in `fetch_spotify_canvas` where user-configured proxy URLs (`audio.canvas_proxy_url`) were queried without checking if the resolved IP address was safe. An attacker could configure a malicious local URL (e.g., `http://127.0.0.1/admin`) and force the backend to make requests to internal services, potentially bypassing firewalls.
 **Learning:** Even if a URL is provided by a seemingly "trusted" user configuration rather than external metadata, it must be verified before the application makes an HTTP request to it.
 **Prevention:** Always validate that URLs fetched by the application resolve to safe, non-private IP addresses using `crate::modules::utils::is_safe_ip`. Apply the check manually using `tokio::net::lookup_host` when reusing a connection-pooled `reqwest::Client`.
+
+## 2026-07-31 - Command Injection / Protocol Smuggling via xdg-open
+**Vulnerability:** User-provided or external URLs (e.g., from markdown links in patch notes) were passed directly to `std::process::Command::new("xdg-open").arg(url).spawn()` without validating the scheme. This could allow execution of arbitrary local file handlers (`file://`) or command injection if the URL contained arguments.
+**Learning:** `xdg-open` is inherently dangerous when given unsanitized input, as it delegates to desktop environments which might execute local scripts or open sensitive files based on the scheme.
+**Prevention:** Always parse and validate untrusted URLs (e.g., with `url::Url::parse`) and explicitly allow only safe schemes like `http` and `https` before passing them to `xdg-open`.
