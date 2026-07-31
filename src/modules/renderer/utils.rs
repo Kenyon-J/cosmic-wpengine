@@ -104,7 +104,14 @@ fn get_linear_to_srgb_table() -> &'static [f32; 1025] {
 // Optimization: Replace extremely expensive `powf(1.0 / 2.4)` with an O(1) linear-interpolated lookup table.
 // In `gradient_image`, this function is called millions of times per high-res gradient, making `powf` a massive bottleneck.
 // A 1024-interval table (4KB) fits completely in L1 cache while keeping error below 0.0001 (far below 8-bit color precision).
+#[cfg(test)]
 fn linear_to_srgb(c: f32) -> f32 {
+    linear_to_srgb_lut(c, get_linear_to_srgb_table())
+}
+
+// A helper version of linear_to_srgb that accepts the table reference directly,
+// eliminating the atomic check of OnceLock inside nested loops.
+fn linear_to_srgb_lut(c: f32, table: &[f32; 1025]) -> f32 {
     // Safe NaN-handling clamp: explicit is_nan() or less-than-zero checks handle NaNs
     // and negative values gracefully, returning 0.0. This avoids standard f32::clamp's NaN panic.
     let c = if c.is_nan() || c < 0.0 {
@@ -118,7 +125,6 @@ fn linear_to_srgb(c: f32) -> f32 {
     if c <= 0.003_130_8 {
         c * 12.92
     } else {
-        let table = get_linear_to_srgb_table();
         let val = c * 1024.0;
         let idx = val as usize;
         let frac = val - idx as f32;
@@ -177,23 +183,38 @@ pub fn gradient_image(
         0.0
     };
 
-    image::RgbaImage::from_fn(width, height, |x, y| {
-        let t = ((x as f32 * dx + y as f32 * dy) - proj_min) * inv_range;
-        let linear = if last == 0 {
-            stops[0]
-        } else {
-            let pos = t.clamp(0.0, 1.0) * last as f32;
-            let i = (pos as usize).min(last - 1);
-            let frac = pos - i as f32;
-            std::array::from_fn(|k| stops[i][k] + (stops[i + 1][k] - stops[i][k]) * frac)
-        };
-        image::Rgba([
-            srgb_byte(linear_to_srgb(linear[0])),
-            srgb_byte(linear_to_srgb(linear[1])),
-            srgb_byte(linear_to_srgb(linear[2])),
-            255,
-        ])
-    })
+    let table = get_linear_to_srgb_table();
+    let total_pixels = (width as usize) * (height as usize);
+    let mut data = vec![0u8; total_pixels * 4];
+
+    let mut idx = 0;
+    for y in 0..height {
+        let y_f = y as f32;
+        let y_term = y_f * dy - proj_min;
+        for x in 0..width {
+            let x_f = x as f32;
+            let t = (x_f * dx + y_term) * inv_range;
+            let linear = if last == 0 {
+                stops[0]
+            } else {
+                let pos = t.clamp(0.0, 1.0) * last as f32;
+                let i = (pos as usize).min(last - 1);
+                let frac = pos - i as f32;
+                [
+                    stops[i][0] + (stops[i + 1][0] - stops[i][0]) * frac,
+                    stops[i][1] + (stops[i + 1][1] - stops[i][1]) * frac,
+                    stops[i][2] + (stops[i + 1][2] - stops[i][2]) * frac,
+                ]
+            };
+            data[idx] = srgb_byte(linear_to_srgb_lut(linear[0], table));
+            data[idx + 1] = srgb_byte(linear_to_srgb_lut(linear[1], table));
+            data[idx + 2] = srgb_byte(linear_to_srgb_lut(linear[2], table));
+            data[idx + 3] = 255;
+            idx += 4;
+        }
+    }
+
+    image::RgbaImage::from_raw(width, height, data).unwrap()
 }
 
 #[cfg(test)]
