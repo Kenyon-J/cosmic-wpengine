@@ -1227,24 +1227,17 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                                 .on_input(Message::LongitudeChanged)
                                 .width(Length::Fixed(100.0)),
                         )
-                        .push({
-                            let element: cosmic::Element<'_, Message> = if app.is_detecting_location
-                            {
+                        .push(
+                            if app.is_detecting_location {
                                 cosmic::widget::tooltip(
-                                    button::custom(cosmic::widget::icon::from_name(
-                                        "process-working-symbolic",
-                                    )),
+                                    button::custom(cosmic::widget::icon::from_name("process-working-symbolic")),
                                     text::body(fl!("status-detecting-location")),
                                     cosmic::widget::tooltip::Position::Top,
-                                )
-                                .into()
+                                ).into()
                             } else {
-                                button::standard(fl!("weather-use-my-location"))
-                                    .on_press(Message::DetectLocation)
-                                    .into()
-                            };
-                            element
-                        })
+                                button::standard(fl!("weather-use-my-location")).on_press(Message::DetectLocation).into()
+                            }
+                        )
                         .spacing(8)
                         .align_y(cosmic::iced::Alignment::Center),
                 ),

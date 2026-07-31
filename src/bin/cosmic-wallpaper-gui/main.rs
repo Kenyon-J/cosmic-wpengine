@@ -104,6 +104,7 @@ struct SettingsApp {
     /// Every pack imported into this profile, for the Packs page's "Your
     /// Packs" gallery - refreshed after every import.
     installed_packs: Vec<library::InstalledPack>,
+    is_detecting_location: bool,
 }
 
 /// A parsed `.cwtheme` pack whose shader hasn't been reviewed yet - see
@@ -898,6 +899,7 @@ impl Application for SettingsApp {
                 pack_export_theme,
                 pending_pack_import: None,
                 installed_packs: library::scan_installed_packs(),
+                is_detecting_location: false,
                 wp_config,
                 save_generation: 0,
             },
