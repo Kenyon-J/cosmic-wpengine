@@ -9,6 +9,7 @@
 ## 04-03-2025- Fast sRGB Interpolation and NaN-Safe Clamping
 **Learning:** High-curvature functions like `x^(1/2.4)` have extremely steep derivatives near zero, causing significant linear interpolation errors on coarse grids. Increasing the interval count (e.g., from 256 to 1024) reduces the interpolation error by $O(h^2)$ (16x), well below visual and 8-bit precision limits, while keeping the lookup table inside L1 cache (4KB). Additionally, standard `f32::clamp` panics on `NaN` values, which must be safely bypassed using manual comparison checks.
 **Action:** For high-frequency color or signal math, use fine-grained (1024-entry) linear-interpolated lookup tables to model high-curvature segments accurately, and always employ NaN-safe branch-free comparison clamping to prevent runtime panics on invalid values.
+
 ## 2025-03-05 - Avoid Redundant `wgpu` Buffer Writes in Hot Loops
 **Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when data hasn't changed, needlessly consumes PCIe bandwidth and CPU/GPU cycles.
 **Action:** Always diff the incoming uniform/vertex/buffer data against a cached version (e.g., storing the last slice on the `Renderer` state) and only dispatch `write_buffer` if the data actually differs.
@@ -20,3 +21,7 @@
 ## 2025-03-05 - Modern Standard Library Lazy Initialization
 **Learning:** Relying on `lazy_static` or `once_cell` for simple static initializations requires adding external crate dependencies, which may fail compilation if missing from `Cargo.toml`.
 **Action:** For simple static caches or lookup tables (like SRGB curves), use `std::sync::OnceLock::new()` and `.get_or_init()` available in standard Rust 1.70+ to avoid introducing unnecessary dependencies.
+
+## 06-03-2025 - Hoisting Loop Invariants and Bypassing Atomic/OnceLock Checks in Image/Pixel Loops
+**Learning:** `OnceLock::get_or_init()` has a small overhead from atomic status checking. While negligible in normal code, calling it millions of times inside high-frequency nested pixel rendering loops (like `gradient_image`) introduces a massive bottleneck. Retrieving the static lookup table reference *once* outside the nested loops, hoisting loop-invariant Y-component calculations, and writing sequentially to a flat pre-allocated `Vec<u8>` completely eliminates the overhead, boosting performance while retaining 100% equivalence.
+**Action:** When performing pixel-level processing or image generation, always hoist loop-invariant geometry/color math, extract static/global lookup table references before the hot loop, and use raw sequential writes into flat vectors.
