@@ -20,3 +20,6 @@
 ## 2025-03-05 - Modern Standard Library Lazy Initialization
 **Learning:** Relying on `lazy_static` or `once_cell` for simple static initializations requires adding external crate dependencies, which may fail compilation if missing from `Cargo.toml`.
 **Action:** For simple static caches or lookup tables (like SRGB curves), use `std::sync::OnceLock::new()` and `.get_or_init()` available in standard Rust 1.70+ to avoid introducing unnecessary dependencies.
+## 2025-03-05 - Use `clone_from` for Cached Vector Updates
+**Learning:** When maintaining a shadow cache of a dynamically sized `Vec` in a hot loop (like diffing text vertices), using standard assignment (e.g., `last_vertices = new_vertices.clone()`) drops the old vector's allocation and allocates fresh heap memory on every frame. Using `.clone_from()` reuses the existing backing capacity if it's large enough, completely eliminating unnecessary memory allocation.
+**Action:** Always prefer `.clone_from()` over `.clone()` assignment when updating persistent `Vec` or `String` structures inside high-frequency update loops.
