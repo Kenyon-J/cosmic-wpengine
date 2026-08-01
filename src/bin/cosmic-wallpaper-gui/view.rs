@@ -1047,10 +1047,21 @@ fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                                 export_selected,
                                 Message::PackExportThemeSelected,
                             ))
-                            .push(
-                                button::suggested(fl!("packs-export-pack"))
-                                    .on_press(Message::ExportPack),
-                            )
+                            .push(if export_selected.is_some() {
+                                let mut btn = button::suggested(fl!("packs-export-pack"));
+                                btn = btn.on_press(Message::ExportPack);
+                                let el: cosmic::Element<'_, Message> = btn.into();
+                                el
+                            } else {
+                                let btn = button::suggested(fl!("packs-export-pack"));
+                                let el: cosmic::Element<'_, Message> = cosmic::widget::tooltip(
+                                    btn,
+                                    text::body(fl!("status-select-theme-to-export")),
+                                    cosmic::widget::tooltip::Position::Top,
+                                )
+                                .into();
+                                el
+                            })
                             .spacing(8)
                             .align_y(cosmic::iced::Alignment::Center),
                     ),
