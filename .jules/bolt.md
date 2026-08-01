@@ -20,3 +20,7 @@
 ## 2025-03-05 - Modern Standard Library Lazy Initialization
 **Learning:** Relying on `lazy_static` or `once_cell` for simple static initializations requires adding external crate dependencies, which may fail compilation if missing from `Cargo.toml`.
 **Action:** For simple static caches or lookup tables (like SRGB curves), use `std::sync::OnceLock::new()` and `.get_or_init()` available in standard Rust 1.70+ to avoid introducing unnecessary dependencies.
+
+## 06-03-2025- Optimize ImageBuffer::from_fn and Hoist Loop Invariants in High-Resolution Generators
+**Learning:** Generating large images (like gradient wallpapers) pixel-by-pixel using `image::RgbaImage::from_fn` with closure-based math can introduce significant closure-overhead and atomic/OnceLock checking within inner loops. Pre-allocating a flat vector and rebuilding with `from_raw` allows hoisting loop invariants out of the innermost coordinate loops and passing pre-fetched static lookup table references directly.
+**Action:** For high-frequency/high-resolution pixel rendering or gradient generators, use flat pre-allocated vectors, hoist coordinate-math loop invariants, and pass static references directly to inner math helpers.
