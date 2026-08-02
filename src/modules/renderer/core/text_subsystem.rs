@@ -386,9 +386,6 @@ impl TextSubsystem {
             height_f,
         );
 
-        let vertices_bytes: &[u8] = bytemuck::cast_slice(&self.text_renderer.cpu_vertices);
-        let indices_bytes: &[u8] = bytemuck::cast_slice(&self.text_renderer.cpu_indices);
-
         if self.text_renderer.vertex_capacity < self.text_renderer.cpu_vertices.len() {
             self.text_renderer.vertex_capacity =
                 self.text_renderer.cpu_vertices.len().next_power_of_two();
@@ -400,6 +397,8 @@ impl TextSubsystem {
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            // Clear the cache since the GPU buffer was re-created
+            self.text_renderer.last_uploaded_vertices.clear();
         }
         if self.text_renderer.index_capacity < self.text_renderer.cpu_indices.len() {
             self.text_renderer.index_capacity =
@@ -410,10 +409,26 @@ impl TextSubsystem {
                 usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            // Clear the cache since the GPU buffer was re-created
+            self.text_renderer.last_uploaded_indices.clear();
         }
 
-        queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
-        queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
+        if self.text_renderer.cpu_vertices != self.text_renderer.last_uploaded_vertices {
+            let vertices_bytes: &[u8] = bytemuck::cast_slice(&self.text_renderer.cpu_vertices);
+            queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
+            self.text_renderer
+                .last_uploaded_vertices
+                .clone_from(&self.text_renderer.cpu_vertices);
+        }
+
+        if self.text_renderer.cpu_indices != self.text_renderer.last_uploaded_indices {
+            let indices_bytes: &[u8] = bytemuck::cast_slice(&self.text_renderer.cpu_indices);
+            queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
+            self.text_renderer
+                .last_uploaded_indices
+                .clone_from(&self.text_renderer.cpu_indices);
+        }
+
         self.text_renderer.num_indices = self.text_renderer.cpu_indices.len() as u32;
     }
 }
