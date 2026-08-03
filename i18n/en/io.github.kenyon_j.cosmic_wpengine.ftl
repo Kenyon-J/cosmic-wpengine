@@ -218,6 +218,7 @@ packs-theme-to-bundle = Theme to bundle
 packs-export-desc-with-video = Bundles this theme's layout, its custom shader if set, and your currently active background video ({ $file }) - videos aren't tied to a specific theme, so double check this is the one you want to share.
 packs-export-desc-no-video = Bundles this theme's layout and its custom shader, if set. No background video is currently active, so the pack won't include one.
 packs-export-pack = Export Pack
+packs-export-disabled-tooltip = Select a theme to export
 packs-folder = Packs folder
 packs-folder-desc = Exported .cwtheme files land in ~/.config/cosmic-wallpaper/packs.
 packs-import = Import
