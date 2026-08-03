@@ -1047,10 +1047,20 @@ fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                                 export_selected,
                                 Message::PackExportThemeSelected,
                             ))
-                            .push(
-                                button::suggested(fl!("packs-export-pack"))
-                                    .on_press(Message::ExportPack),
-                            )
+                            .push({
+                                let btn = button::suggested(fl!("packs-export-pack"));
+                                let element: cosmic::Element<'_, Message> = if export_selected.is_some() {
+                                    btn.on_press(Message::ExportPack).into()
+                                } else {
+                                    cosmic::widget::tooltip(
+                                        btn,
+                                        text::body(fl!("packs-export-disabled-tooltip")),
+                                        cosmic::widget::tooltip::Position::Top,
+                                    )
+                                    .into()
+                                };
+                                element
+                            })
                             .spacing(8)
                             .align_y(cosmic::iced::Alignment::Center),
                     ),
