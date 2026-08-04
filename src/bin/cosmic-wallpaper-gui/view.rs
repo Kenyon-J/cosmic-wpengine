@@ -1228,20 +1228,28 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                                 .width(Length::Fixed(100.0)),
                         )
                         .push({
-                            let detect_btn: cosmic::Element<'_, Message> = if app.is_detecting_location {
+                            let detect_btn: cosmic::Element<'_, Message> = if app
+                                .is_detecting_location
+                            {
                                 cosmic::widget::tooltip(
                                     button::custom(
                                         Row::new()
-                                            .push(cosmic::widget::icon::from_name("process-working-symbolic"))
+                                            .push(cosmic::widget::icon::from_name(
+                                                "process-working-symbolic",
+                                            ))
                                             .push(text::body(fl!("weather-use-my-location")))
                                             .spacing(4)
-                                            .align_y(cosmic::iced::Alignment::Center)
-                                    ).class(cosmic::theme::Button::Standard),
+                                            .align_y(cosmic::iced::Alignment::Center),
+                                    )
+                                    .class(cosmic::theme::Button::Standard),
                                     cosmic::widget::text::body(fl!("status-detecting-location")),
                                     cosmic::widget::tooltip::Position::Top,
-                                ).into()
+                                )
+                                .into()
                             } else {
-                                button::standard(fl!("weather-use-my-location")).on_press(Message::DetectLocation).into()
+                                button::standard(fl!("weather-use-my-location"))
+                                    .on_press(Message::DetectLocation)
+                                    .into()
                             };
                             detect_btn
                         })
