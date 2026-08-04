@@ -400,6 +400,7 @@ impl TextSubsystem {
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            self.text_renderer.last_uploaded_vertices.clear();
         }
         if self.text_renderer.index_capacity < self.text_renderer.cpu_indices.len() {
             self.text_renderer.index_capacity =
@@ -410,10 +411,25 @@ impl TextSubsystem {
                 usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            self.text_renderer.last_uploaded_indices.clear();
         }
 
-        queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
-        queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
+        // Optimization: Avoid redundant wgpu buffer writes by diffing the newly generated
+        // CPU data against our cached copy of the last uploaded vertices and indices.
+        // This prevents wasting PCIe bandwidth when on-screen text hasn't changed.
+        if self.text_renderer.last_uploaded_vertices != self.text_renderer.cpu_vertices {
+            queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
+            self.text_renderer
+                .last_uploaded_vertices
+                .clone_from(&self.text_renderer.cpu_vertices);
+        }
+        if self.text_renderer.last_uploaded_indices != self.text_renderer.cpu_indices {
+            queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
+            self.text_renderer
+                .last_uploaded_indices
+                .clone_from(&self.text_renderer.cpu_indices);
+        }
+
         self.text_renderer.num_indices = self.text_renderer.cpu_indices.len() as u32;
     }
 }
