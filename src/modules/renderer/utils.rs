@@ -183,24 +183,42 @@ pub fn gradient_image(
     };
 
     let table = get_linear_to_srgb_table();
+
+    // Fast path: if there is only one color stop, the gradient is a solid color.
+    // Avoid sin/cos, projections, clamping, and interpolation entirely.
+    if last == 0 {
+        let r = srgb_byte(linear_to_srgb_lut(stops[0][0], table));
+        let g = srgb_byte(linear_to_srgb_lut(stops[0][1], table));
+        let b = srgb_byte(linear_to_srgb_lut(stops[0][2], table));
+        let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+        for _ in 0..(width * height) {
+            pixels.push(r);
+            pixels.push(g);
+            pixels.push(b);
+            pixels.push(255);
+        }
+        return image::RgbaImage::from_raw(width, height, pixels)
+            .expect("Preallocated buffer must match width and height dimensions");
+    }
+
     let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+    let last_f = last as f32;
+    let last_minus_1 = last - 1;
 
     for y in 0..height {
         let y_factor = y as f32 * dy - proj_min;
         for x in 0..width {
             let t = (x as f32 * dx + y_factor) * inv_range;
-            let linear = if last == 0 {
-                stops[0]
-            } else {
-                let pos = t.clamp(0.0, 1.0) * last as f32;
-                let i = (pos as usize).min(last - 1);
-                let frac = pos - i as f32;
-                [
-                    stops[i][0] + (stops[i + 1][0] - stops[i][0]) * frac,
-                    stops[i][1] + (stops[i + 1][1] - stops[i][1]) * frac,
-                    stops[i][2] + (stops[i + 1][2] - stops[i][2]) * frac,
-                ]
-            };
+            let pos = t.clamp(0.0, 1.0) * last_f;
+            let i = (pos as usize).min(last_minus_1);
+            let frac = pos - i as f32;
+            let stop_i = &stops[i];
+            let stop_next = &stops[i + 1];
+            let linear = [
+                stop_i[0] + (stop_next[0] - stop_i[0]) * frac,
+                stop_i[1] + (stop_next[1] - stop_i[1]) * frac,
+                stop_i[2] + (stop_next[2] - stop_i[2]) * frac,
+            ];
             pixels.push(srgb_byte(linear_to_srgb_lut(linear[0], table)));
             pixels.push(srgb_byte(linear_to_srgb_lut(linear[1], table)));
             pixels.push(srgb_byte(linear_to_srgb_lut(linear[2], table)));
