@@ -20,3 +20,7 @@
 ## 2025-03-05 - Modern Standard Library Lazy Initialization
 **Learning:** Relying on `lazy_static` or `once_cell` for simple static initializations requires adding external crate dependencies, which may fail compilation if missing from `Cargo.toml`.
 **Action:** For simple static caches or lookup tables (like SRGB curves), use `std::sync::OnceLock::new()` and `.get_or_init()` available in standard Rust 1.70+ to avoid introducing unnecessary dependencies.
+
+## 05-03-2025- Fast-path Hoisting for Single-element Gradients and Caching Casts
+**Learning:** In nested pixel loops such as gradient generators, branch prediction handles standard cases well, but a conditional branch that evaluates whether there is only one color stop (`last == 0`) wastes clock cycles in hot render paths. Hoisting the check out of the loops entirely and creating a dedicated fast-path solid-color fill completely eliminates projection/trigonometric math and clamping/interpolation operations.
+**Action:** For multi-step pixel or signal interpolation functions, always check for single-element/flat cases upfront and return early with a fast-path fill, and cache index-bounds/type-casts (`last as f32`) outside nested iteration boundaries.
