@@ -11,7 +11,7 @@
 use bytemuck::{Pod, Zeroable};
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
 pub struct ArtUniforms {
     pub color_and_transition: [f32; 4], // offset 0
     pub uv_transform: [f32; 4],         // offset 16 (scale_x, scale_y, offset_x, offset_y)
@@ -43,7 +43,7 @@ pub struct Particle {
 /// new 112-byte buffer, since wgpu only requires the bind group's declared
 /// size be *at least* what the shader module asks for.
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
 pub struct VisUniforms {
     pub res: [f32; 2],
     pub bands: u32,
@@ -67,7 +67,7 @@ pub struct VisUniforms {
 
 /// Uniforms for the ambient (procedural sky) background pass.
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
 pub struct AmbUniforms {
     pub res: [f32; 2],
     pub time: f32,

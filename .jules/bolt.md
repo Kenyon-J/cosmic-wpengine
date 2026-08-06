@@ -24,3 +24,7 @@
 ## 2025-03-05 - Only Re-upload Text Buffers When GPU Data Changes
 **Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when text data hasn't changed, consumes unnecessary PCIe bandwidth and CPU/GPU overhead in the main loop.
 **Action:** Add caching fields (e.g. `last_uploaded_vertices`, `last_uploaded_indices`) to track the previous frame's geometry and explicitly bypass the `write_buffer` command if the geometry slice matches the newly generated one.
+
+## 06-03-2025- Robust Invalidation for Stateful GPU Uniform Caches
+**Learning:** Storing cached GPU uniform data on persistent structures to skip writes during redrawing can lead to rendering bugs when sub-resources are dynamically cleared or modified. Cache values must be invalidated when major events occur.
+**Action:** When implementing CPU-side stateful caches for GPU writes, invalidate the caches on non-audio event handlers (such as track change, player shutdown, or config updates) to guarantee synchronization and rendering correctness.

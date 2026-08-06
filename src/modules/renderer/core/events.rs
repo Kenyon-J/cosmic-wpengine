@@ -3,6 +3,17 @@ use cosmic_text::SwashCache;
 impl Renderer {
     pub(crate) async fn handle_event(&mut self, event: Event) {
         use crate::modules::renderer::utils::hash_str;
+
+        // Invalidate uniform caches for any non-audio events to guarantee absolute safety
+        // when assets, configuration, or playback states change.
+        if !matches!(event, Event::AudioFrame(_)) {
+            self.last_vis_uniforms = None;
+            self.last_bg_uniforms = None;
+            self.last_fg_uniforms = None;
+            self.last_custom_bg_uniforms = None;
+            self.last_amb_uniforms = None;
+        }
+
         match event {
             Event::ConfigUpdated(config, theme_layout) => {
                 let _ = self.show_lyrics_tx.send(config.audio.show_lyrics);

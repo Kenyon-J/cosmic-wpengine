@@ -65,6 +65,11 @@ pub(crate) fn write_frame_uniforms(
     led_segments: u32,
     peak_hold: bool,
     glow_strength: f32,
+    last_vis_uniforms: &mut Option<VisUniforms>,
+    last_bg_uniforms: &mut Option<ArtUniforms>,
+    last_fg_uniforms: &mut Option<ArtUniforms>,
+    last_custom_bg_uniforms: &mut Option<ArtUniforms>,
+    last_amb_uniforms: &mut Option<AmbUniforms>,
 ) {
     let screen_res_f = [width as f32, height as f32];
     let screen_aspect = screen_res_f[0] / screen_res_f[1];
@@ -91,11 +96,20 @@ pub(crate) fn write_frame_uniforms(
             glow_strength,
             _padding: 0,
         };
-        queue.write_buffer(
-            visualiser_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&vis_uniforms),
-        );
+        let mut changed = true;
+        if let Some(last) = last_vis_uniforms {
+            if *last == vis_uniforms {
+                changed = false;
+            }
+        }
+        if changed {
+            queue.write_buffer(
+                visualiser_uniform_buffer,
+                0,
+                bytemuck::bytes_of(&vis_uniforms),
+            );
+            *last_vis_uniforms = Some(vis_uniforms);
+        }
     }
 
     // 2. Process album art uniforms
@@ -118,7 +132,16 @@ pub(crate) fn write_frame_uniforms(
             screen_aspect,
             _padding: 0,
         };
-        queue.write_buffer(&art.bg_uniform_buffer, 0, bytemuck::bytes_of(&bg_uniforms));
+        let mut bg_changed = true;
+        if let Some(last) = last_bg_uniforms {
+            if *last == bg_uniforms {
+                bg_changed = false;
+            }
+        }
+        if bg_changed {
+            queue.write_buffer(&art.bg_uniform_buffer, 0, bytemuck::bytes_of(&bg_uniforms));
+            *last_bg_uniforms = Some(bg_uniforms);
+        }
 
         // Optimization: Use pre-calculated constants to minimize arithmetic in the monitor loop
         let fg_scale_x = screen_aspect * fg_k1;
@@ -141,7 +164,16 @@ pub(crate) fn write_frame_uniforms(
             screen_aspect,
             _padding: 0,
         };
-        queue.write_buffer(&art.fg_uniform_buffer, 0, bytemuck::bytes_of(&fg_uniforms));
+        let mut fg_changed = true;
+        if let Some(last) = last_fg_uniforms {
+            if *last == fg_uniforms {
+                fg_changed = false;
+            }
+        }
+        if fg_changed {
+            queue.write_buffer(&art.fg_uniform_buffer, 0, bytemuck::bytes_of(&fg_uniforms));
+            *last_fg_uniforms = Some(fg_uniforms);
+        }
     }
 
     if background.bind_group().is_some() {
@@ -162,11 +194,20 @@ pub(crate) fn write_frame_uniforms(
             screen_aspect,
             _padding: 0,
         };
-        queue.write_buffer(
-            &background.custom_bg_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&custom_bg_uniforms),
-        );
+        let mut custom_bg_changed = true;
+        if let Some(last) = last_custom_bg_uniforms {
+            if *last == custom_bg_uniforms {
+                custom_bg_changed = false;
+            }
+        }
+        if custom_bg_changed {
+            queue.write_buffer(
+                &background.custom_bg_uniform_buffer,
+                0,
+                bytemuck::bytes_of(&custom_bg_uniforms),
+            );
+            *last_custom_bg_uniforms = Some(custom_bg_uniforms);
+        }
     } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
         // 3. Process ambient uniforms
         let amb_uniforms = AmbUniforms {
@@ -177,11 +218,20 @@ pub(crate) fn write_frame_uniforms(
             bg_alpha: custom_bg_alpha, // Can reuse the same bg_alpha logic
             _padding: [0.0; 3],
         };
-        queue.write_buffer(
-            &background.ambient_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&amb_uniforms),
-        );
+        let mut amb_changed = true;
+        if let Some(last) = last_amb_uniforms {
+            if *last == amb_uniforms {
+                amb_changed = false;
+            }
+        }
+        if amb_changed {
+            queue.write_buffer(
+                &background.ambient_uniform_buffer,
+                0,
+                bytemuck::bytes_of(&amb_uniforms),
+            );
+            *last_amb_uniforms = Some(amb_uniforms);
+        }
     }
 }
 
@@ -503,6 +553,11 @@ pub(crate) fn draw_frame(
                 renderer.theme.visualiser.led_segments,
                 renderer.theme.visualiser.peak_hold,
                 renderer.theme.visualiser.glow_strength,
+                &mut renderer.last_vis_uniforms,
+                &mut renderer.last_bg_uniforms,
+                &mut renderer.last_fg_uniforms,
+                &mut renderer.last_custom_bg_uniforms,
+                &mut renderer.last_amb_uniforms,
             );
         }
 
