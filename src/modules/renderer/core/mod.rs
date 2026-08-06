@@ -150,6 +150,11 @@ pub struct Renderer {
     pub(crate) last_occluded: Option<bool>,
     pub(crate) last_audio_bands: Vec<f32>,
     pub(crate) last_audio_peaks: Vec<f32>,
+    pub(crate) last_vis_uniforms: Option<crate::modules::renderer::types::VisUniforms>,
+    pub(crate) last_bg_uniforms: Option<crate::modules::renderer::types::ArtUniforms>,
+    pub(crate) last_fg_uniforms: Option<crate::modules::renderer::types::ArtUniforms>,
+    pub(crate) last_custom_bg_uniforms: Option<crate::modules::renderer::types::ArtUniforms>,
+    pub(crate) last_amb_uniforms: Option<crate::modules::renderer::types::AmbUniforms>,
 }
 
 impl Renderer {
