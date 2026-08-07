@@ -481,9 +481,16 @@ impl Renderer {
 
         // The procedural sky shader animates with time (cloud drift, rain
         // streaks). It can be on screen whenever no custom background
-        // texture exists; conservatively treat that as always-animating
-        // rather than replicating draw_frame's exact layering rules here.
-        let ambient_possible = self.background.bind_group().is_none();
+        // texture exists and neither the blurred album art background nor
+        // the color background is active (which completely covers the sky).
+        let force_art = self.state.config.mode == crate::modules::config::WallpaperMode::AlbumArt;
+        let has_art = self.art.fg_bind_group().is_some();
+        let show_art_bg =
+            (has_art || force_art) && self.state.config.appearance.album_art_background;
+        let show_color_bg =
+            (has_art || force_art) && self.state.config.appearance.album_color_background;
+        let ambient_possible =
+            self.background.bind_group().is_none() && !show_art_bg && !show_color_bg;
 
         audio_active || lyrics_moving || fading || weather_active || ambient_possible
     }

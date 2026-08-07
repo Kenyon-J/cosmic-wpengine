@@ -24,3 +24,7 @@
 ## 2025-03-05 - Only Re-upload Text Buffers When GPU Data Changes
 **Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when text data hasn't changed, consumes unnecessary PCIe bandwidth and CPU/GPU overhead in the main loop.
 **Action:** Add caching fields (e.g. `last_uploaded_vertices`, `last_uploaded_indices`) to track the previous frame's geometry and explicitly bypass the `write_buffer` command if the geometry slice matches the newly generated one.
+
+## 06-03-2025- Stop Unnecessary Sky Redraws When Completely Covered
+**Learning:** The procedural sky background is continuously animated over time, which requires redrawing every frame. If the blurred album art background or color background is active, the sky is completely covered by these static background layers. Failing to check for these layers leaves `ambient_possible` as true, preventing the renderer from ever sleeping when static.
+**Action:** Always evaluate if the animated sky background is fully covered by static top-level layers before concluding that redraws are required.
