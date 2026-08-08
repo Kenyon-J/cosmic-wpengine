@@ -9,7 +9,7 @@
 //! but one taking `&mut TextSubsystem` (a single disjoint field) doesn't.
 
 use super::super::text::{PositionedBuffer, TextCacheKey, TextRenderer};
-use cosmic_text::{Attrs, Buffer, BufferLine, FontSystem, Metrics, Shaping, SwashCache};
+use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, SwashCache};
 
 pub(crate) struct TextSubsystem {
     pub(crate) font_system: FontSystem,
@@ -78,7 +78,9 @@ impl TextSubsystem {
         width_f: f32,
         height_f: f32,
     ) -> Buffer {
+        let mut newly_created = false;
         let mut buffer = self.text_buffer_cache.remove(&text_key).unwrap_or_else(|| {
+            newly_created = true;
             let mut b = Buffer::new(&mut self.font_system, metrics);
             b.set_metrics(metrics);
             b.set_size(Some(width_f), Some(height_f));
@@ -88,12 +90,23 @@ impl TextSubsystem {
 
         // Re-apply metrics/size even for a cached buffer: a monitor swap can
         // change DPI/resolution without changing the text content or its cache key.
-        buffer.set_metrics(metrics);
-        buffer.set_size(Some(width_f), Some(height_f));
+        let mut changed = newly_created;
+        if buffer.metrics() != metrics {
+            buffer.set_metrics(metrics);
+            changed = true;
+        }
+        if buffer.size() != (Some(width_f), Some(height_f)) {
+            buffer.set_size(Some(width_f), Some(height_f));
+            changed = true;
+        }
 
-        buffer.lines.iter_mut().for_each(|line: &mut BufferLine| {
-            line.set_align(Some(align));
-        });
+        for line in buffer.lines.iter_mut() {
+            if line.align() != Some(align) {
+                line.set_align(Some(align));
+                changed = true;
+            }
+        }
+
         // Buffer setters (set_metrics/set_size/set_text/set_align) are lazy as
         // of cosmic-text 0.19 - they mark the buffer dirty but don't reshape
         // it. The bare Buffer::layout_runs() this struct's callers use (not
@@ -102,7 +115,12 @@ impl TextSubsystem {
         // call, not just when realignment actually changed something -
         // otherwise a freshly-built buffer above is returned never-shaped and
         // renders as empty.
-        buffer.shape_until_scroll(&mut self.font_system, false);
+        // Optimization: If the metrics, size, and alignments didn't change (which is
+        // the steady state for cached text buffers), we can skip the expensive
+        // `shape_until_scroll` pass entirely!
+        if changed {
+            buffer.shape_until_scroll(&mut self.font_system, false);
+        }
 
         buffer
     }

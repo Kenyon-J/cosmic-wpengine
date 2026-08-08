@@ -24,3 +24,7 @@
 ## 2025-03-05 - Only Re-upload Text Buffers When GPU Data Changes
 **Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when text data hasn't changed, consumes unnecessary PCIe bandwidth and CPU/GPU overhead in the main loop.
 **Action:** Add caching fields (e.g. `last_uploaded_vertices`, `last_uploaded_indices`) to track the previous frame's geometry and explicitly bypass the `write_buffer` command if the geometry slice matches the newly generated one.
+
+## 06-03-2025- Skip Redundant Text Shaping in cosmic-text
+**Learning:** cosmic-text's `shape_until_scroll` performs expensive CPU text-shaping, glyph positioning, and layout calculations. In rendering hot paths, text elements (lyrics, track info, weather) are frequently queried from the cache. Unconditionally calling layout setters and shaping on retrieved buffers on every frame is highly wasteful in the steady state.
+**Action:** Only call layout setters (e.g., `set_metrics`, `set_size`, `set_align`) and trigger `shape_until_scroll` when properties actually differ from the cached buffer's state or when the buffer is newly created.
