@@ -114,7 +114,7 @@ jobs:
       - name: Install prerequisite tools
         # ttf-dejavu: the lyric wrapping test shapes real text and needs at
         # least one sans-serif font present in the container.
-        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust libxkbcommon wayland wayland-protocols dbus ffmpeg ttf-dejavu
+        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust libxkbcommon wayland wayland-protocols dbus ffmpeg ttf-dejavu nasm
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -122,9 +122,9 @@ jobs:
       - name: Set up Rust cache
         uses: Swatinem/rust-cache@v2
 
-      # Default features only - see the Ubuntu job; this container has no nasm.
+      # Using static-ffmpeg on Arch Linux to ensure stable and fully-compatible build independent of rolling system releases.
       - name: Check compilation
-        run: cargo check --all-targets
+        run: cargo check --all-targets --features static-ffmpeg
 
       # On failure, surface the tail of the test output as a check-run
       # annotation so the error is visible from the API/mobile without
@@ -134,13 +134,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          if ! cargo test --all-targets 2>&1 | tee /tmp/test.log; then
+          if ! cargo test --all-targets --features static-ffmpeg 2>&1 | tee /tmp/test.log; then
             sed 's/\x1b\[[0-9;]*m//g' /tmp/test.log | tail -c 3000 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g' | sed 's/^/::error title=arch tests failed::/'
             exit 1
           fi
 
       - name: Build release
-        run: cargo build --release
+        run: cargo build --release --features static-ffmpeg
 
   # Mirrors the release workflow's standalone-binary build so a broken
   # static ffmpeg build (or a dynamic-linking regression) is caught on every

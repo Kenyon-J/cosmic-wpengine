@@ -906,8 +906,8 @@ fn check_features(
         ("ffmpeg_5_1", 59, 37),
         ("ffmpeg_6_0", 60, 3),
         ("ffmpeg_6_1", 60, 31),
-        ("ffmpeg_7_0", 61, 1),
-        ("ffmpeg_7_1", 61, 5),
+        ("ffmpeg_7_0", 61, 3),
+        ("ffmpeg_7_1", 61, 19),
         ("ffmpeg_8_0", 62, 8),
         ("ffmpeg_8_1", 62, 28),
     ];
