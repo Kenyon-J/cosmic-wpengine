@@ -1751,5 +1751,66 @@ fn main() {
         new_lines.push("pub const AV_CODEC_ID_V408: AVCodecID = AVCodecID::AV_CODEC_ID_NONE;".to_string());
     }
 
-    fs::write(&bindings_path, new_lines.join("\n")).expect("Could not write bindings.rs");
+    // Write the cleaned-up bindings back to disk
+    let bindings_content = new_lines.join("\n");
+    fs::write(&bindings_path, &bindings_content).expect("Could not write bindings.rs");
+
+    // Force-detect FFmpeg version from the generated bindings.rs to guarantee 100% accurate
+    // rustc-cfg/metadata feature selection, bypassing any check.c execution or linking issues.
+    let mut major = 0;
+    let mut minor = 0;
+    for line in bindings_content.lines() {
+        if line.contains("pub const LIBAVCODEC_VERSION_MAJOR") {
+            if let Some(pos) = line.find('=') {
+                if let Some(end) = line.find(';') {
+                    if let Ok(m) = line[pos+1..end].trim().parse::<u32>() {
+                        major = m;
+                    }
+                }
+            }
+        }
+        if line.contains("pub const LIBAVCODEC_VERSION_MINOR") {
+            if let Some(pos) = line.find('=') {
+                if let Some(end) = line.find(';') {
+                    if let Ok(m) = line[pos+1..end].trim().parse::<u32>() {
+                        minor = m;
+                    }
+                }
+            }
+        }
+    }
+
+    if major > 0 {
+        println!("cargo:warning=Force-detected FFmpeg libavcodec version: {}.{}", major, minor);
+        let ffmpeg_lavc_versions = [
+            ("ffmpeg_3_0", 57, 24),
+            ("ffmpeg_3_1", 57, 48),
+            ("ffmpeg_3_2", 57, 64),
+            ("ffmpeg_3_3", 57, 89),
+            ("ffmpeg_3_4", 57, 107),
+            ("ffmpeg_4_0", 58, 18),
+            ("ffmpeg_4_1", 58, 35),
+            ("ffmpeg_4_2", 58, 54),
+            ("ffmpeg_4_3", 58, 91),
+            ("ffmpeg_4_4", 58, 100),
+            ("ffmpeg_5_0", 59, 18),
+            ("ffmpeg_5_1", 59, 37),
+            ("ffmpeg_6_0", 60, 3),
+            ("ffmpeg_6_1", 60, 31),
+            ("ffmpeg_7_0", 61, 3),
+            ("ffmpeg_7_1", 61, 19),
+            ("ffmpeg_8_0", 62, 8),
+            ("ffmpeg_8_1", 62, 28),
+        ];
+
+        for &(ffmpeg_version_flag, lavc_version_major, lavc_version_minor) in &ffmpeg_lavc_versions {
+            let is_enabled = major > lavc_version_major || (major == lavc_version_major && minor >= lavc_version_minor);
+            if is_enabled {
+                println!("cargo:rustc-cfg=feature=\"{}\"", ffmpeg_version_flag);
+                println!("cargo:{}=true", ffmpeg_version_flag);
+            } else {
+                println!("cargo:{}=", ffmpeg_version_flag);
+            }
+        }
+    }
 }
