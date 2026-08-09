@@ -1688,7 +1688,163 @@ fn main() {
         .expect("Unable to generate bindings");
 
     // Write the bindings to the $OUT_DIR/bindings.rs file.
+    let bindings_path = output().join("bindings.rs");
     bindings
-        .write_to_file(output().join("bindings.rs"))
+        .write_to_file(&bindings_path)
         .expect("Couldn't write bindings!");
+
+    // Post-process the generated bindings.rs to ensure compatibility with
+    // different system-installed FFmpeg versions (e.g. newer/rolling-release Arch Linux).
+    let contents = fs::read_to_string(&bindings_path).expect("Could not read bindings.rs");
+    let mut new_lines = Vec::new();
+    let mut in_frame_side_data = false;
+    let mut in_packet_side_data = false;
+
+    let allowed_frame_variants = [
+        "AV_FRAME_DATA_PANSCAN",
+        "AV_FRAME_DATA_A53_CC",
+        "AV_FRAME_DATA_STEREO3D",
+        "AV_FRAME_DATA_MATRIXENCODING",
+        "AV_FRAME_DATA_DOWNMIX_INFO",
+        "AV_FRAME_DATA_REPLAYGAIN",
+        "AV_FRAME_DATA_DISPLAYMATRIX",
+        "AV_FRAME_DATA_AFD",
+        "AV_FRAME_DATA_MOTION_VECTORS",
+        "AV_FRAME_DATA_SKIP_SAMPLES",
+        "AV_FRAME_DATA_AUDIO_SERVICE_TYPE",
+        "AV_FRAME_DATA_MASTERING_DISPLAY_METADATA",
+        "AV_FRAME_DATA_GOP_TIMECODE",
+        "AV_FRAME_DATA_SPHERICAL",
+        "AV_FRAME_DATA_CONTENT_LIGHT_LEVEL",
+        "AV_FRAME_DATA_ICC_PROFILE",
+        "AV_FRAME_DATA_S12M_TIMECODE",
+        "AV_FRAME_DATA_DYNAMIC_HDR_PLUS",
+        "AV_FRAME_DATA_REGIONS_OF_INTEREST",
+        "AV_FRAME_DATA_VIDEO_ENC_PARAMS",
+        "AV_FRAME_DATA_SEI_UNREGISTERED",
+        "AV_FRAME_DATA_FILM_GRAIN_PARAMS",
+        "AV_FRAME_DATA_DETECTION_BBOXES",
+        "AV_FRAME_DATA_DOVI_RPU_BUFFER",
+        "AV_FRAME_DATA_DOVI_METADATA",
+        "AV_FRAME_DATA_DYNAMIC_HDR_VIVID",
+        "AV_FRAME_DATA_AMBIENT_VIEWING_ENVIRONMENT",
+        "AV_FRAME_DATA_VIDEO_HINT",
+    ];
+
+    let allowed_packet_variants = [
+        "AV_PKT_DATA_PALETTE",
+        "AV_PKT_DATA_NEW_EXTRADATA",
+        "AV_PKT_DATA_PARAM_CHANGE",
+        "AV_PKT_DATA_H263_MB_INFO",
+        "AV_PKT_DATA_REPLAYGAIN",
+        "AV_PKT_DATA_DISPLAYMATRIX",
+        "AV_PKT_DATA_STEREO3D",
+        "AV_PKT_DATA_AUDIO_SERVICE_TYPE",
+        "AV_PKT_DATA_QUALITY_STATS",
+        "AV_PKT_DATA_FALLBACK_TRACK",
+        "AV_PKT_DATA_CPB_PROPERTIES",
+        "AV_PKT_DATA_SKIP_SAMPLES",
+        "AV_PKT_DATA_JP_DUALMONO",
+        "AV_PKT_DATA_STRINGS_METADATA",
+        "AV_PKT_DATA_SUBTITLE_POSITION",
+        "AV_PKT_DATA_MATROSKA_BLOCKADDITIONAL",
+        "AV_PKT_DATA_WEBVTT_IDENTIFIER",
+        "AV_PKT_DATA_WEBVTT_SETTINGS",
+        "AV_PKT_DATA_METADATA_UPDATE",
+        "AV_PKT_DATA_MPEGTS_STREAM_ID",
+        "AV_PKT_DATA_MASTERING_DISPLAY_METADATA",
+        "AV_PKT_DATA_SPHERICAL",
+        "AV_PKT_DATA_CONTENT_LIGHT_LEVEL",
+        "AV_PKT_DATA_A53_CC",
+        "AV_PKT_DATA_ENCRYPTION_INIT_INFO",
+        "AV_PKT_DATA_ENCRYPTION_INFO",
+        "AV_PKT_DATA_AFD",
+        "AV_PKT_DATA_PRFT",
+        "AV_PKT_DATA_ICC_PROFILE",
+        "AV_PKT_DATA_DOVI_CONF",
+        "AV_PKT_DATA_S12M_TIMECODE",
+        "AV_PKT_DATA_DYNAMIC_HDR10_PLUS",
+        "AV_PKT_DATA_NB",
+    ];
+
+    let mut has_v410 = false;
+    let mut has_v308 = false;
+    let mut has_v408 = false;
+
+    for line in contents.lines() {
+        if line.contains("pub enum AVFrameSideDataType") {
+            in_frame_side_data = true;
+            new_lines.push(line.to_string());
+            continue;
+        }
+        if line.contains("pub enum AVPacketSideDataType") {
+            in_packet_side_data = true;
+            new_lines.push(line.to_string());
+            continue;
+        }
+
+        if in_frame_side_data {
+            if line.contains('}') {
+                in_frame_side_data = false;
+                new_lines.push(line.to_string());
+                continue;
+            }
+            if line.contains("AV_FRAME_DATA_") {
+                let mut allowed = false;
+                for v in &allowed_frame_variants {
+                    if line.contains(v) {
+                        allowed = true;
+                        break;
+                    }
+                }
+                if !allowed {
+                    continue; // Discard variants not expected by ffmpeg-next
+                }
+            }
+        }
+
+        if in_packet_side_data {
+            if line.contains('}') {
+                in_packet_side_data = false;
+                new_lines.push(line.to_string());
+                continue;
+            }
+            if line.contains("AV_PKT_DATA_") {
+                let mut allowed = false;
+                for v in &allowed_packet_variants {
+                    if line.contains(v) {
+                        allowed = true;
+                        break;
+                    }
+                }
+                if !allowed {
+                    continue; // Discard variants not expected by ffmpeg-next
+                }
+            }
+        }
+
+        if line.contains("AV_CODEC_ID_V410") {
+            has_v410 = true;
+        }
+        if line.contains("AV_CODEC_ID_V308") {
+            has_v308 = true;
+        }
+        if line.contains("AV_CODEC_ID_V408") {
+            has_v408 = true;
+        }
+
+        new_lines.push(line.to_string());
+    }
+
+    if !has_v410 {
+        new_lines.push("pub const AV_CODEC_ID_V410: AVCodecID = AVCodecID::AV_CODEC_ID_NONE;".to_string());
+    }
+    if !has_v308 {
+        new_lines.push("pub const AV_CODEC_ID_V308: AVCodecID = AVCodecID::AV_CODEC_ID_NONE;".to_string());
+    }
+    if !has_v408 {
+        new_lines.push("pub const AV_CODEC_ID_V408: AVCodecID = AVCodecID::AV_CODEC_ID_NONE;".to_string());
+    }
+
+    fs::write(&bindings_path, new_lines.join("\n")).expect("Could not write bindings.rs");
 }
