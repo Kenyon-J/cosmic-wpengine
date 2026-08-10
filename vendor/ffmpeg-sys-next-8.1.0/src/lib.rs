@@ -18,3 +18,8 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 #[macro_use]
 mod avutil;
 pub use avutil::*;
+
+// Polyfills for missing variants in newer FFmpeg versions
+pub const AV_CODEC_ID_V410: AVCodecID = AVCodecID::AV_CODEC_ID_V210;
+pub const AV_CODEC_ID_V308: AVCodecID = AVCodecID::AV_CODEC_ID_MV30;
+pub const AV_CODEC_ID_V408: AVCodecID = AVCodecID::AV_CODEC_ID_RV40;
