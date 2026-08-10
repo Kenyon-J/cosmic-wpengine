@@ -24,3 +24,7 @@
 ## 2025-03-05 - Only Re-upload Text Buffers When GPU Data Changes
 **Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when text data hasn't changed, consumes unnecessary PCIe bandwidth and CPU/GPU overhead in the main loop.
 **Action:** Add caching fields (e.g. `last_uploaded_vertices`, `last_uploaded_indices`) to track the previous frame's geometry and explicitly bypass the `write_buffer` command if the geometry slice matches the newly generated one.
+
+## 06-03-2025- Fused-Multiply-Add and Fast-Path Gradient Image Rendering
+**Learning:** Double-nested pixel-by-pixel rendering loops (like `gradient_image`) are high-frequency paths where division and branch prediction overhead significantly degrade rendering throughput. Adding a fast-path return for single-color inputs completely bypasses coordinate projection arithmetic. For multi-stop inputs, pre-calculating loop-invariant multipliers/adders outside the loops allows computing coordinate intervals with a single, fast `mul_add` (Fused-Multiply-Add) instruction per pixel.
+**Action:** Always look for single-element fast paths in pixel processors, hoist loop-invariant arithmetic out of double-nested loops, and use `mul_add` to merge high-frequency multipliers and additions into a single processor instruction.

@@ -104,6 +104,8 @@ fn get_linear_to_srgb_table() -> &'static [f32; 1025] {
 // Optimization: Replace extremely expensive `powf(1.0 / 2.4)` with an O(1) linear-interpolated lookup table.
 // In `gradient_image`, this function is called millions of times per high-res gradient, making `powf` a massive bottleneck.
 // A 1024-interval table (4KB) fits completely in L1 cache while keeping error below 0.0001 (far below 8-bit color precision).
+// Note: The redundant piecewise branch `c <= 0.003_130_8` was removed entirely because the linear segment is mathematically
+// equivalent and already fully incorporated into the precomputed lookup table, avoiding branch prediction overhead in high-frequency pixel loops.
 #[inline(always)]
 fn linear_to_srgb_lut(c: f32, table: &[f32; 1025]) -> f32 {
     // Safe NaN-handling clamp: explicit is_nan() or less-than-zero checks handle NaNs
@@ -116,17 +118,13 @@ fn linear_to_srgb_lut(c: f32, table: &[f32; 1025]) -> f32 {
         c
     };
 
-    if c <= 0.003_130_8 {
-        c * 12.92
+    let val = c * 1024.0;
+    let idx = val as usize;
+    let frac = val - idx as f32;
+    if idx >= 1024 {
+        table[1024]
     } else {
-        let val = c * 1024.0;
-        let idx = val as usize;
-        let frac = val - idx as f32;
-        if idx >= 1024 {
-            table[1024]
-        } else {
-            table[idx] * (1.0 - frac) + table[idx + 1] * frac
-        }
+        table[idx] * (1.0 - frac) + table[idx + 1] * frac
     }
 }
 
@@ -160,6 +158,11 @@ pub fn gradient_image(
     if colors.is_empty() {
         return solid_colour_image([0.0; 3]);
     }
+    // Optimization: Add a fast-path return for `colors.len() == 1` to bypass the entire coordinate projection and double-nested loop.
+    if colors.len() == 1 {
+        return solid_colour_image(colors[0]);
+    }
+
     let stops: Vec<[f32; 3]> = colors.iter().map(|c| c.map(srgb_to_linear)).collect();
     let last = stops.len() - 1;
 
@@ -185,22 +188,25 @@ pub fn gradient_image(
     let table = get_linear_to_srgb_table();
     let mut pixels = Vec::with_capacity((width * height * 4) as usize);
 
+    // Optimization: Pre-calculate loop-invariant factors outside the inner pixel loop.
+    // By pre-calculating `dx * inv_range` and the y-dependent term, we can compute `t` using
+    // a single fast `(x as f32).mul_add(dx_inv_range, y_term)` FMA instruction.
+    // Also, eliminate the redundant `last == 0` check since `colors.len() >= 2` is guaranteed here.
+    let dx_inv_range = dx * inv_range;
+    let last_f32 = last as f32;
+
     for y in 0..height {
-        let y_factor = y as f32 * dy - proj_min;
+        let y_term = (y as f32 * dy - proj_min) * inv_range;
         for x in 0..width {
-            let t = (x as f32 * dx + y_factor) * inv_range;
-            let linear = if last == 0 {
-                stops[0]
-            } else {
-                let pos = t.clamp(0.0, 1.0) * last as f32;
-                let i = (pos as usize).min(last - 1);
-                let frac = pos - i as f32;
-                [
-                    stops[i][0] + (stops[i + 1][0] - stops[i][0]) * frac,
-                    stops[i][1] + (stops[i + 1][1] - stops[i][1]) * frac,
-                    stops[i][2] + (stops[i + 1][2] - stops[i][2]) * frac,
-                ]
-            };
+            let t = (x as f32).mul_add(dx_inv_range, y_term);
+            let pos = t.clamp(0.0, 1.0) * last_f32;
+            let i = (pos as usize).min(last - 1);
+            let frac = pos - i as f32;
+            let linear = [
+                stops[i][0] + (stops[i + 1][0] - stops[i][0]) * frac,
+                stops[i][1] + (stops[i + 1][1] - stops[i][1]) * frac,
+                stops[i][2] + (stops[i + 1][2] - stops[i][2]) * frac,
+            ];
             pixels.push(srgb_byte(linear_to_srgb_lut(linear[0], table)));
             pixels.push(srgb_byte(linear_to_srgb_lut(linear[1], table)));
             pixels.push(srgb_byte(linear_to_srgb_lut(linear[2], table)));
