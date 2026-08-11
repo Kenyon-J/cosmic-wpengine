@@ -160,3 +160,31 @@ fn test_canvas_fetch_skipped_without_configured_proxy() {
     ));
     assert_eq!(result, None);
 }
+
+/// Tests that the optimized placeholder art generation produces the correct
+/// resolution, gradient colors, and finishes successfully.
+#[test]
+fn test_generate_placeholder_art() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let art = rt.block_on(MprisWatcher::generate_placeholder_art());
+    assert!(art.is_some());
+    let img = art.unwrap();
+    assert_eq!(img.width(), 640);
+    assert_eq!(img.height(), 640);
+
+    let rgba = img.to_rgba8();
+    let p_first = rgba.get_pixel(0, 0);
+    assert_eq!(p_first[0], 20);
+    assert_eq!(p_first[1], 20);
+    assert_eq!(p_first[2], 40);
+    assert_eq!(p_first[3], 255);
+
+    let p_last = rgba.get_pixel(639, 639);
+    assert_eq!(p_last[0], 99);
+    assert_eq!(p_last[1], 20);
+    assert_eq!(p_last[2], 119);
+    assert_eq!(p_last[3], 255);
+}
