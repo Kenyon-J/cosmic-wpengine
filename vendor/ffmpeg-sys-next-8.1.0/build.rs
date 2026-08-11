@@ -1572,6 +1572,7 @@ fn main() {
             .header(search_include(&include_paths, "libavcodec/avcodec.h"))
             .header(search_include(&include_paths, "libavcodec/codec_id.h"))
             .header(search_include(&include_paths, "libavcodec/codec.h"))
+            .header(search_include(&include_paths, "libavcodec/packet.h"))
             .header(search_include(&include_paths, "libavcodec/dv_profile.h"))
             .header(search_include(&include_paths, "libavcodec/vorbis_parser.h"));
 
