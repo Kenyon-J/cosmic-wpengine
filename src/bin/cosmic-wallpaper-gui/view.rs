@@ -1212,29 +1212,48 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                 Message::TemperatureUnitSelected,
             )),
         )
-        .add(
+        .add({
+            let lat_valid = app.lat_input.trim().is_empty()
+                || app
+                    .lat_input
+                    .trim()
+                    .parse::<f64>()
+                    .is_ok_and(|lat| (-90.0..=90.0).contains(&lat));
+            let lon_valid = app.lon_input.trim().is_empty()
+                || app
+                    .lon_input
+                    .trim()
+                    .parse::<f64>()
+                    .is_ok_and(|lon| (-180.0..=180.0).contains(&lon));
+
+            let mut lat_input = text_input(fl!("weather-latitude-placeholder"), &app.lat_input)
+                .on_input(Message::LatitudeChanged)
+                .width(Length::Fixed(100.0));
+            if !lat_valid {
+                lat_input = lat_input.error(fl!("weather-invalid-latitude"));
+            }
+
+            let mut lon_input = text_input(fl!("weather-longitude-placeholder"), &app.lon_input)
+                .on_input(Message::LongitudeChanged)
+                .width(Length::Fixed(100.0));
+            if !lon_valid {
+                lon_input = lon_input.error(fl!("weather-invalid-longitude"));
+            }
+
             settings::item::builder(fl!("weather-location"))
                 .description(fl!("weather-location-desc"))
                 .control(
                     Row::new()
-                        .push(
-                            text_input(fl!("weather-latitude-placeholder"), &app.lat_input)
-                                .on_input(Message::LatitudeChanged)
-                                .width(Length::Fixed(100.0)),
-                        )
-                        .push(
-                            text_input(fl!("weather-longitude-placeholder"), &app.lon_input)
-                                .on_input(Message::LongitudeChanged)
-                                .width(Length::Fixed(100.0)),
-                        )
+                        .push(lat_input)
+                        .push(lon_input)
                         .push(
                             button::standard(fl!("weather-use-my-location"))
                                 .on_press(Message::DetectLocation),
                         )
                         .spacing(8)
                         .align_y(cosmic::iced::Alignment::Center),
-                ),
-        )
+                )
+        })
         .add(
             settings::item::builder(fl!("weather-update-every")).control(dropdown(
                 poll_labels(),
