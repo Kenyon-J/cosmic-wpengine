@@ -1571,6 +1571,7 @@ fn main() {
         builder = builder
             .header(search_include(&include_paths, "libavcodec/avcodec.h"))
             .header(search_include(&include_paths, "libavcodec/codec.h"))
+            .header(search_include(&include_paths, "libavcodec/codec_desc.h"))
             .header(search_include(&include_paths, "libavcodec/codec_id.h"))
             .header(search_include(&include_paths, "libavcodec/codec_par.h"))
             .header(search_include(&include_paths, "libavcodec/packet.h"))
