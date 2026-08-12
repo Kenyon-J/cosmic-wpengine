@@ -298,6 +298,7 @@ pub(crate) fn draw_frame(
     renderer: &mut super::Renderer,
     wayland_manager: &mut WaylandManager,
     delta: f32,
+    now: std::time::Instant,
 ) -> Result<()> {
     // One pass of pure derivation over &renderer (phase 1 of the renderer
     // decomposition); the loop below is then free to take mutable borrows.
@@ -451,7 +452,7 @@ pub(crate) fn draw_frame(
             e => anyhow::bail!("Failed to get current texture: {:?}", e),
         };
 
-        wayland_manager.mark_frame_rendered(i as usize); // Request the next frame callback
+        wayland_manager.mark_frame_rendered(i as usize, now); // Request the next frame callback
 
         let current_res = (gpu_out.config.width, gpu_out.config.height);
 

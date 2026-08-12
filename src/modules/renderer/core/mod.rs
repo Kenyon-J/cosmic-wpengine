@@ -194,12 +194,14 @@ impl Renderer {
 
             interval.tick().await;
 
+            let now = Instant::now();
+
             // One-shot reasons this frame's content differs from the last
             // presented one; continuous motion is covered by
             // scene_is_animating() at the draw gate below.
             let mut scene_dirty = false;
 
-            let occluded = wayland_manager.is_occluded();
+            let occluded = wayland_manager.is_occluded(now);
             if self.last_occluded != Some(occluded) {
                 let _ = is_visible_tx.send(!occluded);
                 self.last_occluded = Some(occluded);
@@ -284,7 +286,7 @@ impl Renderer {
                 // scene_is_animating(). Blanket-marking them dirty would
                 // keep redrawing a silent, motionless scene forever.
                 scene_dirty |= !matches!(event, Event::AudioFrame(_));
-                self.handle_event(event).await;
+                self.handle_event(event, now).await;
             }
 
             if transparent_changed {
@@ -294,9 +296,11 @@ impl Renderer {
 
             self.state.update_time();
 
-            let now = Instant::now();
             // Cap the delta to 100ms to prevent the Explicit Euler physics from exploding after a monitor sleep!
-            let delta = now.duration_since(last_frame).as_secs_f32().min(0.1);
+            let delta = now
+                .saturating_duration_since(last_frame)
+                .as_secs_f32()
+                .min(0.1);
             self.state.tick_transition(delta);
             last_frame = now;
 
@@ -426,11 +430,11 @@ impl Renderer {
                 || scene_animating
                 || settle_frame
                 || !has_presented
-                || last_present.elapsed() >= STATIC_SCENE_HEARTBEAT;
+                || now.saturating_duration_since(last_present) >= STATIC_SCENE_HEARTBEAT;
 
             if needs_draw && wayland_manager.any_monitor_ready() {
-                super::draw::draw_frame(self, wayland_manager, delta)?;
-                last_present = Instant::now();
+                super::draw::draw_frame(self, wayland_manager, delta, now)?;
+                last_present = now;
                 has_presented = true;
             }
 

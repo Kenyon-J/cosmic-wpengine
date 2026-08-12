@@ -1,7 +1,7 @@
 use super::*;
 use cosmic_text::SwashCache;
 impl Renderer {
-    pub(crate) async fn handle_event(&mut self, event: Event) {
+    pub(crate) async fn handle_event(&mut self, event: Event, now: std::time::Instant) {
         use crate::modules::renderer::utils::hash_str;
         match event {
             Event::ConfigUpdated(config, theme_layout) => {
@@ -97,8 +97,7 @@ impl Renderer {
                     // triggers on genuine failures (which also fade themselves out
                     // early via an art-less TrackAssetsLoaded).
                     info!("Track event received without album art; keeping previous art while it loads");
-                    self.art.pending_deadline =
-                        Some(Instant::now() + std::time::Duration::from_secs(10));
+                    self.art.pending_deadline = Some(now + std::time::Duration::from_secs(10));
                     if track.palette.is_none() {
                         track.palette = self
                             .state
@@ -154,7 +153,7 @@ impl Renderer {
                     } else if self.art.pending_deadline.is_some() {
                         // The fetch chain concluded without any art: start the
                         // fade-out now instead of waiting out the grace period.
-                        self.art.pending_deadline = Some(Instant::now());
+                        self.art.pending_deadline = Some(now);
                     }
                     let mut palette_updated = false;
                     if let Some(current) = self.state.current_track.as_mut() {
