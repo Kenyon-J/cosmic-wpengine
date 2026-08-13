@@ -110,13 +110,13 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:base
     env:
-      PKG_CONFIG_PATH: /usr/lib/ffmpeg6/pkgconfig
+      PKG_CONFIG_PATH: /usr/lib/ffmpeg4.4/pkgconfig
 
     steps:
       - name: Install prerequisite tools
         # ttf-dejavu: the lyric wrapping test shapes real text and needs at
         # least one sans-serif font present in the container.
-        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust libxkbcommon wayland wayland-protocols dbus ffmpeg ffmpeg6 ttf-dejavu
+        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust libxkbcommon wayland wayland-protocols dbus ffmpeg ffmpeg4.4 ttf-dejavu
 
       - name: Checkout repository
         uses: actions/checkout@v4
