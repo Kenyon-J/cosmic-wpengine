@@ -160,3 +160,28 @@ fn test_canvas_fetch_skipped_without_configured_proxy() {
     ));
     assert_eq!(result, None);
 }
+
+/// Tests that the optimized placeholder art generation produces the exact same expected dimensions
+/// and pixel values at various reference coordinates as the original mathematical logic,
+/// ensuring absolute correctness and no visual regression.
+#[test]
+fn test_generate_placeholder_art() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let opt_img = rt.block_on(MprisWatcher::generate_placeholder_art());
+    assert!(opt_img.is_some());
+    let img = opt_img.unwrap();
+    assert_eq!(img.width(), 640);
+    assert_eq!(img.height(), 640);
+    let rgba = img.to_rgba8();
+    for y in [0, 100, 320, 500, 639] {
+        for x in [0, 100, 320, 500, 639] {
+            let p = rgba.get_pixel(x, y);
+            let r = ((x as f32 / 640.0) * 80.0) as u8 + 20;
+            let b = ((y as f32 / 640.0) * 80.0) as u8 + 40;
+            assert_eq!(p.0, [r, 20, b, 255]);
+        }
+    }
+}

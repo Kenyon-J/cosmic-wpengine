@@ -24,3 +24,7 @@
 ## 2025-03-05 - Only Re-upload Text Buffers When GPU Data Changes
 **Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when text data hasn't changed, consumes unnecessary PCIe bandwidth and CPU/GPU overhead in the main loop.
 **Action:** Add caching fields (e.g. `last_uploaded_vertices`, `last_uploaded_indices`) to track the previous frame's geometry and explicitly bypass the `write_buffer` command if the geometry slice matches the newly generated one.
+
+## 05-03-2025- Precomputing Coordinate-Invariant Image Gradients
+**Learning:** Using `ImageBuffer::put_pixel` inside nested pixel loops (such as generating placeholder gradients) invokes bounds assertions and offset multiplications for every pixel, which blocks loop vectorization and increases CPU overhead. This is solved by pre-allocating a raw pixel vector of exact capacity, hoisting lookup math (like coordinate-invariant 'r' and 'b' channel formulas) to pre-populated lookup arrays outside the loops, and iterating directly over elements to construct the final image via `RgbaImage::from_raw`.
+**Action:** For procedurally generated graphics or gradient textures, pre-allocate flat pixel buffers, precompute gradient scales as outer-loop-invariant/lookup arrays, and avoid coordinate-based `put_pixel` inside high-frequency nested loops.
