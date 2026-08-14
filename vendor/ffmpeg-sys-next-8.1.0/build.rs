@@ -1577,7 +1577,8 @@ fn main() {
             .header(search_include(&include_paths, "libavcodec/codec_id.h"))
             .header(search_include(&include_paths, "libavcodec/codec_par.h"))
             .header(search_include(&include_paths, "libavcodec/defs.h"))
-            .header(search_include(&include_paths, "libavcodec/packet.h"));
+            .header(search_include(&include_paths, "libavcodec/packet.h"))
+            .header(search_include(&include_paths, "libavcodec/version.h"));
 
         if ffmpeg_major_version < 5 {
             builder = builder.header(search_include(&include_paths, "libavcodec/vaapi.h"));
