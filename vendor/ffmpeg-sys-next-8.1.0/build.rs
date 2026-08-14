@@ -1573,8 +1573,10 @@ fn main() {
             .header(search_include(&include_paths, "libavcodec/dv_profile.h"))
             .header(search_include(&include_paths, "libavcodec/vorbis_parser.h"))
             .header(search_include(&include_paths, "libavcodec/codec.h"))
+            .header(search_include(&include_paths, "libavcodec/codec_desc.h"))
             .header(search_include(&include_paths, "libavcodec/codec_id.h"))
             .header(search_include(&include_paths, "libavcodec/codec_par.h"))
+            .header(search_include(&include_paths, "libavcodec/defs.h"))
             .header(search_include(&include_paths, "libavcodec/packet.h"));
 
         if ffmpeg_major_version < 5 {
