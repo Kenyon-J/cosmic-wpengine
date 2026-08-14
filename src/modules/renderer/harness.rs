@@ -188,10 +188,13 @@ async fn feed_synthetic_scene(renderer: &mut Renderer) {
     let (recycle_bands_tx, _recycle_bands_rx) = tokio::sync::mpsc::channel(1);
     let (recycle_waveform_tx, _recycle_waveform_rx) = tokio::sync::mpsc::channel(1);
     renderer
-        .handle_event(Event::AudioFrame(Box::new((
-            PooledAudioBuffer::new(raw_bands.into_boxed_slice(), recycle_bands_tx),
-            PooledAudioBuffer::new(raw_waveform.into_boxed_slice(), recycle_waveform_tx),
-        ))))
+        .handle_event(
+            Event::AudioFrame(Box::new((
+                PooledAudioBuffer::new(raw_bands.into_boxed_slice(), recycle_bands_tx),
+                PooledAudioBuffer::new(raw_waveform.into_boxed_slice(), recycle_waveform_tx),
+            ))),
+            std::time::Instant::now(),
+        )
         .await;
 
     let track = TrackInfo {
@@ -205,9 +208,14 @@ async fn feed_synthetic_scene(renderer: &mut Renderer) {
         video_url: None,
     };
     renderer
-        .handle_event(Event::TrackChanged(Box::new(track)))
+        .handle_event(
+            Event::TrackChanged(Box::new(track)),
+            std::time::Instant::now(),
+        )
         .await;
-    renderer.handle_event(Event::PlaybackResumed).await;
+    renderer
+        .handle_event(Event::PlaybackResumed, std::time::Instant::now())
+        .await;
 
     // The live loop calls this once per render tick (see `core/mod.rs`),
     // independent of `AudioFrame` arrival; a one-shot offscreen render has
