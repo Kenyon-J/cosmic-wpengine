@@ -1217,16 +1217,38 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                 .description(fl!("weather-location-desc"))
                 .control(
                     Row::new()
-                        .push(
-                            text_input(fl!("weather-latitude-placeholder"), &app.lat_input)
-                                .on_input(Message::LatitudeChanged)
-                                .width(Length::Fixed(100.0)),
-                        )
-                        .push(
-                            text_input(fl!("weather-longitude-placeholder"), &app.lon_input)
-                                .on_input(Message::LongitudeChanged)
-                                .width(Length::Fixed(100.0)),
-                        )
+                        .push({
+                            let is_valid = app.lat_input.trim().is_empty()
+                                || app
+                                    .lat_input
+                                    .trim()
+                                    .parse::<f64>()
+                                    .is_ok_and(|v| (-90.0..=90.0).contains(&v));
+                            let mut input =
+                                text_input(fl!("weather-latitude-placeholder"), &app.lat_input)
+                                    .on_input(Message::LatitudeChanged)
+                                    .width(Length::Fixed(100.0));
+                            if !is_valid {
+                                input = input.error(fl!("weather-invalid-latitude"));
+                            }
+                            input
+                        })
+                        .push({
+                            let is_valid = app.lon_input.trim().is_empty()
+                                || app
+                                    .lon_input
+                                    .trim()
+                                    .parse::<f64>()
+                                    .is_ok_and(|v| (-180.0..=180.0).contains(&v));
+                            let mut input =
+                                text_input(fl!("weather-longitude-placeholder"), &app.lon_input)
+                                    .on_input(Message::LongitudeChanged)
+                                    .width(Length::Fixed(100.0));
+                            if !is_valid {
+                                input = input.error(fl!("weather-invalid-longitude"));
+                            }
+                            input
+                        })
                         .push(
                             button::standard(fl!("weather-use-my-location"))
                                 .on_press(Message::DetectLocation),
