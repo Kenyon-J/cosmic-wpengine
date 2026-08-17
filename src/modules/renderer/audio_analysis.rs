@@ -221,7 +221,10 @@ impl AudioAnalysis {
         // average; the 200ms cooldown prevents double-triggering.
         let beat_spike = if current_bass > self.bass_moving_average * 1.3
             && current_bass > 0.005
-            && now.saturating_duration_since(self.last_beat_time).as_millis() > 200
+            && now
+                .saturating_duration_since(self.last_beat_time)
+                .as_millis()
+                > 200
         {
             self.beat_pulse = 1.0;
             let spike = (current_bass / self.bass_moving_average.max(0.001)).clamp(1.2, 3.0);
@@ -245,7 +248,10 @@ impl AudioAnalysis {
         // Fast 50ms cooldown for rapid 16th-note hi-hats.
         if current_treble > self.treble_moving_average * 1.2
             && current_treble > 0.002
-            && now.saturating_duration_since(self.last_treble_time).as_millis() > 50
+            && now
+                .saturating_duration_since(self.last_treble_time)
+                .as_millis()
+                > 50
         {
             self.treble_pulse = 1.0;
             self.last_treble_time = now;
