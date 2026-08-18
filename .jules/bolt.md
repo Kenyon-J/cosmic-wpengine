@@ -28,3 +28,6 @@
 ## 2025-03-05 - Consolidate Redundant Clock Queries in Hot Render Loops
 **Learning:** Frequent queries to the system clock via `Instant::now()` or `.elapsed()` inside high-refresh-rate render loops introduce significant system-call/vDSO overhead and can cause temporal inconsistency or thread-scheduling jitter. Querying the clock exactly once at the beginning of each frame tick and propagating the consolidated `now` timestamp down the call hierarchy completely eliminates this overhead.
 **Action:** Always capture a single unified frame timestamp at the start of a render tick and pass it to all sub-components that require timing, instead of letting them fetch the system clock independently.
+## 2025-03-05 - Avoid Redundant `wgpu` Buffer Writes in Hot Loops
+**Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when data hasn't changed, needlessly consumes PCIe bandwidth and CPU/GPU cycles.
+**Action:** Always diff the incoming uniform/vertex/buffer data against a cached version (e.g., storing the last slice on the `Renderer` state) and only dispatch `write_buffer` if the data actually differs.
