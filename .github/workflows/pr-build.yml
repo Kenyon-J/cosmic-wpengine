@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Install system dependencies
         run: |
@@ -60,7 +60,7 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y curl git build-essential clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev ffmpeg libssl-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev libpostproc-dev
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -114,10 +114,10 @@ jobs:
       - name: Install prerequisite tools
         # ttf-dejavu: the lyric wrapping test shapes real text and needs at
         # least one sans-serif font present in the container.
-        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust libxkbcommon wayland wayland-protocols dbus ffmpeg ttf-dejavu nasm
+        run: pacman -Sy --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust libxkbcommon wayland wayland-protocols dbus ffmpeg ttf-dejavu nasm
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Set up Rust cache
         uses: Swatinem/rust-cache@v2
@@ -152,7 +152,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Install system dependencies
         run: |
@@ -200,7 +200,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
