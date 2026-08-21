@@ -160,3 +160,27 @@ fn test_canvas_fetch_skipped_without_configured_proxy() {
     ));
     assert_eq!(result, None);
 }
+
+#[test]
+fn test_generate_placeholder_art() {
+    use image::GenericImageView;
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let art = rt.block_on(MprisWatcher::generate_placeholder_art());
+    assert!(art.is_some(), "Placeholder art generation should succeed");
+
+    let img = art.unwrap();
+    assert_eq!(img.width(), 640);
+    assert_eq!(img.height(), 640);
+
+    // Verify expected gradient values at top-left and bottom-right corners
+    let top_left = img.get_pixel(0, 0);
+    assert_eq!(top_left, image::Rgba([20, 20, 40, 255]));
+
+    let bottom_right = img.get_pixel(639, 639);
+    assert_eq!(bottom_right, image::Rgba([99, 20, 119, 255]));
+}
