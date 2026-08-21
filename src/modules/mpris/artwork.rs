@@ -62,11 +62,11 @@ impl MprisWatcher {
             // to eliminate 800,000+ redundant float divisions/multiplications per fallback image.
             let mut r_vals = [0u8; 640];
             let mut b_vals = [0u8; 640];
-            for x in 0..640 {
-                r_vals[x] = ((x as f32 / 640.0) * 80.0) as u8 + 20;
+            for (x, r_val) in r_vals.iter_mut().enumerate() {
+                *r_val = ((x as f32 / 640.0) * 80.0) as u8 + 20;
             }
-            for y in 0..640 {
-                b_vals[y] = ((y as f32 / 640.0) * 80.0) as u8 + 40;
+            for (y, b_val) in b_vals.iter_mut().enumerate() {
+                *b_val = ((y as f32 / 640.0) * 80.0) as u8 + 40;
             }
 
             // Optimization: Populate a pre-allocated flat pixel buffer directly to avoid
