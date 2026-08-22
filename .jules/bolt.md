@@ -28,3 +28,7 @@
 ## 2025-03-05 - Consolidate Redundant Clock Queries in Hot Render Loops
 **Learning:** Frequent queries to the system clock via `Instant::now()` or `.elapsed()` inside high-refresh-rate render loops introduce significant system-call/vDSO overhead and can cause temporal inconsistency or thread-scheduling jitter. Querying the clock exactly once at the beginning of each frame tick and propagating the consolidated `now` timestamp down the call hierarchy completely eliminates this overhead.
 **Action:** Always capture a single unified frame timestamp at the start of a render tick and pass it to all sub-components that require timing, instead of letting them fetch the system clock independently.
+
+## 2025-03-05 - Avoid Redundant Clock Queries in High-Frequency Paths
+**Learning:** Frequent queries to the system clock via `Instant::now()` or `.elapsed()` inside high-frequency paths (like audio frame ingestion) introduce unnecessary system-call/vDSO overhead and can cause temporal inconsistency.
+**Action:** Always capture a single unified frame timestamp at the start of a render/event tick and pass it to all sub-components that require timing, instead of letting them fetch the system clock independently.

@@ -195,7 +195,12 @@ impl AudioAnalysis {
     /// Processes one raw `AudioFrame`: beat/treble detection against the
     /// fixed FFT-bin ranges, then smooths `raw_bands`/`raw_waveform` (FFT
     /// resolution, up to 1024 bins) down into the configured band count.
-    pub(crate) fn ingest(&mut self, raw_bands: &[f32], raw_waveform: &[f32]) -> IngestResult {
+    pub(crate) fn ingest(
+        &mut self,
+        raw_bands: &[f32],
+        raw_waveform: &[f32],
+        now: Instant,
+    ) -> IngestResult {
         let target_len = self.bands.len();
         let bands_len = raw_bands.len();
 
@@ -216,11 +221,11 @@ impl AudioAnalysis {
         // average; the 200ms cooldown prevents double-triggering.
         let beat_spike = if current_bass > self.bass_moving_average * 1.3
             && current_bass > 0.005
-            && self.last_beat_time.elapsed().as_millis() > 200
+            && now.saturating_duration_since(self.last_beat_time).as_millis() > 200
         {
             self.beat_pulse = 1.0;
             let spike = (current_bass / self.bass_moving_average.max(0.001)).clamp(1.2, 3.0);
-            self.last_beat_time = Instant::now();
+            self.last_beat_time = now;
             Some(spike)
         } else {
             None
@@ -240,10 +245,10 @@ impl AudioAnalysis {
         // Fast 50ms cooldown for rapid 16th-note hi-hats.
         if current_treble > self.treble_moving_average * 1.2
             && current_treble > 0.002
-            && self.last_treble_time.elapsed().as_millis() > 50
+            && now.saturating_duration_since(self.last_treble_time).as_millis() > 50
         {
             self.treble_pulse = 1.0;
-            self.last_treble_time = Instant::now();
+            self.last_treble_time = now;
         }
 
         let mut total_energy = 0.0;
@@ -367,7 +372,7 @@ mod tests {
         // Warm up the moving average on silence so the impulse reads as a
         // genuine spike, the way a real quiet intro would.
         for _ in 0..5 {
-            let r = audio.ingest(&quiet, &quiet);
+            let r = audio.ingest(&quiet, &quiet, Instant::now());
             assert!(r.beat_spike.is_none());
         }
 
@@ -377,13 +382,13 @@ mod tests {
         // blocking the very first beat.
         std::thread::sleep(std::time::Duration::from_millis(210));
 
-        let r = audio.ingest(&loud, &quiet);
+        let r = audio.ingest(&loud, &quiet, Instant::now());
         assert!(r.beat_spike.is_some());
         assert_eq!(audio.beat_pulse, 1.0);
 
         // Still inside the 200ms real-time cooldown: back-to-back impulses
         // must not double-trigger.
-        let r2 = audio.ingest(&loud, &quiet);
+        let r2 = audio.ingest(&loud, &quiet, Instant::now());
         assert!(r2.beat_spike.is_none());
     }
 
@@ -440,7 +445,7 @@ mod tests {
     fn zero_band_count_yields_zero_energy_without_panicking() {
         let mut audio = AudioAnalysis::new(0, 0.7);
         let raw = vec![0.0f32; 512];
-        let r = audio.ingest(&raw, &raw);
+        let r = audio.ingest(&raw, &raw, Instant::now());
         assert_eq!(r.avg_energy, 0.0);
         assert_eq!(audio.base_energy, 0.0);
     }
