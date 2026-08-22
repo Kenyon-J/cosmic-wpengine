@@ -321,7 +321,7 @@ impl MprisWatcher {
     pub(super) async fn fetch_spotify_canvas(
         track_id: &str,
         proxy_url: Option<&str>,
-        client: &reqwest::Client,
+        _client: &reqwest::Client,
     ) -> Option<String> {
         // Note: The official Spotify Web API does NOT expose Canvas URLs.
         // To get them, the community routes requests through API proxies that
@@ -341,6 +341,7 @@ impl MprisWatcher {
         // SSRF Guard (Same tradeoff as video decoder URL fetching): Ensure
         // the resolved host address is a safe IP before proceeding with the request.
         // This mitigates attacks where users inject local endpoints.
+        let mut safe_addr = None;
         let mut all_safe = true;
         let mut has_addrs = false;
         if let Ok(mut addrs) = tokio::net::lookup_host(&host_port).await {
@@ -349,6 +350,8 @@ impl MprisWatcher {
                 if !crate::modules::utils::is_safe_ip(addr.ip()) {
                     all_safe = false;
                     break;
+                } else if safe_addr.is_none() {
+                    safe_addr = Some(addr);
                 }
             }
         }
@@ -358,7 +361,16 @@ impl MprisWatcher {
             return None;
         }
 
-        if let Ok(resp) = client
+        let safe_addr = safe_addr?;
+        let safe_client = reqwest::Client::builder()
+            .user_agent("cosmic-wallpaper/1.0")
+            .timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .resolve(host_str, safe_addr)
+            .build()
+            .ok()?;
+
+        if let Ok(resp) = safe_client
             .get(proxy_url)
             .query(&[("track_id", track_id)])
             .send()
