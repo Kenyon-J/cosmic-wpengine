@@ -126,6 +126,11 @@ pub async fn render_frame_to_png(
         renderer.theme.visualiser.led_segments,
         renderer.theme.visualiser.peak_hold,
         renderer.theme.visualiser.glow_strength,
+        &mut renderer.last_vis_uniforms,
+        &mut renderer.last_bg_art_uniforms,
+        &mut renderer.last_fg_art_uniforms,
+        &mut renderer.last_custom_bg_uniforms,
+        &mut renderer.last_amb_uniforms,
     );
 
     draw::encode_frame(
