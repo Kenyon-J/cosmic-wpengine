@@ -246,7 +246,7 @@ impl Renderer {
                 // itself, since the lyric-bounce spring it kicks is themed
                 // and owned here.
                 let (bands, waveform) = &*boxed_data;
-                let result = self.audio.ingest(bands, waveform);
+                let result = self.audio.ingest(now, bands, waveform);
                 self.state.audio_energy = result.avg_energy;
                 if let Some(spike) = result.beat_spike {
                     self.lyric_bounce_velocity += (15.0 * spike) * self.theme.effects.lyric_bounce;
