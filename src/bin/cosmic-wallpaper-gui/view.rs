@@ -1218,20 +1218,32 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                 .control(
                     Row::new()
                         .push({
-                            let lat_valid = app.lat_input.trim().is_empty() || app.lat_input.trim().parse::<f64>().is_ok_and(|v| (-90.0..=90.0).contains(&v));
-                            let mut input = text_input(fl!("weather-latitude-placeholder"), &app.lat_input)
-                                .on_input(Message::LatitudeChanged)
-                                .width(Length::Fixed(100.0));
+                            let lat_valid = app.lat_input.trim().is_empty()
+                                || app
+                                    .lat_input
+                                    .trim()
+                                    .parse::<f64>()
+                                    .is_ok_and(|v| (-90.0..=90.0).contains(&v));
+                            let mut input =
+                                text_input(fl!("weather-latitude-placeholder"), &app.lat_input)
+                                    .on_input(Message::LatitudeChanged)
+                                    .width(Length::Fixed(100.0));
                             if !lat_valid {
                                 input = input.error(fl!("weather-invalid-latitude"));
                             }
                             input
                         })
                         .push({
-                            let lon_valid = app.lon_input.trim().is_empty() || app.lon_input.trim().parse::<f64>().is_ok_and(|v| (-180.0..=180.0).contains(&v));
-                            let mut input = text_input(fl!("weather-longitude-placeholder"), &app.lon_input)
-                                .on_input(Message::LongitudeChanged)
-                                .width(Length::Fixed(100.0));
+                            let lon_valid = app.lon_input.trim().is_empty()
+                                || app
+                                    .lon_input
+                                    .trim()
+                                    .parse::<f64>()
+                                    .is_ok_and(|v| (-180.0..=180.0).contains(&v));
+                            let mut input =
+                                text_input(fl!("weather-longitude-placeholder"), &app.lon_input)
+                                    .on_input(Message::LongitudeChanged)
+                                    .width(Length::Fixed(100.0));
                             if !lon_valid {
                                 input = input.error(fl!("weather-invalid-longitude"));
                             }
