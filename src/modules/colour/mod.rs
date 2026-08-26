@@ -166,7 +166,10 @@ fn get_srgb_lut() -> &'static [f32; 1024] {
 
 /// WCAG relative luminance of an sRGB color (components 0.0-1.0).
 pub fn relative_luminance(c: [f32; 3]) -> f32 {
-    fn lin(u: f32) -> f32 {
+    // Optimization: Fetch the lookup table once per relative_luminance call
+    // instead of three times inside the inner `lin` helper for each RGB component.
+    let lut = get_srgb_lut();
+    let lin = |u: f32| -> f32 {
         if u.is_nan() {
             return 0.0;
         }
@@ -179,7 +182,6 @@ pub fn relative_luminance(c: [f32; 3]) -> f32 {
             u
         };
 
-        let lut = get_srgb_lut();
         let index_f = u_clamped * 1023.0;
         let index = index_f as usize;
         if index >= 1023 {
@@ -191,7 +193,7 @@ pub fn relative_luminance(c: [f32; 3]) -> f32 {
         let y1 = lut[index + 1];
 
         y0 + (y1 - y0) * weight
-    }
+    };
     0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2])
 }
 
