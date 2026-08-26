@@ -307,3 +307,5 @@ general-page-summary = Comportamiento del motor y mantenimiento.
 general-language-title = Idioma
 general-language-desc = Anula el idioma del escritorio solo para esta aplicación; útil para un idioma que tu escritorio aún no ofrece.
 general-language-system-default = Predeterminado del sistema
+weather-invalid-latitude = Invalid latitude
+weather-invalid-longitude = Invalid longitude

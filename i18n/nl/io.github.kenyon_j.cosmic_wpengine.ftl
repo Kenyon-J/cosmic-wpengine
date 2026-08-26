@@ -307,3 +307,5 @@ general-page-summary = Gedrag van de engine en onderhoud.
 general-language-title = Taal
 general-language-desc = Overschrijft de taal van het bureaublad alleen voor deze app - handig voor een taal die je bureaublad nog niet aanbiedt.
 general-language-system-default = Systeemstandaard
+weather-invalid-latitude = Invalid latitude
+weather-invalid-longitude = Invalid longitude
