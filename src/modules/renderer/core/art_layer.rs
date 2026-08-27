@@ -31,6 +31,8 @@ pub(crate) struct ArtLayer {
     pub(crate) pending_deadline: Option<Instant>,
     pub(crate) target_color: [f32; 3],
     pub(crate) prev_color: [f32; 3],
+    pub(crate) last_bg_uniforms: Option<crate::modules::renderer::types::ArtUniforms>,
+    pub(crate) last_fg_uniforms: Option<crate::modules::renderer::types::ArtUniforms>,
 }
 
 impl ArtLayer {
@@ -57,6 +59,8 @@ impl ArtLayer {
             pending_deadline: None,
             target_color: [0.1, 0.1, 0.1],
             prev_color: [0.1, 0.1, 0.1],
+            last_bg_uniforms: None,
+            last_fg_uniforms: None,
         }
     }
 

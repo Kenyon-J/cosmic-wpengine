@@ -25,6 +25,8 @@ pub(crate) struct BackgroundLayer {
     pub(crate) ambient_pipeline: wgpu::RenderPipeline,
     pub(crate) ambient_bind_group: wgpu::BindGroup,
     pub(crate) ambient_uniform_buffer: wgpu::Buffer,
+    pub(crate) last_custom_bg_uniforms: Option<crate::modules::renderer::types::ArtUniforms>,
+    pub(crate) last_ambient_uniforms: Option<crate::modules::renderer::types::AmbUniforms>,
 }
 
 impl BackgroundLayer {
@@ -46,6 +48,8 @@ impl BackgroundLayer {
             ambient_pipeline,
             ambient_bind_group,
             ambient_uniform_buffer,
+            last_custom_bg_uniforms: None,
+            last_ambient_uniforms: None,
         }
     }
 
