@@ -321,7 +321,7 @@ impl MprisWatcher {
     pub(super) async fn fetch_spotify_canvas(
         track_id: &str,
         proxy_url: Option<&str>,
-        client: &reqwest::Client,
+        _client: &reqwest::Client,
     ) -> Option<String> {
         // Note: The official Spotify Web API does NOT expose Canvas URLs.
         // To get them, the community routes requests through API proxies that
@@ -338,9 +338,7 @@ impl MprisWatcher {
 
         let host_port = format!("{}:{}", host_str, port);
 
-        // SSRF Guard (Same tradeoff as video decoder URL fetching): Ensure
-        // the resolved host address is a safe IP before proceeding with the request.
-        // This mitigates attacks where users inject local endpoints.
+        let mut safe_addr = None;
         let mut all_safe = true;
         let mut has_addrs = false;
         if let Ok(mut addrs) = tokio::net::lookup_host(&host_port).await {
@@ -350,15 +348,35 @@ impl MprisWatcher {
                     all_safe = false;
                     break;
                 }
+                if safe_addr.is_none() {
+                    safe_addr = Some(addr);
+                }
             }
         }
 
-        if !has_addrs || !all_safe {
+        if !has_addrs || !all_safe || safe_addr.is_none() {
             warn!("Security violation: canvas proxy URL host '{}' resolves to a non-public address (SSRF protection)", host_str);
             return None;
         }
 
-        if let Ok(resp) = client
+        // DNS Rebinding SSRF Guard: we must pin the IP we just validated.
+        // Using the passed-in `_client` directly would re-resolve the hostname,
+        // allowing a TOCTOU attack. We create a new client just for this request.
+        let safe_addr = safe_addr?;
+        let safe_client = match reqwest::Client::builder()
+            .user_agent("cosmic-wallpaper/1.0")
+            .timeout(std::time::Duration::from_secs(10))
+            .resolve(host_str, safe_addr)
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("Failed to build pinned reqwest client: {}", e);
+                return None;
+            }
+        };
+
+        if let Ok(resp) = safe_client
             .get(proxy_url)
             .query(&[("track_id", track_id)])
             .send()
