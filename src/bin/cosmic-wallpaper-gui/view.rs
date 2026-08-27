@@ -930,6 +930,8 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                         if is_valid {
                             input = input.on_submit(|_| Message::CreateTheme);
                             btn = btn.on_press(Message::CreateTheme);
+                        } else if !is_empty && already_exists {
+                            input = input.error(fl!("theme-name-exists-error"));
                         }
 
                         let btn_element: cosmic::Element<'_, Message> = if is_valid {
