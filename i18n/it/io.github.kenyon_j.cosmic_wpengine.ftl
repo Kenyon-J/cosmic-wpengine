@@ -307,3 +307,6 @@ general-page-summary = Comportamento del motore e manutenzione.
 general-language-title = Lingua
 general-language-desc = Sostituisce la lingua del desktop solo per questa app - utile per una lingua che il tuo desktop non offre ancora.
 general-language-system-default = Predefinita di sistema
+
+weather-latitude-error = -90 a 90
+weather-longitude-error = -180 a 180

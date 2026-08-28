@@ -307,3 +307,6 @@ general-page-summary = Verhalten der Engine und Wartung.
 general-language-title = Sprache
 general-language-desc = Überschreibt die Sprache des Desktops nur für diese App - nützlich für eine Sprache, die dein Desktop noch nicht anbietet.
 general-language-system-default = Systemstandard
+
+weather-latitude-error = -90 bis 90
+weather-longitude-error = -180 bis 180

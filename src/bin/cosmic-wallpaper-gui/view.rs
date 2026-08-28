@@ -1217,16 +1217,38 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                 .description(fl!("weather-location-desc"))
                 .control(
                     Row::new()
-                        .push(
-                            text_input(fl!("weather-latitude-placeholder"), &app.lat_input)
-                                .on_input(Message::LatitudeChanged)
-                                .width(Length::Fixed(100.0)),
-                        )
-                        .push(
-                            text_input(fl!("weather-longitude-placeholder"), &app.lon_input)
-                                .on_input(Message::LongitudeChanged)
-                                .width(Length::Fixed(100.0)),
-                        )
+                        .push({
+                            let mut input =
+                                text_input(fl!("weather-latitude-placeholder"), &app.lat_input)
+                                    .on_input(Message::LatitudeChanged)
+                                    .width(Length::Fixed(100.0));
+                            if !app.lat_input.is_empty() {
+                                if let Ok(val) = app.lat_input.trim().parse::<f64>() {
+                                    if !(-90.0..=90.0).contains(&val) {
+                                        input = input.error(fl!("weather-latitude-error"));
+                                    }
+                                } else {
+                                    input = input.error(fl!("weather-latitude-error"));
+                                }
+                            }
+                            input
+                        })
+                        .push({
+                            let mut input =
+                                text_input(fl!("weather-longitude-placeholder"), &app.lon_input)
+                                    .on_input(Message::LongitudeChanged)
+                                    .width(Length::Fixed(100.0));
+                            if !app.lon_input.is_empty() {
+                                if let Ok(val) = app.lon_input.trim().parse::<f64>() {
+                                    if !(-180.0..=180.0).contains(&val) {
+                                        input = input.error(fl!("weather-longitude-error"));
+                                    }
+                                } else {
+                                    input = input.error(fl!("weather-longitude-error"));
+                                }
+                            }
+                            input
+                        })
                         .push(
                             button::standard(fl!("weather-use-my-location"))
                                 .on_press(Message::DetectLocation),
