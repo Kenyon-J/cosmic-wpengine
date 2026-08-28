@@ -28,3 +28,7 @@
 ## 2025-03-05 - Consolidate Redundant Clock Queries in Hot Render Loops
 **Learning:** Frequent queries to the system clock via `Instant::now()` or `.elapsed()` inside high-refresh-rate render loops introduce significant system-call/vDSO overhead and can cause temporal inconsistency or thread-scheduling jitter. Querying the clock exactly once at the beginning of each frame tick and propagating the consolidated `now` timestamp down the call hierarchy completely eliminates this overhead.
 **Action:** Always capture a single unified frame timestamp at the start of a render tick and pass it to all sub-components that require timing, instead of letting them fetch the system clock independently.
+
+## 05-03-2025- Leverage Disjoint Field Borrowing to Avoid Hot Path String Allocations
+**Learning:** Returning owned `Option<String>` copies in helper methods like `FrameParams::compute` forces heap allocations on every frame tick. Passing an entire `&Renderer` reference to helpers forces Rust's borrow checker to lock the whole struct immutably, preventing mutable access to other fields. Borrowing `Option<&str>` directly from `renderer.state` and `renderer.theme` in the caller (`draw_frame`) uses Rust's disjoint field borrowing, allowing immutable string slice borrows alongside mutable calls like `renderer.text.prepare(...)`.
+**Action:** Prefer borrowing string slices directly from disjoint struct fields in render hot paths rather than cloning `Option<String>` into owned helper structs.

@@ -347,7 +347,6 @@ pub(crate) fn draw_frame(
         lyrics_align,
         track_info_align,
         weather_align,
-        font_family,
         lyric_bounce,
         beat_pulse_mul,
     } = FrameParams::compute(renderer);
@@ -418,12 +417,16 @@ pub(crate) fn draw_frame(
         }
     }
 
-    // The owned family from FrameParams rebuilt into a borrow-free Attrs:
-    // TextSubsystem::prepare() below needs `&mut renderer.text` and `&attrs`
-    // in the same call, which a borrow through renderer would reject.
-    let family = font_family
+    // Borrow font family directly from renderer.state / renderer.theme to avoid heap allocation.
+    // Rust's disjoint field borrowing allows borrowing &renderer.state/theme alongside &mut renderer.text.
+    let font_family = renderer
+        .state
+        .config
+        .appearance
+        .font_family
         .as_deref()
-        .map_or(Family::SansSerif, Family::Name);
+        .or(renderer.theme.font_family.as_deref());
+    let family = font_family.map_or(Family::SansSerif, Family::Name);
     let attrs = Attrs::new().family(family);
 
     renderer.text.evict_stale_cache();
