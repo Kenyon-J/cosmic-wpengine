@@ -28,3 +28,7 @@
 ## 2025-03-05 - Consolidate Redundant Clock Queries in Hot Render Loops
 **Learning:** Frequent queries to the system clock via `Instant::now()` or `.elapsed()` inside high-refresh-rate render loops introduce significant system-call/vDSO overhead and can cause temporal inconsistency or thread-scheduling jitter. Querying the clock exactly once at the beginning of each frame tick and propagating the consolidated `now` timestamp down the call hierarchy completely eliminates this overhead.
 **Action:** Always capture a single unified frame timestamp at the start of a render tick and pass it to all sub-components that require timing, instead of letting them fetch the system clock independently.
+
+## 2025-03-05 - Avoid Over-Optimizing Gated Buffer Writes
+**Learning:** Adding redundant data caching and equality checks inside functions like `write_frame_uniforms` that are *already* guarded by higher-level cache checks (e.g., `if last_uniform_res != Some(current_res)`) introduces unnecessary comparison overhead without actually skipping any buffer uploads.
+**Action:** Before implementing `wgpu` diff-based skipping on static/uniform structs, verify that the containing function is called unconditionally every frame. If the function invocation is already gated behind state changes, do not add redundant inner equality checks.
