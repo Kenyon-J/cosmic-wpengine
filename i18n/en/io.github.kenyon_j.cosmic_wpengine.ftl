@@ -307,3 +307,5 @@ general-page-summary = Engine behaviour and housekeeping.
 general-language-title = Language
 general-language-desc = Overrides the desktop's own language for just this app - useful for a language your desktop doesn't offer yet.
 general-language-system-default = System default
+weather-invalid-latitude = Invalid latitude (must be between -90 and 90)
+weather-invalid-longitude = Invalid longitude (must be between -180 and 180)
