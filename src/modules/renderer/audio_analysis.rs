@@ -177,6 +177,8 @@ impl AudioAnalysis {
         // Peak-hold caps: snap up instantly whenever the live band catches
         // back up to (or passes) its own peak, otherwise keep falling under
         // constant gravity. Zipped iteration mirrors `ingest`'s band loop.
+        // Optimization: Pre-calculate loop-invariant gravity step outside the loop
+        let gravity_step = PEAK_GRAVITY * delta;
         for (peak, (band, velocity)) in self
             .peaks
             .iter_mut()
@@ -186,7 +188,7 @@ impl AudioAnalysis {
                 *peak = *band;
                 *velocity = 0.0;
             } else {
-                *velocity += PEAK_GRAVITY * delta;
+                *velocity += gravity_step;
                 *peak = (*peak - *velocity * delta).max(*band).max(0.0);
             }
         }
