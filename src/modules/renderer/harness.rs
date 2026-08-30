@@ -82,8 +82,9 @@ pub async fn render_frame_to_png(
     draw::write_frame_uniforms(
         &renderer.queue,
         &renderer.visualiser_pass.uniform_buffer,
-        &renderer.art,
-        &renderer.background,
+        &mut renderer.art,
+        &mut renderer.background,
+        &mut renderer.last_vis_uniforms,
         WIDTH,
         HEIGHT,
         params.has_audio,

@@ -21,8 +21,9 @@ use tracing::warn;
 pub(crate) fn write_frame_uniforms(
     queue: &wgpu::Queue,
     visualiser_uniform_buffer: &wgpu::Buffer,
-    art: &ArtLayer,
-    background: &BackgroundLayer,
+    art: &mut ArtLayer,
+    background: &mut BackgroundLayer,
+    last_vis_uniforms: &mut Option<VisUniforms>,
     width: u32,
     height: u32,
     has_audio: bool,
@@ -91,11 +92,15 @@ pub(crate) fn write_frame_uniforms(
             glow_strength,
             _padding: 0,
         };
-        queue.write_buffer(
-            visualiser_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&vis_uniforms),
-        );
+        // Optimization: Cache and diff incoming uniforms to prevent redundant wgpu buffer writes, saving PCIe bandwidth.
+        if last_vis_uniforms.as_ref() != Some(&vis_uniforms) {
+            queue.write_buffer(
+                visualiser_uniform_buffer,
+                0,
+                bytemuck::bytes_of(&vis_uniforms),
+            );
+            *last_vis_uniforms = Some(vis_uniforms);
+        }
     }
 
     // 2. Process album art uniforms
@@ -118,7 +123,11 @@ pub(crate) fn write_frame_uniforms(
             screen_aspect,
             _padding: 0,
         };
-        queue.write_buffer(&art.bg_uniform_buffer, 0, bytemuck::bytes_of(&bg_uniforms));
+        // Optimization: Cache and diff incoming uniforms to prevent redundant wgpu buffer writes.
+        if art.last_bg_uniforms.as_ref() != Some(&bg_uniforms) {
+            queue.write_buffer(&art.bg_uniform_buffer, 0, bytemuck::bytes_of(&bg_uniforms));
+            art.last_bg_uniforms = Some(bg_uniforms);
+        }
 
         // Optimization: Use pre-calculated constants to minimize arithmetic in the monitor loop
         let fg_scale_x = screen_aspect * fg_k1;
@@ -141,7 +150,10 @@ pub(crate) fn write_frame_uniforms(
             screen_aspect,
             _padding: 0,
         };
-        queue.write_buffer(&art.fg_uniform_buffer, 0, bytemuck::bytes_of(&fg_uniforms));
+        if art.last_fg_uniforms.as_ref() != Some(&fg_uniforms) {
+            queue.write_buffer(&art.fg_uniform_buffer, 0, bytemuck::bytes_of(&fg_uniforms));
+            art.last_fg_uniforms = Some(fg_uniforms);
+        }
     }
 
     if background.bind_group().is_some() {
@@ -162,11 +174,14 @@ pub(crate) fn write_frame_uniforms(
             screen_aspect,
             _padding: 0,
         };
-        queue.write_buffer(
-            &background.custom_bg_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&custom_bg_uniforms),
-        );
+        if background.last_custom_bg_uniforms.as_ref() != Some(&custom_bg_uniforms) {
+            queue.write_buffer(
+                &background.custom_bg_uniform_buffer,
+                0,
+                bytemuck::bytes_of(&custom_bg_uniforms),
+            );
+            background.last_custom_bg_uniforms = Some(custom_bg_uniforms);
+        }
     } else if let Some((elapsed, weather_type, final_sky)) = sky_color_data {
         // 3. Process ambient uniforms
         let amb_uniforms = AmbUniforms {
@@ -177,11 +192,14 @@ pub(crate) fn write_frame_uniforms(
             bg_alpha: custom_bg_alpha, // Can reuse the same bg_alpha logic
             _padding: [0.0; 3],
         };
-        queue.write_buffer(
-            &background.ambient_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&amb_uniforms),
-        );
+        if background.last_ambient_uniforms.as_ref() != Some(&amb_uniforms) {
+            queue.write_buffer(
+                &background.ambient_uniform_buffer,
+                0,
+                bytemuck::bytes_of(&amb_uniforms),
+            );
+            background.last_ambient_uniforms = Some(amb_uniforms);
+        }
     }
 }
 
@@ -359,11 +377,14 @@ pub(crate) fn draw_frame(
         let gravity = renderer.weather_gravity;
 
         let compute_uniforms = [delta, wind_x, gravity, 0.0f32];
-        renderer.queue.write_buffer(
-            &renderer.weather_compute_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&compute_uniforms),
-        );
+        if renderer.last_weather_compute_uniforms.as_ref() != Some(&compute_uniforms) {
+            renderer.queue.write_buffer(
+                &renderer.weather_compute_uniform_buffer,
+                0,
+                bytemuck::bytes_of(&compute_uniforms),
+            );
+            renderer.last_weather_compute_uniforms = Some(compute_uniforms);
+        }
 
         let mut compute_encoder =
             renderer
@@ -460,8 +481,9 @@ pub(crate) fn draw_frame(
             write_frame_uniforms(
                 &renderer.queue,
                 &renderer.visualiser_pass.uniform_buffer,
-                &renderer.art,
-                &renderer.background,
+                &mut renderer.art,
+                &mut renderer.background,
+                &mut renderer.last_vis_uniforms,
                 current_res.0,
                 current_res.1,
                 has_audio,
