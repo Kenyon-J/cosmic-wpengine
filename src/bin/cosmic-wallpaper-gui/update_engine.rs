@@ -206,9 +206,12 @@ impl SettingsApp {
         }
 
         if let Some(xdg_open) = resolve_binary("xdg-open") {
-            let _ = std::process::Command::new(xdg_open)
+            if let Err(e) = std::process::Command::new(xdg_open)
                 .arg(parsed.as_str())
-                .spawn();
+                .spawn()
+            {
+                tracing::error!("Failed to launch xdg-open: {}", e);
+            }
         } else {
             tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
             self.status_msg = fl!("status-xdg-open-not-found");
@@ -231,9 +234,12 @@ impl SettingsApp {
         url.query_pairs_mut().append_pair("body", &body);
 
         if let Some(xdg_open) = resolve_binary("xdg-open") {
-            let _ = std::process::Command::new(xdg_open)
+            if let Err(e) = std::process::Command::new(xdg_open)
                 .arg(url.as_str())
-                .spawn();
+                .spawn()
+            {
+                tracing::error!("Failed to launch xdg-open: {}", e);
+            }
         } else {
             tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
             self.status_msg = fl!("status-xdg-open-not-found");
@@ -309,9 +315,12 @@ impl SettingsApp {
 
     pub(super) fn on_open_update_link(&mut self) -> Task<cosmic::Action<Message>> {
         if let Some(xdg_open) = resolve_binary("xdg-open") {
-            let _ = std::process::Command::new(xdg_open)
+            if let Err(e) = std::process::Command::new(xdg_open)
                 .arg("https://github.com/Kenyon-J/cosmic-wpengine/releases/latest")
-                .spawn();
+                .spawn()
+            {
+                tracing::error!("Failed to launch xdg-open: {}", e);
+            }
         } else {
             tracing::warn!("Failed to open link: xdg-open not found in trusted PATH");
             self.status_msg = fl!("status-xdg-open-not-found");
@@ -322,7 +331,9 @@ impl SettingsApp {
     pub(super) fn on_open_config_folder(&mut self) -> Task<cosmic::Action<Message>> {
         if let Some(xdg_open) = resolve_binary("xdg-open") {
             let config_dir = config::Config::config_dir();
-            let _ = std::process::Command::new(xdg_open).arg(config_dir).spawn();
+            if let Err(e) = std::process::Command::new(xdg_open).arg(config_dir).spawn() {
+                tracing::error!("Failed to launch xdg-open: {}", e);
+            }
         } else {
             tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
             self.status_msg = fl!("status-xdg-open-folder-not-found");
@@ -334,7 +345,9 @@ impl SettingsApp {
         let videos_dir = config::Config::config_dir().join("videos");
         let _ = std::fs::create_dir_all(&videos_dir);
         if let Some(xdg_open) = resolve_binary("xdg-open") {
-            let _ = std::process::Command::new(xdg_open).arg(videos_dir).spawn();
+            if let Err(e) = std::process::Command::new(xdg_open).arg(videos_dir).spawn() {
+                tracing::error!("Failed to launch xdg-open: {}", e);
+            }
         } else {
             tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
             self.status_msg = fl!("status-xdg-open-folder-not-found");

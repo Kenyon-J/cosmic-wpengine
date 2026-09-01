@@ -32,7 +32,9 @@ impl SettingsApp {
         let dir = library::packs_dir();
         let _ = std::fs::create_dir_all(&dir);
         if let Some(xdg_open) = resolve_binary("xdg-open") {
-            let _ = std::process::Command::new(xdg_open).arg(dir).spawn();
+            if let Err(e) = std::process::Command::new(xdg_open).arg(dir).spawn() {
+                tracing::error!("Failed to launch xdg-open: {}", e);
+            }
         } else {
             tracing::warn!("Failed to open folder: xdg-open not found in trusted PATH");
             self.status_msg = fl!("status-xdg-open-folder-not-found");
