@@ -58,18 +58,27 @@ impl MprisWatcher {
     /// Dynamic gradient stand-in for when no art can be found anywhere.
     pub(super) async fn generate_placeholder_art() -> Option<image::DynamicImage> {
         tokio::task::spawn_blocking(|| {
-            let mut img = image::RgbaImage::new(640, 640);
-            for y in 0..640 {
-                for x in 0..640 {
-                    let r = ((x as f32 / 640.0) * 80.0) as u8 + 20;
-                    let b = ((y as f32 / 640.0) * 80.0) as u8 + 40;
-                    img.put_pixel(x, y, image::Rgba([r, 20, b, 255]));
+            // Optimization: Precompute horizontal `r_vals` and vertical `b_vals` gradient lookup values,
+            // then construct the pixel buffer directly to bypass bounds checks and coordinate arithmetic in put_pixel.
+            let r_vals: Vec<u8> = (0..640)
+                .map(|x| ((x as f32 / 640.0) * 80.0) as u8 + 20)
+                .collect();
+            let b_vals: Vec<u8> = (0..640)
+                .map(|y| ((y as f32 / 640.0) * 80.0) as u8 + 40)
+                .collect();
+
+            let mut pixels = Vec::with_capacity(640 * 640 * 4);
+            for &b in &b_vals {
+                for &r in &r_vals {
+                    pixels.extend_from_slice(&[r, 20, b, 255]);
                 }
             }
-            image::DynamicImage::ImageRgba8(img)
+
+            image::RgbaImage::from_raw(640, 640, pixels).map(image::DynamicImage::ImageRgba8)
         })
         .await
         .ok()
+        .flatten()
     }
 
     fn decode_image_safely(bytes: impl AsRef<[u8]>) -> Result<image::DynamicImage> {

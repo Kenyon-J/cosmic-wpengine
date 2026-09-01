@@ -147,6 +147,28 @@ fn run_test_resolve_safe_path() {
 /// short-circuit to `None` before any network I/O. (The pre-hardening code
 /// defaulted to `http://localhost:3000`, which any local process could bind.)
 #[test]
+fn test_generate_placeholder_art() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let img = rt
+        .block_on(MprisWatcher::generate_placeholder_art())
+        .expect("Placeholder art generation should succeed");
+
+    assert_eq!(img.width(), 640);
+    assert_eq!(img.height(), 640);
+
+    let rgba = img.to_rgba8();
+    // Top-left pixel (x=0, y=0): r = 20, g = 20, b = 40, a = 255
+    assert_eq!(rgba.get_pixel(0, 0), &image::Rgba([20, 20, 40, 255]));
+    // Bottom-right pixel (x=639, y=639):
+    // r = (639/640 * 80) + 20 = 99
+    // b = (639/640 * 80) + 40 = 119
+    assert_eq!(rgba.get_pixel(639, 639), &image::Rgba([99, 20, 119, 255]));
+}
+
+#[test]
 fn test_canvas_fetch_skipped_without_configured_proxy() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
