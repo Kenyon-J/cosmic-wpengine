@@ -921,10 +921,15 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                         let already_exists = app.available_themes.iter().any(|t| t == name);
                         let is_valid = !is_empty && !already_exists;
 
-                        let mut input =
-                            text_input(fl!("theme-name-placeholder"), &app.new_theme_name)
-                                .on_input(Message::NewThemeNameChanged)
-                                .width(Length::Fixed(180.0));
+                        let input_base = text_input(fl!("theme-name-placeholder"), &app.new_theme_name)
+                            .on_input(Message::NewThemeNameChanged)
+                            .width(Length::Fixed(180.0));
+
+                        let mut input = if already_exists {
+                            input_base.error(fl!("theme-name-exists-error"))
+                        } else {
+                            input_base
+                        };
                         let mut btn = button::standard(fl!("common-create"));
 
                         if is_valid {
