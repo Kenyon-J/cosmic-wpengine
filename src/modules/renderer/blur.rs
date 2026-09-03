@@ -152,6 +152,7 @@ struct BlurLevel {
     bind_group: wgpu::BindGroup,
     uniform_buffer: wgpu::Buffer,
     size: (u32, u32),
+    last_uniforms: Option<[f32; 4]>,
 }
 
 /// Persistent texture chain for one blur source (the album art or the custom
@@ -161,6 +162,7 @@ pub(crate) struct BlurChain {
     /// Bind group reading the original source texture (first downsample).
     src_bind_group: wgpu::BindGroup,
     src_uniform_buffer: wgpu::Buffer,
+    last_src_uniforms: Option<[f32; 4]>,
     src_size: (u32, u32),
     /// `[prefilter levels.., base, base/2, base/4, base/8, base/16]` - the
     /// prefilter levels step oversized sources down to `BASE_CAP`.
@@ -258,6 +260,7 @@ impl BlurChain {
                     bind_group,
                     uniform_buffer,
                     size,
+                    last_uniforms: None,
                 }
             })
             .collect();
@@ -267,6 +270,7 @@ impl BlurChain {
         Self {
             src_bind_group,
             src_uniform_buffer,
+            last_src_uniforms: None,
             src_size,
             levels,
             base,
@@ -293,7 +297,7 @@ impl BlurChain {
     /// sources only), then the dual-Kawase chain at the strength mapped from
     /// `amount`, leaving the result in the base level.
     pub(crate) fn run(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         blur: &KawaseBlur,
@@ -301,13 +305,28 @@ impl BlurChain {
     ) {
         let (passes, offset) = params_for_amount(amount);
 
-        let write_uniforms = |buffer: &wgpu::Buffer, size: (u32, u32)| {
-            let uniforms = [0.5 / size.0 as f32, 0.5 / size.1 as f32, offset, 0.0];
-            queue.write_buffer(buffer, 0, bytemuck::cast_slice(&uniforms));
-        };
-        write_uniforms(&self.src_uniform_buffer, self.src_size);
-        for level in &self.levels {
-            write_uniforms(&level.uniform_buffer, level.size);
+        let uniforms = |size: (u32, u32)| [0.5 / size.0 as f32, 0.5 / size.1 as f32, offset, 0.0];
+
+        let src_uniforms = uniforms(self.src_size);
+        if self.last_src_uniforms != Some(src_uniforms) {
+            queue.write_buffer(
+                &self.src_uniform_buffer,
+                0,
+                bytemuck::cast_slice(&src_uniforms),
+            );
+            self.last_src_uniforms = Some(src_uniforms);
+        }
+
+        for level in &mut self.levels {
+            let level_uniforms = uniforms(level.size);
+            if level.last_uniforms != Some(level_uniforms) {
+                queue.write_buffer(
+                    &level.uniform_buffer,
+                    0,
+                    bytemuck::cast_slice(&level_uniforms),
+                );
+                level.last_uniforms = Some(level_uniforms);
+            }
         }
 
         // Downsamples walk `levels[first_write..=base + passes]`; the source

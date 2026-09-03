@@ -155,7 +155,7 @@ impl Renderer {
     /// Re-runs the album blur chain over the current texture contents.
     /// Cheap enough for per-frame Canvas video use: the passes run at
     /// successively halved resolutions.
-    pub(crate) fn run_album_blur(&self) {
+    pub(crate) fn run_album_blur(&mut self) {
         self.art.run_blur(
             &self.device,
             &self.queue,
@@ -164,7 +164,7 @@ impl Renderer {
         );
     }
 
-    pub(crate) fn run_custom_bg_blur(&self) {
+    pub(crate) fn run_custom_bg_blur(&mut self) {
         self.background.run_blur(
             &self.device,
             &self.queue,

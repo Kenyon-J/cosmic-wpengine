@@ -31,3 +31,6 @@
 ## 2025-03-05 - Avoid Redundant `wgpu` Buffer Writes in Hot Loops
 **Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when data hasn't changed (e.g. static background uniforms, ambient colors, visualizer state when paused), needlessly consumes PCIe bandwidth and CPU/GPU cycles.
 **Action:** Always diff the incoming uniform data against a cached version (e.g., storing the last written struct as `Option<T>` and deriving `PartialEq` on the struct) and only dispatch `write_buffer` if the data actually differs.
+## 2025-03-05 - Avoid Redundant `wgpu` Buffer Writes in Blur Chain
+**Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when data hasn't changed (e.g. Kawase blur offsets in the `BlurChain` passes which remain steady unless the blur opacity setting is actively sliding), needlessly consumes PCIe bandwidth and CPU/GPU cycles. Using a sync lock `RwLock` around the caching state when we already have a mutable reference (`&mut self`) is unnecessary overhead.
+**Action:** Always diff the incoming uniform data against a cached version (e.g. `Option<[f32; 4]>`) in the struct, and only dispatch `write_buffer` if the data actually differs. Ensure `run()` methods that update this internal cache take `&mut self` to mutate the cache fields directly, completely avoiding lock overhead.

@@ -200,13 +200,13 @@ impl ArtLayer {
     /// successively halved resolutions. A no-op while blur is disabled (no
     /// chain exists).
     pub(crate) fn run_blur(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         kawase_blur: &KawaseBlur,
         opacity: f32,
     ) {
-        if let Some(chain) = &self.blur_chain {
+        if let Some(chain) = &mut self.blur_chain {
             chain.run(device, queue, kawase_blur, opacity);
         }
     }
