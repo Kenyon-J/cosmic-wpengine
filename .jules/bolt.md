@@ -31,3 +31,7 @@
 ## 2025-03-05 - Avoid Redundant `wgpu` Buffer Writes in Hot Loops
 **Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when data hasn't changed (e.g. static background uniforms, ambient colors, visualizer state when paused), needlessly consumes PCIe bandwidth and CPU/GPU cycles.
 **Action:** Always diff the incoming uniform data against a cached version (e.g., storing the last written struct as `Option<T>` and deriving `PartialEq` on the struct) and only dispatch `write_buffer` if the data actually differs.
+
+## 05-03-2025- Fast-Path Single-Stop Gradients & Hoist Gradient Invariants
+**Learning:** In procedural image generation routines (like `gradient_image`), single-stop gradients can completely bypass expensive trigonometric projection math, LUT color lookups, and nested pixel loops by returning a uniform pixel buffer directly. For multi-stop gradients, pre-calculating loop-invariant terms `dx * inv_range` and row-level `y_term` allows computing the position parameter `t` via an FMA (`mul_add`) operation without redundant inner-loop branching.
+**Action:** Check input lengths to offer early returns for trivial single-element cases before setting up multi-element loop machinery, and hoist loop-invariant factors out of inner pixel loops.

@@ -160,6 +160,18 @@ pub fn gradient_image(
     if colors.is_empty() {
         return solid_colour_image([0.0; 3]);
     }
+    // Optimization: Fast-path return for single-stop gradients, completely bypassing trig math,
+    // projections, vector allocations, LUT lookups, and nested pixel loops.
+    if colors.len() == 1 {
+        let pixel = image::Rgba([
+            srgb_byte(colors[0][0]),
+            srgb_byte(colors[0][1]),
+            srgb_byte(colors[0][2]),
+            255,
+        ]);
+        return image::RgbaImage::from_pixel(width, height, pixel);
+    }
+
     let stops: Vec<[f32; 3]> = colors.iter().map(|c| c.map(srgb_to_linear)).collect();
     let last = stops.len() - 1;
 
@@ -182,25 +194,26 @@ pub fn gradient_image(
         0.0
     };
 
+    // Optimization: Pre-calculate loop-invariant term dx_inv_range and row-level y_term outside
+    // the inner x loop to calculate t via a fast (x as f32).mul_add(dx_inv_range, y_term) FMA operation.
+    // Also, eliminate the redundant `if last == 0` check inside the innermost pixel loop.
+    let dx_inv_range = dx * inv_range;
     let table = get_linear_to_srgb_table();
     let mut pixels = Vec::with_capacity((width * height * 4) as usize);
 
+    let last_f32 = last as f32;
     for y in 0..height {
-        let y_factor = y as f32 * dy - proj_min;
+        let y_term = (y as f32 * dy - proj_min) * inv_range;
         for x in 0..width {
-            let t = (x as f32 * dx + y_factor) * inv_range;
-            let linear = if last == 0 {
-                stops[0]
-            } else {
-                let pos = t.clamp(0.0, 1.0) * last as f32;
-                let i = (pos as usize).min(last - 1);
-                let frac = pos - i as f32;
-                [
-                    stops[i][0] + (stops[i + 1][0] - stops[i][0]) * frac,
-                    stops[i][1] + (stops[i + 1][1] - stops[i][1]) * frac,
-                    stops[i][2] + (stops[i + 1][2] - stops[i][2]) * frac,
-                ]
-            };
+            let t = (x as f32).mul_add(dx_inv_range, y_term);
+            let pos = t.clamp(0.0, 1.0) * last_f32;
+            let i = (pos as usize).min(last - 1);
+            let frac = pos - i as f32;
+            let linear = [
+                stops[i][0] + (stops[i + 1][0] - stops[i][0]) * frac,
+                stops[i][1] + (stops[i + 1][1] - stops[i][1]) * frac,
+                stops[i][2] + (stops[i + 1][2] - stops[i][2]) * frac,
+            ];
             pixels.push(srgb_byte(linear_to_srgb_lut(linear[0], table)));
             pixels.push(srgb_byte(linear_to_srgb_lut(linear[1], table)));
             pixels.push(srgb_byte(linear_to_srgb_lut(linear[2], table)));
