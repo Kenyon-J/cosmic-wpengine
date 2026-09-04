@@ -31,3 +31,6 @@
 ## 2025-03-05 - Avoid Redundant `wgpu` Buffer Writes in Hot Loops
 **Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when data hasn't changed (e.g. static background uniforms, ambient colors, visualizer state when paused), needlessly consumes PCIe bandwidth and CPU/GPU cycles.
 **Action:** Always diff the incoming uniform data against a cached version (e.g., storing the last written struct as `Option<T>` and deriving `PartialEq` on the struct) and only dispatch `write_buffer` if the data actually differs.
+## 2025-03-05 - Avoid Redundant Kawase Blur Buffer Writes
+**Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` for all levels of a dual-Kawase blur chain every frame, even when the `amount` of blur applied hasn't changed, needlessly consumes PCIe bandwidth and CPU/GPU cycles.
+**Action:** When managing multi-pass effects like blur chains, always cache the last applied parameter (e.g. using `AtomicU32` for `amount`) and explicitly bypass the `write_buffer` calls if the parameter has not changed.

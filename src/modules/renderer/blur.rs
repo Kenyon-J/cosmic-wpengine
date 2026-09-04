@@ -167,6 +167,7 @@ pub(crate) struct BlurChain {
     levels: Vec<BlurLevel>,
     /// Index of the base level in `levels`; it holds the finished blur.
     base: usize,
+    last_amount: std::sync::atomic::AtomicU32,
 }
 
 impl BlurChain {
@@ -270,6 +271,7 @@ impl BlurChain {
             src_size,
             levels,
             base,
+            last_amount: std::sync::atomic::AtomicU32::new(f32::to_bits(f32::NAN)),
         }
     }
 
@@ -301,13 +303,19 @@ impl BlurChain {
     ) {
         let (passes, offset) = params_for_amount(amount);
 
-        let write_uniforms = |buffer: &wgpu::Buffer, size: (u32, u32)| {
-            let uniforms = [0.5 / size.0 as f32, 0.5 / size.1 as f32, offset, 0.0];
-            queue.write_buffer(buffer, 0, bytemuck::cast_slice(&uniforms));
-        };
-        write_uniforms(&self.src_uniform_buffer, self.src_size);
-        for level in &self.levels {
-            write_uniforms(&level.uniform_buffer, level.size);
+        let last_amount =
+            f32::from_bits(self.last_amount.load(std::sync::atomic::Ordering::Relaxed));
+        if amount != last_amount || last_amount.is_nan() {
+            let write_uniforms = |buffer: &wgpu::Buffer, size: (u32, u32)| {
+                let uniforms = [0.5 / size.0 as f32, 0.5 / size.1 as f32, offset, 0.0];
+                queue.write_buffer(buffer, 0, bytemuck::cast_slice(&uniforms));
+            };
+            write_uniforms(&self.src_uniform_buffer, self.src_size);
+            for level in &self.levels {
+                write_uniforms(&level.uniform_buffer, level.size);
+            }
+            self.last_amount
+                .store(f32::to_bits(amount), std::sync::atomic::Ordering::Relaxed);
         }
 
         // Downsamples walk `levels[first_write..=base + passes]`; the source
