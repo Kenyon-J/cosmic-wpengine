@@ -31,3 +31,6 @@
 ## 2025-03-05 - Avoid Redundant `wgpu` Buffer Writes in Hot Loops
 **Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when data hasn't changed (e.g. static background uniforms, ambient colors, visualizer state when paused), needlessly consumes PCIe bandwidth and CPU/GPU cycles.
 **Action:** Always diff the incoming uniform data against a cached version (e.g., storing the last written struct as `Option<T>` and deriving `PartialEq` on the struct) and only dispatch `write_buffer` if the data actually differs.
+## 2025-03-05 - Avoid Redundant `wgpu` Buffer Writes with Immutable Self
+**Learning:** When attempting to cache uniforms to avoid redundant `wgpu::Queue::write_buffer` calls in a rendering struct where the method takes an immutable reference (e.g., `&self` in `BlurChain::run`), standard Option or struct mutations will trigger compilation errors. Wrapping the cached value in `std::cell::Cell` (like `last_offset: std::cell::Cell<Option<f32>>`) provides safe interior mutability to track and skip duplicate uniform uploads without needing to re-architect the rendering API to pass mutable references.
+**Action:** When implementing caching inside an immutable render pass (like offscreen blurring), use `std::cell::Cell` to store the last-written state.
