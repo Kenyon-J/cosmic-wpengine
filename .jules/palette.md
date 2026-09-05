@@ -1,7 +1,3 @@
-## 2024-07-22 - Inline Validation
-
-**Learning:** Forms without inline validation or descriptive disabled states can lead to confusing user experiences and silent failures.
-**Action:** Proactively calculate validity and conditionally apply widget methods (e.g., `.on_press`, `.on_submit`) to avoid silent errors. Provide a descriptive `cosmic::widget::tooltip` when elements are disabled.
-## 2024-11-20 - Inline Validation (Weather Coordinates)
-**Learning:** Adding explicit validation and error styles (`.error()`) to form inputs (such as latitude/longitude) provides immediate inline feedback, avoiding silent failures or user confusion when saving invalid data.
-**Action:** Always wrap `.error(...)` validation logically with `.is_empty()` checks to prevent showing errors on newly cleared fields, and use `.is_ok_and()` to concisely validate values.
+## 2024-05-18 - Async Action Feedback
+**Learning:** Users lack visual indication of ongoing background processes (like checking for updates), which can make the UI feel unresponsive or broken. Adding standard system spinners (like `process-working-symbolic`) to loading states provides essential feedback without requiring custom animations.
+**Action:** Always include a visual loading indicator (e.g., `process-working-symbolic` spinner) for UI states that depend on asynchronous network requests or long-running tasks.
