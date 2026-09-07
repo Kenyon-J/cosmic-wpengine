@@ -167,6 +167,8 @@ pub(crate) struct BlurChain {
     levels: Vec<BlurLevel>,
     /// Index of the base level in `levels`; it holds the finished blur.
     base: usize,
+    /// Caches the last requested blur amount to skip redundant uniform buffer writes.
+    last_amount: std::cell::Cell<Option<f32>>,
 }
 
 impl BlurChain {
@@ -270,6 +272,7 @@ impl BlurChain {
             src_size,
             levels,
             base,
+            last_amount: std::cell::Cell::new(None),
         }
     }
 
@@ -301,13 +304,19 @@ impl BlurChain {
     ) {
         let (passes, offset) = params_for_amount(amount);
 
-        let write_uniforms = |buffer: &wgpu::Buffer, size: (u32, u32)| {
-            let uniforms = [0.5 / size.0 as f32, 0.5 / size.1 as f32, offset, 0.0];
-            queue.write_buffer(buffer, 0, bytemuck::cast_slice(&uniforms));
-        };
-        write_uniforms(&self.src_uniform_buffer, self.src_size);
-        for level in &self.levels {
-            write_uniforms(&level.uniform_buffer, level.size);
+        // Optimization: The uniform data (size and offset) only changes when `amount` changes.
+        // Caching this skips redundant wgpu uniform uploads for video frames (which update the source texture
+        // but keep the same blur amount).
+        if self.last_amount.get() != Some(amount) {
+            let write_uniforms = |buffer: &wgpu::Buffer, size: (u32, u32)| {
+                let uniforms = [0.5 / size.0 as f32, 0.5 / size.1 as f32, offset, 0.0];
+                queue.write_buffer(buffer, 0, bytemuck::cast_slice(&uniforms));
+            };
+            write_uniforms(&self.src_uniform_buffer, self.src_size);
+            for level in &self.levels {
+                write_uniforms(&level.uniform_buffer, level.size);
+            }
+            self.last_amount.set(Some(amount));
         }
 
         // Downsamples walk `levels[first_write..=base + passes]`; the source
