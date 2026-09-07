@@ -31,3 +31,6 @@
 ## 2025-03-05 - Avoid Redundant `wgpu` Buffer Writes in Hot Loops
 **Learning:** Writing to GPU buffers via `wgpu::Queue::write_buffer` every frame, even when data hasn't changed (e.g. static background uniforms, ambient colors, visualizer state when paused), needlessly consumes PCIe bandwidth and CPU/GPU cycles.
 **Action:** Always diff the incoming uniform data against a cached version (e.g., storing the last written struct as `Option<T>` and deriving `PartialEq` on the struct) and only dispatch `write_buffer` if the data actually differs.
+## 2025-03-05 - Avoid Skipping Immediate-Mode Command Recording
+**Learning:** Returning early from an immediate-mode command encoder function (like `BlurChain::run`) solely because uniforms (like blur amount) haven't changed breaks rendering. The command buffer must still record the draw calls (like `begin_render_pass`) every frame to process underlying source texture updates (like animated video backgrounds), even if the uniforms are static.
+**Action:** When caching `wgpu` render states to prevent redundant uploads, only conditionally wrap the `queue.write_buffer()` calls with the cache check. Do not use an early return to skip the entire command encoding process.
