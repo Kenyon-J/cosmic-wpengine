@@ -174,6 +174,9 @@ impl AudioAnalysis {
             self.treble_pulse = 0.0;
         }
 
+        // Optimization: Hoist loop-invariant gravity acceleration calculation out of the per-band loop.
+        let gravity_delta = PEAK_GRAVITY * delta;
+
         // Peak-hold caps: snap up instantly whenever the live band catches
         // back up to (or passes) its own peak, otherwise keep falling under
         // constant gravity. Zipped iteration mirrors `ingest`'s band loop.
@@ -186,7 +189,7 @@ impl AudioAnalysis {
                 *peak = *band;
                 *velocity = 0.0;
             } else {
-                *velocity += PEAK_GRAVITY * delta;
+                *velocity += gravity_delta;
                 *peak = (*peak - *velocity * delta).max(*band).max(0.0);
             }
         }
