@@ -78,7 +78,9 @@ impl TextSubsystem {
         width_f: f32,
         height_f: f32,
     ) -> Buffer {
+        let mut is_cached = true;
         let mut buffer = self.text_buffer_cache.remove(&text_key).unwrap_or_else(|| {
+            is_cached = false;
             let mut b = Buffer::new(&mut self.font_system, metrics);
             b.set_metrics(metrics);
             b.set_size(Some(width_f), Some(height_f));
@@ -86,23 +88,27 @@ impl TextSubsystem {
             b
         });
 
-        // Re-apply metrics/size even for a cached buffer: a monitor swap can
-        // change DPI/resolution without changing the text content or its cache key.
-        buffer.set_metrics(metrics);
-        buffer.set_size(Some(width_f), Some(height_f));
+        // Optimization: Bypass expensive shape_until_scroll on cached buffers
+        // when metrics, dimensions, and line alignments are already identical.
+        let target_size = (Some(width_f), Some(height_f));
+        let metrics_changed = buffer.metrics() != metrics;
+        let size_changed = buffer.size() != target_size;
+        let align_changed = buffer.lines.iter().any(|line| line.align() != Some(align));
 
-        buffer.lines.iter_mut().for_each(|line: &mut BufferLine| {
-            line.set_align(Some(align));
-        });
-        // Buffer setters (set_metrics/set_size/set_text/set_align) are lazy as
-        // of cosmic-text 0.19 - they mark the buffer dirty but don't reshape
-        // it. The bare Buffer::layout_runs() this struct's callers use (not
-        // the auto-resolving BorrowedWithFontSystem wrapper) does NOT resolve
-        // that dirty state itself, so this must run unconditionally on every
-        // call, not just when realignment actually changed something -
-        // otherwise a freshly-built buffer above is returned never-shaped and
-        // renders as empty.
-        buffer.shape_until_scroll(&mut self.font_system, false);
+        if !is_cached || metrics_changed || size_changed || align_changed {
+            if metrics_changed {
+                buffer.set_metrics(metrics);
+            }
+            if size_changed {
+                buffer.set_size(Some(width_f), Some(height_f));
+            }
+            if align_changed {
+                buffer.lines.iter_mut().for_each(|line: &mut BufferLine| {
+                    line.set_align(Some(align));
+                });
+            }
+            buffer.shape_until_scroll(&mut self.font_system, false);
+        }
 
         buffer
     }
