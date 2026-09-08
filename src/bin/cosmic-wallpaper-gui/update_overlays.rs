@@ -43,6 +43,7 @@ impl SettingsApp {
     }
 
     pub(super) fn on_detect_location(&mut self) -> Task<cosmic::Action<Message>> {
+        self.detecting_location = true;
         self.status_msg = fl!("status-detecting-location");
         Task::perform(fetch_ip_location(), |result| {
             Message::LocationDetected(result).into()
@@ -53,6 +54,7 @@ impl SettingsApp {
         &mut self,
         result: Result<(f64, f64), String>,
     ) -> Task<cosmic::Action<Message>> {
+        self.detecting_location = false;
         match result {
             Ok((lat, lon)) => {
                 self.lat_input = format!("{lat}");

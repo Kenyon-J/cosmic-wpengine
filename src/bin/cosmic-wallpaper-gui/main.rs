@@ -72,6 +72,7 @@ struct SettingsApp {
     /// while invalid; only valid coordinates are saved).
     lat_input: String,
     lon_input: String,
+    detecting_location: bool,
     /// Parsed layout of `selected_theme`, edited live by the theme editor.
     edit_theme: Option<config::ThemeLayout>,
     /// Index into `view::theme_elements()` - which element's controls show.
@@ -861,6 +862,7 @@ impl Application for SettingsApp {
 
         (
             SettingsApp {
+                detecting_location: false,
                 core,
                 nav,
                 available_fonts,
