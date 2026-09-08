@@ -34,3 +34,7 @@
 ## 2025-03-05 - Avoid Skipping Immediate-Mode Command Recording
 **Learning:** Returning early from an immediate-mode command encoder function (like `BlurChain::run`) solely because uniforms (like blur amount) haven't changed breaks rendering. The command buffer must still record the draw calls (like `begin_render_pass`) every frame to process underlying source texture updates (like animated video backgrounds), even if the uniforms are static.
 **Action:** When caching `wgpu` render states to prevent redundant uploads, only conditionally wrap the `queue.write_buffer()` calls with the cache check. Do not use an early return to skip the entire command encoding process.
+
+## 2025-03-05 - Avoid Redundant Text Shaping on Cached Buffers
+**Learning:** Calling `shape_until_scroll` on cached text buffers every frame causes `cosmic-text` to re-verify layout runs and line alignments even when properties haven't changed. Checking if `is_cached` and comparing metrics, size, and line alignments allows bypassing `shape_until_scroll` on steady-state cached text buffers.
+**Action:** Always check if a cached buffer's properties (`metrics`, `size`, `align`) actually changed before invoking text-shaping or layout recalculation routines.
