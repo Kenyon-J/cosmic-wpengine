@@ -266,7 +266,7 @@ impl TextSubsystem {
                     };
                     let buffer = self.prepare_text_buffer(
                         text_key,
-                        &text,
+                        text,
                         attrs,
                         metrics,
                         lyrics_align,
