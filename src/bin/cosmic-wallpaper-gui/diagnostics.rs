@@ -224,7 +224,7 @@ pub(crate) fn set_autostart(enable: bool) {
         let enable_str = if enable { "true" } else { "false" };
         // Execute a D-Bus call to the portal using busctl (standard in Freedesktop runtimes)
         if let Some(busctl) = resolve_binary("busctl") {
-            let _ = std::process::Command::new(busctl)
+            if let Err(e) = std::process::Command::new(busctl)
                 .args([
                     "--user",
                     "call",
@@ -239,7 +239,10 @@ pub(crate) fn set_autostart(enable: bool) {
                     "b",
                     enable_str,
                 ])
-                .output();
+                .output()
+            {
+                tracing::error!("Failed to set autostart using busctl: {}", e);
+            }
         } else {
             tracing::warn!("Failed to set autostart: busctl not found in trusted PATH");
         }
