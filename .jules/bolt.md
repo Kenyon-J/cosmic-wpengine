@@ -34,3 +34,7 @@
 ## 2025-03-05 - Avoid Skipping Immediate-Mode Command Recording
 **Learning:** Returning early from an immediate-mode command encoder function (like `BlurChain::run`) solely because uniforms (like blur amount) haven't changed breaks rendering. The command buffer must still record the draw calls (like `begin_render_pass`) every frame to process underlying source texture updates (like animated video backgrounds), even if the uniforms are static.
 **Action:** When caching `wgpu` render states to prevent redundant uploads, only conditionally wrap the `queue.write_buffer()` calls with the cache check. Do not use an early return to skip the entire command encoding process.
+
+## 05-03-2025- Fast Single-Color Fast-Path and FMA Projection Hoisting in Gradient Generation
+**Learning:** Generating background gradient textures for desktop wallpapers can be expensive if single-color inputs evaluate trigonometric projections, coordinate normalizations, and sRGB LUT lookups per pixel. Providing a single-color fast path via `image::RgbaImage::from_pixel` completely bypasses procedural loop rendering. For multi-stop gradients, hoisting `dx * inv_range` and pre-calculating row-level projection terms allows calculating per-pixel projections with a single FMA (`mul_add`) instruction.
+**Action:** For procedural gradient generation, guard single-stop inputs with a solid pixel fast-path, and hoist coordinate projection factors outside nested pixel loops using FMA instructions.
