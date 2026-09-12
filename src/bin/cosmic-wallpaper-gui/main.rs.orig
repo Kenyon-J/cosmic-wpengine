@@ -91,7 +91,6 @@ struct SettingsApp {
     /// silently missing from the launcher was itself a real, only
     /// discovered-by-chance gap (see bootstrap.rs).
     launcher_issue: Option<String>,
-    is_detecting_location: bool,
     /// Monotonic counter pairing each slider change with its debounce timer;
     /// a DebouncedSave only writes to disk if its generation is still the
     /// newest (i.e. the slider settled for the full window).
@@ -896,7 +895,6 @@ impl Application for SettingsApp {
                 // hasn't necessarily finished yet. Refreshed for real the
                 // first time the user visits General, by which point it has.
                 launcher_issue: None,
-                is_detecting_location: false,
                 pack_export_theme,
                 pending_pack_import: None,
                 installed_packs: library::scan_installed_packs(),
