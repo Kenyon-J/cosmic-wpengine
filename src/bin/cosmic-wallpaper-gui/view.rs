@@ -945,7 +945,8 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                                     btn,
                                     text::body(fl!("theme-name-empty-error")),
                                     cosmic::widget::tooltip::Position::Top,
-                                ).into()
+                                )
+                                .into()
                             } else {
                                 btn.into()
                             }
