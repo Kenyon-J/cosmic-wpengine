@@ -925,6 +925,11 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                             text_input(fl!("theme-name-placeholder"), &app.new_theme_name)
                                 .on_input(Message::NewThemeNameChanged)
                                 .width(Length::Fixed(180.0));
+
+                        if !is_empty && already_exists {
+                            input = input.error(fl!("theme-name-exists-error"));
+                        }
+
                         let mut btn = button::standard(fl!("common-create"));
 
                         if is_valid {
@@ -935,17 +940,16 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                         let btn_element: cosmic::Element<'_, Message> = if is_valid {
                             btn.into()
                         } else {
-                            let error_msg = if is_empty {
-                                fl!("theme-name-empty-error")
+                            if is_empty {
+                                cosmic::widget::tooltip(
+                                    btn,
+                                    text::body(fl!("theme-name-empty-error")),
+                                    cosmic::widget::tooltip::Position::Top,
+                                )
+                                .into()
                             } else {
-                                fl!("theme-name-exists-error")
-                            };
-                            cosmic::widget::tooltip(
-                                btn,
-                                text::body(error_msg),
-                                cosmic::widget::tooltip::Position::Top,
-                            )
-                            .into()
+                                btn.into()
+                            }
                         };
 
                         Row::new()
