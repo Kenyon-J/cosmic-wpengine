@@ -137,12 +137,21 @@ pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
     let noon = [0.4, 0.6, 0.9];
     let dusk = [0.7, 0.3, 0.15];
 
-    match time {
-        t if t < 0.25 => lerp_colour(midnight, dawn, t / 0.25),
-        t if t < 0.5 => lerp_colour(dawn, noon, (t - 0.25) / 0.25),
-        t if t < 0.75 => lerp_colour(noon, dusk, (t - 0.5) / 0.25),
-        t => lerp_colour(dusk, midnight, (t - 0.75) / 0.25),
-    }
+    // Optimization: Replace float divisions (/ 0.25) with pre-scaled fractional factor
+    // multiplications (* 4.0) and inline linear interpolation with FMA (mul_add)
+    // to compute sky color directly per RGB component without range subtractions.
+    let (start, end, factor): ([f32; 3], [f32; 3], f32) = match time {
+        t if t < 0.25 => (midnight, dawn, t * 4.0),
+        t if t < 0.5 => (dawn, noon, t.mul_add(4.0, -1.0)),
+        t if t < 0.75 => (noon, dusk, t.mul_add(4.0, -2.0)),
+        t => (dusk, midnight, t.mul_add(4.0, -3.0)),
+    };
+
+    [
+        (end[0] - start[0]).mul_add(factor, start[0]),
+        (end[1] - start[1]).mul_add(factor, start[1]),
+        (end[2] - start[2]).mul_add(factor, start[2]),
+    ]
 }
 
 /// Fast fine-grained static lookup table for sRGB linearisation curve.
