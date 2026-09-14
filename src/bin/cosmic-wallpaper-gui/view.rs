@@ -1379,27 +1379,35 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                         let control: cosmic::Element<'_, Message> = if is_starting {
                             button::custom(
                                 Row::new()
-                                    .push(cosmic::widget::icon::from_name("process-working-symbolic"))
+                                    .push(cosmic::widget::icon::from_name(
+                                        "process-working-symbolic",
+                                    ))
                                     .push(text::body(fl!("common-start")))
                                     .spacing(8)
-                                    .align_y(cosmic::iced::Alignment::Center)
+                                    .align_y(cosmic::iced::Alignment::Center),
                             )
                             .class(cosmic::theme::Button::Suggested)
                             .into()
                         } else if is_stopping {
                             button::custom(
                                 Row::new()
-                                    .push(cosmic::widget::icon::from_name("process-working-symbolic"))
+                                    .push(cosmic::widget::icon::from_name(
+                                        "process-working-symbolic",
+                                    ))
                                     .push(text::body(fl!("common-stop")))
                                     .spacing(8)
-                                    .align_y(cosmic::iced::Alignment::Center)
+                                    .align_y(cosmic::iced::Alignment::Center),
                             )
                             .class(cosmic::theme::Button::Standard)
                             .into()
                         } else if app.engine_pid.is_some() {
-                            button::standard(fl!("common-stop")).on_press(Message::StopEngine).into()
+                            button::standard(fl!("common-stop"))
+                                .on_press(Message::StopEngine)
+                                .into()
                         } else {
-                            button::suggested(fl!("common-start")).on_press(Message::StartEngine).into()
+                            button::suggested(fl!("common-start"))
+                                .on_press(Message::StartEngine)
+                                .into()
                         };
                         control
                     }),
