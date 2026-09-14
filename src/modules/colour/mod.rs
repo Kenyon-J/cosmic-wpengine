@@ -132,17 +132,25 @@ pub fn lerp_colour(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 }
 
 pub fn time_to_sky_colour(time: f32) -> [f32; 3] {
-    let midnight = [0.02, 0.02, 0.08];
-    let dawn = [0.6, 0.3, 0.2];
-    let noon = [0.4, 0.6, 0.9];
-    let dusk = [0.7, 0.3, 0.15];
+    let midnight: [f32; 3] = [0.02, 0.02, 0.08];
+    let dawn: [f32; 3] = [0.6, 0.3, 0.2];
+    let noon: [f32; 3] = [0.4, 0.6, 0.9];
+    let dusk: [f32; 3] = [0.7, 0.3, 0.15];
 
-    match time {
-        t if t < 0.25 => lerp_colour(midnight, dawn, t / 0.25),
-        t if t < 0.5 => lerp_colour(dawn, noon, (t - 0.25) / 0.25),
-        t if t < 0.75 => lerp_colour(noon, dusk, (t - 0.5) / 0.25),
-        t => lerp_colour(dusk, midnight, (t - 0.75) / 0.25),
-    }
+    // Optimization: Directly inline linear interpolation with pre-scaled fractional factor (t * 4.0),
+    // eliminating 4 range subtractions / divisions and helper function call overhead per invocation.
+    let (a, b, t) = match time {
+        t if t < 0.25 => (midnight, dawn, t * 4.0),
+        t if t < 0.5 => (dawn, noon, (t - 0.25) * 4.0),
+        t if t < 0.75 => (noon, dusk, (t - 0.5) * 4.0),
+        t => (dusk, midnight, (t - 0.75) * 4.0),
+    };
+
+    [
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + (b[2] - a[2]) * t,
+    ]
 }
 
 /// Fast fine-grained static lookup table for sRGB linearisation curve.
