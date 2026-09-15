@@ -151,7 +151,7 @@ impl TextSubsystem {
         height_f: f32,
         scale_factor: f32,
         attrs: &Attrs,
-        lyric_window: Option<LyricWindow>,
+        lyric_window: Option<LyricWindow<'_>>,
         lyrics_size: f32,
         lyrics_position: [f32; 2],
         lyrics_align: cosmic_text::Align,
@@ -444,4 +444,4 @@ pub(crate) struct LyricPhysics {
 /// The visible lyric window: (line number, text, content hash) for each
 /// line within ±2 of the current one, plus the physics driving where they
 /// land on screen.
-pub(crate) type LyricWindow = (Vec<(usize, Box<str>, u64)>, LyricPhysics);
+pub(crate) type LyricWindow<'a> = (Vec<(usize, &'a str, u64)>, LyricPhysics);

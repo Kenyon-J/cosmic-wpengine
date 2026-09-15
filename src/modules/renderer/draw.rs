@@ -565,7 +565,7 @@ pub(crate) fn draw_frame(
                         (lyric_start_idx..=lyric_end_idx)
                             .map(|line_idx| {
                                 let l = &lyrics[line_idx - 1];
-                                (line_idx, l.text.clone(), l.text_hash)
+                                (line_idx, l.text.as_ref(), l.text_hash)
                             })
                             .collect::<Vec<_>>()
                     })
