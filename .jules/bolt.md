@@ -34,3 +34,7 @@
 ## 2025-03-05 - Avoid Skipping Immediate-Mode Command Recording
 **Learning:** Returning early from an immediate-mode command encoder function (like `BlurChain::run`) solely because uniforms (like blur amount) haven't changed breaks rendering. The command buffer must still record the draw calls (like `begin_render_pass`) every frame to process underlying source texture updates (like animated video backgrounds), even if the uniforms are static.
 **Action:** When caching `wgpu` render states to prevent redundant uploads, only conditionally wrap the `queue.write_buffer()` calls with the cache check. Do not use an early return to skip the entire command encoding process.
+
+## 05-03-2025 - Avoid Redundant `wgpu::Device::poll` Calls On Active Render Frames
+**Learning:** Calling `self.device.poll(wgpu::PollType::Poll)` on every main loop iteration is redundant when a frame was actually drawn. `queue.submit()` and `present()` inside the active render path automatically poll the GPU driver state. Explicit polling is only required when skipping frame presentation (e.g., when occluded or in a static scene) to process internal resource cleanup without leaking memory.
+**Action:** Gate `device.poll` in the render loop so it only executes when no frame was presented.
