@@ -438,12 +438,12 @@ impl Renderer {
                 super::draw::draw_frame(self, wayland_manager, delta, now)?;
                 last_present = now;
                 has_presented = true;
+            } else {
+                // Tell wgpu to process internal garbage collection when output.present() is skipped
+                // (e.g. monitor asleep, occluded, or static scene), preventing memory leak.
+                // When draw_frame runs, queue.submit() / present() implicitly poll the GPU driver.
+                let _ = self.device.poll(wgpu::PollType::Poll);
             }
-
-            // Tell wgpu to process internal garbage collection.
-            // If we don't call this when output.present() is skipped (e.g. monitor asleep or occluded),
-            // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
-            let _ = self.device.poll(wgpu::PollType::Poll);
         }
     }
 
