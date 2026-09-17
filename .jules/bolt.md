@@ -34,3 +34,7 @@
 ## 2025-03-05 - Avoid Skipping Immediate-Mode Command Recording
 **Learning:** Returning early from an immediate-mode command encoder function (like `BlurChain::run`) solely because uniforms (like blur amount) haven't changed breaks rendering. The command buffer must still record the draw calls (like `begin_render_pass`) every frame to process underlying source texture updates (like animated video backgrounds), even if the uniforms are static.
 **Action:** When caching `wgpu` render states to prevent redundant uploads, only conditionally wrap the `queue.write_buffer()` calls with the cache check. Do not use an early return to skip the entire command encoding process.
+
+## 05-03-2025 - In-Place Vector Slice Updates for Hot Path Caches
+**Learning:** In high-frequency render loops, updating cached `Vec` structures using `.clear()` + `.extend_from_slice()` incurs repeated length mutations and capacity bounds checks. When the target vector length matches the input slice length in steady state, using `copy_from_slice()` performs a direct `memcpy` in-place without length manipulation overhead.
+**Action:** Guard slice updates on cached `Vec` instances by checking `vec.len() == slice.len()` and calling `copy_from_slice()` when equal, falling back to `.clear()` + `.extend_from_slice()` only when sizes change.
