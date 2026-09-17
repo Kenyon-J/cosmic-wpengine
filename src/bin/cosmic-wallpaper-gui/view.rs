@@ -1250,8 +1250,24 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                             }
                         })
                         .push(
-                            button::standard(fl!("weather-use-my-location"))
-                                .on_press(Message::DetectLocation),
+                            {
+                                let btn: cosmic::Element<'_, Message> = if app.is_detecting_location {
+                                    button::custom(
+                                        Row::new()
+                                            .push(cosmic::widget::icon::from_name("process-working-symbolic"))
+                                            .push(text::body(fl!("weather-use-my-location")))
+                                            .spacing(8)
+                                            .align_y(cosmic::iced::Alignment::Center)
+                                    )
+                                    .class(cosmic::theme::Button::Standard)
+                                    .into()
+                                } else {
+                                    button::standard(fl!("weather-use-my-location"))
+                                        .on_press(Message::DetectLocation)
+                                        .into()
+                                };
+                                btn
+                            },
                         )
                         .spacing(8)
                         .align_y(cosmic::iced::Alignment::Center),
