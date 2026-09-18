@@ -197,11 +197,18 @@ pub fn gradient_image(
     let last_f32 = last as f32;
 
     let table = get_linear_to_srgb_table();
-    let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+    let width_usize = width as usize;
+    let height_usize = height as usize;
+    let row_stride = width_usize * 4;
+    let total_bytes = row_stride * height_usize;
+    let mut pixels = vec![0u8; total_bytes];
 
-    for y in 0..height {
+    // Optimization: Direct slice iteration via `chunks_exact_mut` per row and pixel slice.
+    // Writing directly into 4-byte subpixel buffers eliminates millions of `Vec::push`
+    // length checks and enables LLVM packed 32-bit pixel stores.
+    for (y, row) in pixels.chunks_exact_mut(row_stride).enumerate() {
         let y_term = (y as f32 * dy - proj_min) * inv_range;
-        for x in 0..width {
+        for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
             let t = (x as f32).mul_add(dx_inv_range, y_term);
             let pos = t.clamp(0.0, 1.0) * last_f32;
             let i = (pos as usize).min(last - 1);
@@ -211,10 +218,10 @@ pub fn gradient_image(
                 stops[i][1] + (stops[i + 1][1] - stops[i][1]) * frac,
                 stops[i][2] + (stops[i + 1][2] - stops[i][2]) * frac,
             ];
-            pixels.push(srgb_byte(linear_to_srgb_lut(linear[0], table)));
-            pixels.push(srgb_byte(linear_to_srgb_lut(linear[1], table)));
-            pixels.push(srgb_byte(linear_to_srgb_lut(linear[2], table)));
-            pixels.push(255);
+            pixel[0] = srgb_byte(linear_to_srgb_lut(linear[0], table));
+            pixel[1] = srgb_byte(linear_to_srgb_lut(linear[1], table));
+            pixel[2] = srgb_byte(linear_to_srgb_lut(linear[2], table));
+            pixel[3] = 255;
         }
     }
 
