@@ -208,7 +208,8 @@ pub fn gradient_image(
     // length checks and enables LLVM packed 32-bit pixel stores.
     for (y, row) in pixels.chunks_exact_mut(row_stride).enumerate() {
         let y_term = (y as f32 * dy - proj_min) * inv_range;
-        for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+        let (pixels_4, _) = row.as_chunks_mut::<4>();
+        for (x, pixel) in pixels_4.iter_mut().enumerate() {
             let t = (x as f32).mul_add(dx_inv_range, y_term);
             let pos = t.clamp(0.0, 1.0) * last_f32;
             let i = (pos as usize).min(last - 1);
