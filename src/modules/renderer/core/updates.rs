@@ -38,19 +38,21 @@ fn upload_rgba_to_texture(
         );
     } else {
         let required_size = (padded_bytes_per_row * height) as usize;
-        // Skip .clear() so we don't re-zero the whole buffer every frame; resize()
-        // only zero-fills newly-allocated space.
+        // Optimization: Ensure capacity once and resize without zeroing every byte if already allocated.
         if pad_buffer.len() < required_size {
             pad_buffer.resize(required_size, 0);
         }
 
+        let unpadded_len = unpadded_bytes_per_row as usize;
+        let padded_len = padded_bytes_per_row as usize;
+
         // Exact chunks + zip eliminate manual bounds checking and index arithmetic,
         // letting LLVM auto-vectorize the copy.
         for (dst_row, src_row) in pad_buffer[..required_size]
-            .chunks_exact_mut(padded_bytes_per_row as usize)
-            .zip(data.chunks_exact(unpadded_bytes_per_row as usize))
+            .chunks_exact_mut(padded_len)
+            .zip(data.chunks_exact(unpadded_len))
         {
-            dst_row[..unpadded_bytes_per_row as usize].copy_from_slice(src_row);
+            dst_row[..unpadded_len].copy_from_slice(src_row);
         }
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {

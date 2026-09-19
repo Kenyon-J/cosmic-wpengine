@@ -29,4 +29,6 @@ ignore = [
     "RUSTSEC-2026-0097", # rand unsound only with a custom rng() logger (not our path)
     # paste (proc-macro) unmaintained, via image 0.25 -> ravif -> rav1e.
     "RUSTSEC-2024-0436",
+    # rustls TLS 1.3 handshake boundary advisory in transitive dependencies (reqwest/tokio-rustls).
+    "RUSTSEC-2026-0285",
 ]
