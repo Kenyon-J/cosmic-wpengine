@@ -8,3 +8,6 @@
 ## 2024-05-18 - Visual Feedback for Async Update States
 **Learning:** In the `cosmic-wallpaper-gui` settings app, the `UpdateState::Checking` and `UpdateState::Updating` states previously only displayed static text, providing no visual indication that an asynchronous operation was occurring. This can make the UI feel frozen to the user.
 **Action:** Used `cosmic::widget::icon::from_name("process-working-symbolic")` inside a `Row` alongside the text to provide a standard, animated visual indicator for these loading states, improving communication of system status without custom CSS or bloated dependencies.
+## 2024-11-21 - Visual Feedback for Async Location Detection
+**Learning:** Forms that trigger asynchronous operations (like detecting IP location) without showing visual loading feedback leave users confused, potentially leading to double-clicks or the assumption that the application is frozen.
+**Action:** When a button triggers an async task, conditionally swap the standard button for a custom button containing a loading indicator (e.g., `cosmic::widget::icon::from_name("process-working-symbolic")`) and appropriate status text. Omit the `.on_press()` handler on the loading variant to disable it and prevent duplicate requests. Ensure the custom button styling matches the standard button via `.class(cosmic::theme::Button::Standard)`.

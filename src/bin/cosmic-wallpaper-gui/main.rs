@@ -72,6 +72,7 @@ struct SettingsApp {
     /// while invalid; only valid coordinates are saved).
     lat_input: String,
     lon_input: String,
+    detecting_location: bool,
     /// Parsed layout of `selected_theme`, edited live by the theme editor.
     edit_theme: Option<config::ThemeLayout>,
     /// Index into `view::theme_elements()` - which element's controls show.
@@ -885,6 +886,7 @@ impl Application for SettingsApp {
                 ),
                 lat_input: format!("{}", wp_config.weather.latitude),
                 lon_input: format!("{}", wp_config.weather.longitude),
+                detecting_location: false,
                 edit_theme,
                 theme_element: 0,
                 theme_save_generation: 0,
