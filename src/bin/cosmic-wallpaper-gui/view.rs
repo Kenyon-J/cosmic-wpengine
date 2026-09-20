@@ -1252,7 +1252,9 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                         .push({
                             let btn: cosmic::Element<'_, Message> = if app.detecting_location {
                                 let content = Row::new()
-                                    .push(cosmic::widget::icon::from_name("process-working-symbolic"))
+                                    .push(cosmic::widget::icon::from_name(
+                                        "process-working-symbolic",
+                                    ))
                                     .push(text::body(fl!("status-detecting-location")))
                                     .spacing(8)
                                     .align_y(cosmic::iced::Alignment::Center);
