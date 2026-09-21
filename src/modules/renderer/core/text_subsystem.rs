@@ -59,14 +59,13 @@ impl TextSubsystem {
         }
     }
 
-    /// Builds (or refreshes from cache) a shaped text buffer for one
+    /// Builds (or fetches from cache) a shaped text buffer for one
     /// on-screen text element, applying this frame's alignment.
     ///
-    /// `set_align` resets a line's shaped layout as a side effect, so we
-    /// track whether it actually changed and only re-shape when it did:
-    /// reshaping unconditionally is wasted work, and skipping it after a
-    /// real alignment change leaves `layout_runs()` empty and the text
-    /// invisible.
+    /// Optimization: Cached buffers that already match the target metrics,
+    /// dimensions, and line alignment bypass `shape_until_scroll` entirely,
+    /// avoiding redundant text shaping and font layout calculations in the
+    /// rendering hot path.
     #[allow(clippy::too_many_arguments)]
     fn prepare_text_buffer(
         &mut self,
@@ -78,7 +77,9 @@ impl TextSubsystem {
         width_f: f32,
         height_f: f32,
     ) -> Buffer {
+        let mut is_new = false;
         let mut buffer = self.text_buffer_cache.remove(&text_key).unwrap_or_else(|| {
+            is_new = true;
             let mut b = Buffer::new(&mut self.font_system, metrics);
             b.set_metrics(metrics);
             b.set_size(Some(width_f), Some(height_f));
@@ -86,23 +87,31 @@ impl TextSubsystem {
             b
         });
 
-        // Re-apply metrics/size even for a cached buffer: a monitor swap can
-        // change DPI/resolution without changing the text content or its cache key.
-        buffer.set_metrics(metrics);
-        buffer.set_size(Some(width_f), Some(height_f));
+        if is_new {
+            buffer.lines.iter_mut().for_each(|line: &mut BufferLine| {
+                line.set_align(Some(align));
+            });
+            buffer.shape_until_scroll(&mut self.font_system, false);
+        } else {
+            let metrics_changed = buffer.metrics() != metrics;
+            let size_changed = buffer.size() != (Some(width_f), Some(height_f));
+            let align_changed = buffer.lines.iter().any(|line| line.align() != Some(align));
 
-        buffer.lines.iter_mut().for_each(|line: &mut BufferLine| {
-            line.set_align(Some(align));
-        });
-        // Buffer setters (set_metrics/set_size/set_text/set_align) are lazy as
-        // of cosmic-text 0.19 - they mark the buffer dirty but don't reshape
-        // it. The bare Buffer::layout_runs() this struct's callers use (not
-        // the auto-resolving BorrowedWithFontSystem wrapper) does NOT resolve
-        // that dirty state itself, so this must run unconditionally on every
-        // call, not just when realignment actually changed something -
-        // otherwise a freshly-built buffer above is returned never-shaped and
-        // renders as empty.
-        buffer.shape_until_scroll(&mut self.font_system, false);
+            if metrics_changed || size_changed || align_changed {
+                if metrics_changed {
+                    buffer.set_metrics(metrics);
+                }
+                if size_changed {
+                    buffer.set_size(Some(width_f), Some(height_f));
+                }
+                if align_changed {
+                    buffer.lines.iter_mut().for_each(|line: &mut BufferLine| {
+                        line.set_align(Some(align));
+                    });
+                }
+                buffer.shape_until_scroll(&mut self.font_system, false);
+            }
+        }
 
         buffer
     }
