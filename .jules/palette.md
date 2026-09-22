@@ -8,3 +8,6 @@
 ## 2024-05-18 - Visual Feedback for Async Update States
 **Learning:** In the `cosmic-wallpaper-gui` settings app, the `UpdateState::Checking` and `UpdateState::Updating` states previously only displayed static text, providing no visual indication that an asynchronous operation was occurring. This can make the UI feel frozen to the user.
 **Action:** Used `cosmic::widget::icon::from_name("process-working-symbolic")` inside a `Row` alongside the text to provide a standard, animated visual indicator for these loading states, improving communication of system status without custom CSS or bloated dependencies.
+## 2024-03-24 - Missing Localization Keys
+**Learning:** When adding new UI text to `fl!()` macros (such as a tooltip or disabled state message), ensure the translation key is also added to the `.ftl` translation files to prevent runtime errors or missing text.
+**Action:** Always `grep` the `.ftl` files to verify new translation keys exist, or update them accordingly.
