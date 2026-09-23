@@ -172,7 +172,9 @@ impl FrameParams {
             [0.1, 0.1, 0.1]
         };
 
-        let elapsed = now.saturating_duration_since(renderer.start_time).as_secs_f32();
+        let elapsed = now
+            .saturating_duration_since(renderer.start_time)
+            .as_secs_f32();
 
         // Ambient sky uniforms are only needed when no custom background
         // texture will cover them.
