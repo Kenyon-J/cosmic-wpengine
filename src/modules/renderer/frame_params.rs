@@ -105,7 +105,7 @@ fn lyric_window_bounds(current_lyric_idx: usize, lyrics_len: Option<usize>) -> (
 }
 
 impl FrameParams {
-    pub(crate) fn compute(renderer: &super::Renderer) -> Self {
+    pub(crate) fn compute(renderer: &super::Renderer, now: std::time::Instant) -> Self {
         let force_art = renderer.state.config.mode == WallpaperMode::AlbumArt;
 
         let has_audio = has_audio_active(
@@ -172,7 +172,7 @@ impl FrameParams {
             [0.1, 0.1, 0.1]
         };
 
-        let elapsed = renderer.start_time.elapsed().as_secs_f32();
+        let elapsed = now.saturating_duration_since(renderer.start_time).as_secs_f32();
 
         // Ambient sky uniforms are only needed when no custom background
         // texture will cover them.
