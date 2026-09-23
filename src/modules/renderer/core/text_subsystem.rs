@@ -10,6 +10,7 @@
 
 use super::super::text::{PositionedBuffer, TextCacheKey, TextRenderer};
 use cosmic_text::{Attrs, Buffer, BufferLine, FontSystem, Metrics, Shaping, SwashCache};
+use std::hash::Hasher;
 
 pub(crate) struct TextSubsystem {
     pub(crate) font_system: FontSystem,
@@ -416,18 +417,24 @@ impl TextSubsystem {
             realloc = true;
         }
 
-        if realloc || self.text_renderer.cpu_vertices != self.text_renderer.last_uploaded_vertices {
+        // Optimization: Use 64-bit FxHash content hashing to check if text geometry changed before writing
+        // to GPU buffers, completely eliminating vector element cloning (`clone_from`) on every upload.
+        let mut vert_hasher = rustc_hash::FxHasher::default();
+        vert_hasher.write(vertices_bytes);
+        let vert_hash = vert_hasher.finish();
+
+        if realloc || vert_hash != self.text_renderer.last_uploaded_vertices_hash {
             queue.write_buffer(&self.text_renderer.vertices, 0, vertices_bytes);
-            self.text_renderer
-                .last_uploaded_vertices
-                .clone_from(&self.text_renderer.cpu_vertices);
+            self.text_renderer.last_uploaded_vertices_hash = vert_hash;
         }
 
-        if realloc || self.text_renderer.cpu_indices != self.text_renderer.last_uploaded_indices {
+        let mut idx_hasher = rustc_hash::FxHasher::default();
+        idx_hasher.write(indices_bytes);
+        let idx_hash = idx_hasher.finish();
+
+        if realloc || idx_hash != self.text_renderer.last_uploaded_indices_hash {
             queue.write_buffer(&self.text_renderer.indices, 0, indices_bytes);
-            self.text_renderer
-                .last_uploaded_indices
-                .clone_from(&self.text_renderer.cpu_indices);
+            self.text_renderer.last_uploaded_indices_hash = idx_hash;
         }
         self.text_renderer.num_indices = self.text_renderer.cpu_indices.len() as u32;
     }

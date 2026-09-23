@@ -34,3 +34,7 @@
 ## 2025-03-05 - Avoid Skipping Immediate-Mode Command Recording
 **Learning:** Returning early from an immediate-mode command encoder function (like `BlurChain::run`) solely because uniforms (like blur amount) haven't changed breaks rendering. The command buffer must still record the draw calls (like `begin_render_pass`) every frame to process underlying source texture updates (like animated video backgrounds), even if the uniforms are static.
 **Action:** When caching `wgpu` render states to prevent redundant uploads, only conditionally wrap the `queue.write_buffer()` calls with the cache check. Do not use an early return to skip the entire command encoding process.
+
+## 2025-03-05 - Use Content Hashes Instead of Vector Copies for GPU Geometry Caching
+**Learning:** Storing duplicate CPU `Vec` copies (`last_uploaded_vertices: Vec<T>`) to diff against newly generated GPU vertex/index data avoids redundant `write_buffer` calls, but introduces heap allocations and element cloning (`clone_from`) on every upload tick. Storing 64-bit content hashes (`FxHasher`) instead eliminates duplicate CPU vector storage and element copying altogether while providing $O(1)$ dirty-checking before writing to GPU buffers.
+**Action:** Cache 64-bit content hashes (`u64`) of slice byte representations instead of cloning full vectors when tracking uploaded GPU buffer state.

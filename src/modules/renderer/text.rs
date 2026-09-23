@@ -61,8 +61,8 @@ pub struct TextRenderer {
     pub cache_row_height: u32,
     pub cpu_vertices: Vec<TextVertex>,
     pub cpu_indices: Vec<u32>,
-    pub last_uploaded_vertices: Vec<TextVertex>,
-    pub last_uploaded_indices: Vec<u32>,
+    pub last_uploaded_vertices_hash: u64,
+    pub last_uploaded_indices_hash: u64,
 }
 
 impl TextRenderer {
@@ -201,8 +201,8 @@ impl TextRenderer {
             cache_row_height: 0,
             cpu_vertices: Vec::with_capacity(vertex_capacity),
             cpu_indices: Vec::with_capacity(index_capacity),
-            last_uploaded_vertices: Vec::new(),
-            last_uploaded_indices: Vec::new(),
+            last_uploaded_vertices_hash: 0,
+            last_uploaded_indices_hash: 0,
         })
     }
 }
