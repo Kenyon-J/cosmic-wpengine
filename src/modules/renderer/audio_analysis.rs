@@ -271,11 +271,8 @@ impl AudioAnalysis {
         {
             let mut max_val = 0.0f32;
             if let Some(slice) = raw_bands.get(bin_lo..bin_hi.min(bands_len)) {
-                for &val in slice {
-                    if val > max_val {
-                        max_val = val;
-                    }
-                }
+                // Vectorizable max reduction
+                max_val = slice.iter().fold(0.0f32, |m, &v| m.max(v));
             }
 
             let target = (max_val * combined_weight).clamp(0.0, 1.0);
@@ -313,13 +310,9 @@ impl AudioAnalysis {
             let mut peak = 0.0f32;
             let mut peak_abs = 0.0f32;
             if let Some(slice) = raw_waveform.get(start..end.min(wave_len)) {
-                for &val in slice {
-                    let val_abs = val.abs();
-                    if val_abs > peak_abs {
-                        peak_abs = val_abs;
-                        peak = val;
-                    }
-                }
+                // Vectorizable search for the peak absolute value
+                peak = slice.iter().fold(0.0f32, |p, &v| if v.abs() > p.abs() { v } else { p });
+                peak_abs = peak.abs();
             }
             if peak_abs > max_energy {
                 max_energy = peak_abs;
