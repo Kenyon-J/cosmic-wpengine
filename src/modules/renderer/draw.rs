@@ -418,8 +418,15 @@ pub(crate) fn draw_frame(
         };
 
         if renderer.last_audio_bands != audio_data {
-            renderer.last_audio_bands.clear();
-            renderer.last_audio_bands.extend_from_slice(audio_data);
+            // Optimization: Use copy_from_slice in-place when vector lengths match,
+            // avoiding clear() and extend_from_slice(...) vector length manipulation
+            // and capacity re-checks in the audio visualization hot path.
+            if renderer.last_audio_bands.len() == audio_data.len() {
+                renderer.last_audio_bands.copy_from_slice(audio_data);
+            } else {
+                renderer.last_audio_bands.clear();
+                renderer.last_audio_bands.extend_from_slice(audio_data);
+            }
             renderer.queue.write_buffer(
                 &renderer.visualiser_pass.bands_buffer,
                 0,
@@ -429,8 +436,12 @@ pub(crate) fn draw_frame(
 
         let peaks_data: &[f32] = &renderer.audio.peaks;
         if renderer.last_audio_peaks != peaks_data {
-            renderer.last_audio_peaks.clear();
-            renderer.last_audio_peaks.extend_from_slice(peaks_data);
+            if renderer.last_audio_peaks.len() == peaks_data.len() {
+                renderer.last_audio_peaks.copy_from_slice(peaks_data);
+            } else {
+                renderer.last_audio_peaks.clear();
+                renderer.last_audio_peaks.extend_from_slice(peaks_data);
+            }
             renderer.queue.write_buffer(
                 &renderer.visualiser_pass.peaks_buffer,
                 0,
