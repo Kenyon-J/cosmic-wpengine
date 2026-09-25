@@ -208,8 +208,11 @@ mod tests {
         if let Some(codec) = ffmpeg::decoder::find(ffmpeg::codec::Id::MPEG4) {
             let _ = codec_supports_vaapi(&codec);
         }
-        let png = ffmpeg::decoder::find(ffmpeg::codec::Id::PNG).expect("png decoder");
-        assert!(!codec_supports_vaapi(&png));
+        // rawvideo is built into every configuration (unlike, say, PNG,
+        // which needs zlib - absent from the static build) and has no
+        // hardware configs.
+        let raw = ffmpeg::decoder::find(ffmpeg::codec::Id::RAWVIDEO).expect("rawvideo decoder");
+        assert!(!codec_supports_vaapi(&raw));
     }
 
     #[test]
