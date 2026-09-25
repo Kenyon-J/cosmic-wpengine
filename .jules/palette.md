@@ -11,3 +11,7 @@
 ## 2024-03-24 - Missing Localization Keys
 **Learning:** When adding new UI text to `fl!()` macros (such as a tooltip or disabled state message), ensure the translation key is also added to the `.ftl` translation files to prevent runtime errors or missing text.
 **Action:** Always `grep` the `.ftl` files to verify new translation keys exist, or update them accordingly.
+
+## 2024-05-24 - Async Button Loading State
+**Learning:** In cosmic::iced, users need visual feedback during async operations to prevent duplicate clicks and indicate progress, especially for network-bound actions like location detection.
+**Action:** Replaced standard button with disabled custom button containing a loading spinner (icon `process-working-symbolic`) and text when `detecting_location` is true.

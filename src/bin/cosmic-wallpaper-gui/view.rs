@@ -925,6 +925,11 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                             text_input(fl!("theme-name-placeholder"), &app.new_theme_name)
                                 .on_input(Message::NewThemeNameChanged)
                                 .width(Length::Fixed(180.0));
+
+                        if !is_empty && already_exists {
+                            input = input.error(fl!("theme-name-exists-error"));
+                        }
+
                         let mut btn = button::standard(fl!("common-create"));
 
                         if is_valid {
@@ -1263,10 +1268,26 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                                 lon_input.error(fl!("weather-invalid-longitude"))
                             }
                         })
-                        .push(
-                            button::standard(fl!("weather-use-my-location"))
-                                .on_press(Message::DetectLocation),
-                        )
+                        .push({
+                            let el: cosmic::Element<'_, Message> = if app.detecting_location {
+                                button::custom(
+                                    Row::new()
+                                        .push(cosmic::widget::icon::from_name(
+                                            "process-working-symbolic",
+                                        ))
+                                        .push(text::body(fl!("weather-use-my-location")))
+                                        .spacing(8)
+                                        .align_y(cosmic::iced::Alignment::Center),
+                                )
+                                .class(cosmic::theme::Button::Standard)
+                                .into()
+                            } else {
+                                button::standard(fl!("weather-use-my-location"))
+                                    .on_press(Message::DetectLocation)
+                                    .into()
+                            };
+                            el
+                        })
                         .spacing(8)
                         .align_y(cosmic::iced::Alignment::Center),
                 ),
