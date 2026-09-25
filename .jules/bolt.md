@@ -34,3 +34,7 @@
 ## 2025-03-05 - Avoid Skipping Immediate-Mode Command Recording
 **Learning:** Returning early from an immediate-mode command encoder function (like `BlurChain::run`) solely because uniforms (like blur amount) haven't changed breaks rendering. The command buffer must still record the draw calls (like `begin_render_pass`) every frame to process underlying source texture updates (like animated video backgrounds), even if the uniforms are static.
 **Action:** When caching `wgpu` render states to prevent redundant uploads, only conditionally wrap the `queue.write_buffer()` calls with the cache check. Do not use an early return to skip the entire command encoding process.
+
+## 2025-03-05 - Avoid Conditional Mutations in Float Loops
+**Learning:** In Rust DSP or performance-critical loops, manual `for` loops containing conditional mutations (e.g., `if val > max_val { max_val = val; }`) over float slices prevent LLVM from applying auto-vectorization optimizations.
+**Action:** Replace manual loops with iterator combinators like `.iter().fold(0.0f32, |m, &v| m.max(v))` to enable the generation of efficient SIMD instructions (such as `maxps`).

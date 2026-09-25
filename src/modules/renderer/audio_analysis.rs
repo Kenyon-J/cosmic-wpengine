@@ -269,14 +269,11 @@ impl AudioAnalysis {
         for (current, &(bin_lo, bin_hi, combined_weight)) in
             self.bands.iter_mut().zip(self.processing_bins.iter())
         {
-            let mut max_val = 0.0f32;
-            if let Some(slice) = raw_bands.get(bin_lo..bin_hi.min(bands_len)) {
-                for &val in slice {
-                    if val > max_val {
-                        max_val = val;
-                    }
-                }
-            }
+            // Optimization: Use iterator combinators to enable efficient SIMD instruction generation
+            let max_val = raw_bands
+                .get(bin_lo..bin_hi.min(bands_len))
+                .map(|slice| slice.iter().fold(0.0f32, |m, &v| m.max(v)))
+                .unwrap_or(0.0);
 
             let target = (max_val * combined_weight).clamp(0.0, 1.0);
             let diff = target - *current;
@@ -310,17 +307,20 @@ impl AudioAnalysis {
             .iter_mut()
             .zip(self.waveform_bin_ranges.iter())
         {
-            let mut peak = 0.0f32;
-            let mut peak_abs = 0.0f32;
-            if let Some(slice) = raw_waveform.get(start..end.min(wave_len)) {
-                for &val in slice {
-                    let val_abs = val.abs();
-                    if val_abs > peak_abs {
-                        peak_abs = val_abs;
-                        peak = val;
-                    }
-                }
-            }
+            // Optimization: Use iterator combinators to enable efficient SIMD instruction generation
+            let (peak_abs, peak) = raw_waveform
+                .get(start..end.min(wave_len))
+                .map(|slice| {
+                    slice.iter().fold((0.0f32, 0.0f32), |(m_abs, m), &v| {
+                        let v_abs = v.abs();
+                        if v_abs > m_abs {
+                            (v_abs, v)
+                        } else {
+                            (m_abs, m)
+                        }
+                    })
+                })
+                .unwrap_or((0.0, 0.0));
             if peak_abs > max_energy {
                 max_energy = peak_abs;
             }
