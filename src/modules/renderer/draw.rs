@@ -368,7 +368,7 @@ pub(crate) fn draw_frame(
         font_family,
         lyric_bounce,
         beat_pulse_mul,
-    } = FrameParams::compute(renderer);
+    } = FrameParams::compute(renderer, now);
 
     if is_weather_active && active_particles > 0 {
         // --- Dispatch Weather Compute Shader ---

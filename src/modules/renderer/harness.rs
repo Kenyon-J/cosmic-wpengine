@@ -74,7 +74,7 @@ pub async fn render_frame_to_png(
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-    let params = FrameParams::compute(&renderer);
+    let params = FrameParams::compute(&renderer, std::time::Instant::now());
 
     // The live per-monitor loop writes these once per resolution
     // (last_uniform_res dedup) before encoding; a one-shot offscreen
