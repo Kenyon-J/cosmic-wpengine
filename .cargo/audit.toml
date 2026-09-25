@@ -13,6 +13,8 @@
 
 [advisories]
 ignore = [
+    # rustls 0.23.42 TLS 1.3 handshake boundary advisory (transitive dependency).
+    "RUSTSEC-2026-0285",
     # quick-xml (quadratic attr scan + unbounded ns alloc DoS) via zbus/atspi.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",

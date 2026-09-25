@@ -88,7 +88,7 @@ impl SettingsApp {
             // The tray's Quit item is the tested graceful-shutdown
             // path; menu id 3 is Quit Engine.
             if let Some(busctl) = resolve_binary("busctl") {
-                let _ = std::process::Command::new(busctl)
+                match std::process::Command::new(busctl)
                     .args([
                         "--user",
                         "call",
@@ -104,7 +104,21 @@ impl SettingsApp {
                         "",
                         "0",
                     ])
-                    .output();
+                    .output()
+                {
+                    Ok(output) => {
+                        if !output.status.success() {
+                            tracing::warn!(
+                                "Failed to stop engine via busctl (exit {:?}): {}",
+                                output.status.code(),
+                                String::from_utf8_lossy(&output.stderr)
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to launch busctl to stop engine: {}", e);
+                    }
+                }
                 self.status_msg = fl!("status-engine-stopping");
                 return Task::perform(
                     tokio::time::sleep(std::time::Duration::from_millis(1500)),
