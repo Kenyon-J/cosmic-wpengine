@@ -1,3 +1,21 @@
+# Do not re-propose (reviewed 2026-09-25)
+
+Check this list and the open PRs first - some of these were proposed 4-7 times.
+
+**Already done:**
+- Spinner + disabled state on "Use my location" (`detecting_location`, #568).
+- Inline "name already exists" error on the new-theme input (#561).
+- "Export pack" disabled with a tooltip until a theme is selected (#566).
+- Inline validation on weather latitude/longitude (#514).
+- Progress indicator for update check/install states (#535).
+
+**Rejected:**
+- Engine Start/Stop loading state derived by comparing `status_msg` to
+  translated strings. If this is revisited, it needs a real state field
+  (like `detecting_location`), not string comparison.
+
+---
+
 ## 2024-07-22 - Inline Validation
 
 **Learning:** Forms without inline validation or descriptive disabled states can lead to confusing user experiences and silent failures.

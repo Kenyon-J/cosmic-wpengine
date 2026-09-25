@@ -1,3 +1,34 @@
+# Do not re-propose (reviewed 2026-09-25)
+
+Before opening a PR, check this list, the entries below, and the open PRs.
+Several ideas were proposed three or more times; the duplicates were closed.
+
+**Rejected - do not propose again:**
+- **Skipping `shape_until_scroll` / setters for cached text buffers**
+  (`TextSubsystem::prepare_text_buffer`). cosmic-text 0.19 setters already
+  no-op on equal values and `shape_until_scroll` returns immediately when the
+  buffer isn't dirty, so the unconditional call is already free for an
+  unchanged buffer. It is also the guard for the 1.6.2 blank-text regression.
+  Leave it unconditional.
+- **Hashing text vertices/indices instead of comparing them** (FxHash or any
+  other hash). A collision silently skips a GPU upload and leaves stale text
+  on screen; hashing costs about the same as the comparison it replaces.
+- **Calling `device.poll` only on frames that skip `draw_frame`.** That poll
+  prevents dropped wgpu resources piling up (OOM). It is non-blocking and
+  cheap; keep it unconditional.
+
+**Already done - do not propose again:**
+- `gradient_image`: sRGB LUT, row-hoisted projection, direct pixel-buffer
+  fill (#441, #546, #560). Single-colour / FMA variants were superseded.
+- In-place `copy_from_slice` for `last_audio_bands` / `last_audio_peaks` (#567).
+- `fold`-based max/peak search in `AudioAnalysis` (#571).
+- One `Instant::now()` per frame, passed down to `FrameParams::compute` and
+  audio ingest (#465, #513, #569).
+- `LyricWindow` borrows `&str` instead of cloning `Box<str>` (#540).
+- Conditional wgpu uniform/text/blur uploads (#448, #505, #534).
+
+---
+
 ## 02-03-2025- Optimize DynamicImage Pixel Sampling
 **Learning:** `DynamicImage::get_pixel` performs nested enum matching over 10+ variants and dynamic dispatch for every pixel lookup, which introduces significant overhead inside high-frequency nested pixel loops (e.g., color palette extraction, image averaging). Extracting the underlying `RgbaImage` reference once before the loop using `.as_rgba8()` / `.to_rgba8()` completely bypasses this dispatch.
 **Action:** Always retrieve a direct reference to the underlying concrete image buffer (like `RgbaImage`) before performing pixel lookup operations in performance-sensitive loops.
