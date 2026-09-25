@@ -1,3 +1,49 @@
+# cosmic-wallpaper 1.6.3
+
+Maintenance release: security hardening, render-loop performance work and
+small settings-app UX improvements. No config or theme format changes.
+
+## Security
+
+- **SSRF fix for the Spotify canvas proxy URL.** A user-configured proxy
+  URL is now validated before the engine fetches through it.
+- **`xdg-open` is only handed http(s) URLs**, and a failure to launch it
+  is logged instead of silently ignored.
+- **D-Bus calls made via `busctl`** (autostart toggle, stopping the
+  engine) now log spawn failures instead of discarding them.
+
+## Performance
+
+- Gradient backgrounds render faster: the sRGB conversion uses a lookup
+  table instead of `powf`, and the pixel buffer is filled directly
+  instead of pixel by pixel.
+- Contrast checks cache relative luminance, and the sRGB LUT lookup moved
+  out of the inner loop.
+- Sky colour interpolation and placeholder album art generation do less
+  work per call.
+- Blur passes and uniform buffers are only re-uploaded to the GPU when
+  their inputs change, and text vertex/index buffers are only rewritten
+  when the text changes.
+- The render loop reads the clock once per frame and passes that
+  timestamp to frame parameters and audio ingest.
+- Audio analysis: max/peak searches use iterator folds, the decay
+  gravity term moved out of the loop, and the visualiser band/peak caches
+  are updated in place.
+- The lyric window borrows line text instead of cloning it every frame.
+
+## Settings app
+
+- "Use my location" shows a spinner and is disabled while detection
+  runs, so it can't be clicked twice.
+- The theme name field shows an inline error when the name is already
+  taken.
+- Weather latitude/longitude fields show inline validation errors.
+- "Export pack" is disabled, with a tooltip saying why, until you pick a
+  theme to export.
+- Update check/install states show a progress indicator.
+
+---
+
 # cosmic-wallpaper 1.6.2
 
 Dependency catch-up: nine crates bumped to their current major/minor
