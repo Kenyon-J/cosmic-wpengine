@@ -78,31 +78,40 @@ impl TextSubsystem {
         width_f: f32,
         height_f: f32,
     ) -> Buffer {
-        let mut buffer = self.text_buffer_cache.remove(&text_key).unwrap_or_else(|| {
-            let mut b = Buffer::new(&mut self.font_system, metrics);
-            b.set_metrics(metrics);
-            b.set_size(Some(width_f), Some(height_f));
-            b.set_text(text, attrs, Shaping::Advanced, Some(align));
-            b
-        });
+        let (mut buffer, is_cached) = match self.text_buffer_cache.remove(&text_key) {
+            Some(b) => (b, true),
+            None => {
+                let mut b = Buffer::new(&mut self.font_system, metrics);
+                b.set_metrics(metrics);
+                b.set_size(Some(width_f), Some(height_f));
+                b.set_text(text, attrs, Shaping::Advanced, Some(align));
+                (b, false)
+            }
+        };
 
-        // Re-apply metrics/size even for a cached buffer: a monitor swap can
-        // change DPI/resolution without changing the text content or its cache key.
-        buffer.set_metrics(metrics);
-        buffer.set_size(Some(width_f), Some(height_f));
+        let target_size = (Some(width_f), Some(height_f));
+        // Optimization: Bypass the expensive `shape_until_scroll` text-shaping call for
+        // cached buffers when their size, metrics, and line alignments match the target properties.
+        // cosmic-text's buffer setters (set_metrics/set_size/set_align) lazily mark the buffer
+        // dirty, triggering a full re-shape on `shape_until_scroll`. For cached buffers whose
+        // properties haven't changed, skipping these setters and `shape_until_scroll` preserves
+        // the existing shaped layout and eliminates CPU text-shaping overhead in the render loop.
+        let properties_unchanged = is_cached
+            && buffer.metrics() == metrics
+            && buffer.size() == target_size
+            && buffer
+                .lines
+                .iter()
+                .all(|line: &BufferLine| line.align() == Some(align));
 
-        buffer.lines.iter_mut().for_each(|line: &mut BufferLine| {
-            line.set_align(Some(align));
-        });
-        // Buffer setters (set_metrics/set_size/set_text/set_align) are lazy as
-        // of cosmic-text 0.19 - they mark the buffer dirty but don't reshape
-        // it. The bare Buffer::layout_runs() this struct's callers use (not
-        // the auto-resolving BorrowedWithFontSystem wrapper) does NOT resolve
-        // that dirty state itself, so this must run unconditionally on every
-        // call, not just when realignment actually changed something -
-        // otherwise a freshly-built buffer above is returned never-shaped and
-        // renders as empty.
-        buffer.shape_until_scroll(&mut self.font_system, false);
+        if !properties_unchanged {
+            buffer.set_metrics(metrics);
+            buffer.set_size(Some(width_f), Some(height_f));
+            buffer.lines.iter_mut().for_each(|line: &mut BufferLine| {
+                line.set_align(Some(align));
+            });
+            buffer.shape_until_scroll(&mut self.font_system, false);
+        }
 
         buffer
     }
