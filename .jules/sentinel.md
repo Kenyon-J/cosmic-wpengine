@@ -1,3 +1,17 @@
+# Do not re-propose (reviewed 2026-09-25)
+
+**Already done:**
+- `busctl` / D-Bus spawn failures are logged instead of discarded (#550).
+  No `let _ = Command::...output()` remains in `src/`.
+- `xdg-open` URL-scheme validation and error handling (#440, #518).
+- SSRF check on the Spotify canvas proxy URL (#512).
+
+**Policy:** don't add new entries to `.cargo/audit.toml` as a drive-by in an
+unrelated PR. A new advisory gets its own PR that upgrades the dependency,
+or explains why the ignore is safe.
+
+---
+
 ## 2025-02-27 - Unbounded Memory Growth via `.text().await`
 **Vulnerability:** Similar to `.bytes().await` and `.json().await`, using `reqwest`'s `.text().await` buffers the entire response body into memory without a size limit. When fetching text files from untrusted sources (or potentially compromised sources, like an update server), a maliciously large response can cause an Out-Of-Memory (OOM) denial-of-service condition.
 **Learning:** All `reqwest` response extraction methods that buffer the full payload (`bytes()`, `text()`, `json()`) are inherently vulnerable to OOM attacks if unbounded. The existing `read_capped` utility must be used uniformly across the codebase for all payloads—not just binary or JSON data—before converting to the desired format (e.g., parsing JSON or creating a String from UTF-8 bytes).
