@@ -26,6 +26,12 @@ Several ideas were proposed three or more times; the duplicates were closed.
   audio ingest (#465, #513, #569).
 - `LyricWindow` borrows `&str` instead of cloning `Box<str>` (#540).
 - Conditional wgpu uniform/text/blur uploads (#448, #505, #534).
+- Static-scene idling covers the procedural sky: it only counts as animating
+  while visible and its weather needs it (`ambient_redraw_interval`).
+- Video decoding pauses while the wallpaper is hidden, converts at display
+  size (`scaled_video_size`), and uses VAAPI when available.
+- `upload_rgba_to_texture` passes tightly packed rows straight to
+  `write_texture` - it needs no 256-byte row padding; don't reintroduce it.
 
 ---
 

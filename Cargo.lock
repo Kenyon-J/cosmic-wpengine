@@ -1299,6 +1299,7 @@ dependencies = [
  "bytemuck",
  "cosmic-text",
  "ffmpeg-next",
+ "ffmpeg-sys-next",
  "flate2",
  "fluent-bundle",
  "i18n-embed",

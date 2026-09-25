@@ -34,6 +34,25 @@ pub struct GpuOutput {
 /// than leaving a permanently stale frame.
 const STATIC_SCENE_HEARTBEAT: Duration = Duration::from_secs(1);
 
+/// Repaint interval for the procedural sky's cloudy drift. The drift term
+/// (`sin(time * 0.2) * 0.1` in ambient.wgsl) moves under one 8-bit colour
+/// level per 250ms, so repainting it faster costs power for no visible
+/// difference.
+const CLOUD_DRIFT_INTERVAL: Duration = Duration::from_millis(250);
+
+/// How often the visible procedural sky needs repainting for a given
+/// `weather_type` (values match ambient.wgsl's `AmbientUniforms`): every
+/// frame for falling rain/snow, at `CLOUD_DRIFT_INTERVAL` for cloud drift,
+/// and never for a clear sky, whose only change - the time-of-day colour -
+/// the static-scene heartbeat already covers.
+fn sky_redraw_interval(weather_type: u32) -> Option<Duration> {
+    match weather_type {
+        2 | 3 => Some(Duration::ZERO),
+        1 => Some(CLOUD_DRIFT_INTERVAL),
+        _ => None,
+    }
+}
+
 /// Single home for surface format/alpha/present-mode selection and the
 /// initial configure, shared by first-time init (`init.rs`) and the
 /// monitor-hotplug rebuild path above. These two blocks were previously
@@ -135,8 +154,6 @@ pub struct Renderer {
     pub(crate) cached_weather_hash: u64,
     pub(crate) current_lyric_idx: usize,
     pub(crate) lyric_scroll_offset: f32,
-    pub(crate) video_frame_buffer: Vec<u8>,
-    pub(crate) album_art_pad_buffer: Vec<u8>,
     // --- Cached Performance Values ---
     pub(crate) primary_text_color: [f32; 4],
     pub(crate) secondary_text_color: [f32; 4],
@@ -160,6 +177,7 @@ impl Renderer {
         mut event_rx: Receiver<Event>,
         wayland_manager: &mut WaylandManager,
         is_visible_tx: tokio::sync::watch::Sender<bool>,
+        video_size_tx: tokio::sync::watch::Sender<Option<(u32, u32)>>,
     ) -> Result<()> {
         let mut last_frame = Instant::now();
         let mut last_config_serial = wayland_manager.app_data.configuration_serial;
@@ -269,6 +287,24 @@ impl Renderer {
                         scene_dirty = true;
                     }
                 }
+            }
+
+            // Publish the largest monitor size so the local video decoder
+            // converts frames at display size (video::scaled_video_size).
+            // Width and height are maxed independently so the target covers
+            // every monitor, portrait ones included. An empty output list
+            // (mid-reconfigure) keeps the last size rather than flapping.
+            if let Some(largest) = self
+                .outputs
+                .iter()
+                .map(|out| (out.config.width, out.config.height))
+                .reduce(|a, b| (a.0.max(b.0), a.1.max(b.1)))
+            {
+                video_size_tx.send_if_modified(|size| {
+                    let changed = *size != Some(largest);
+                    *size = Some(largest);
+                    changed
+                });
             }
 
             let mut transparent_changed = false;
@@ -428,11 +464,15 @@ impl Renderer {
             }
             was_animating = scene_animating;
 
+            let since_present = now.saturating_duration_since(last_present);
             let needs_draw = scene_dirty
                 || scene_animating
                 || settle_frame
                 || !has_presented
-                || now.saturating_duration_since(last_present) >= STATIC_SCENE_HEARTBEAT;
+                || self
+                    .ambient_redraw_interval()
+                    .is_some_and(|interval| since_present >= interval)
+                || since_present >= STATIC_SCENE_HEARTBEAT;
 
             if needs_draw && wayland_manager.any_monitor_ready() {
                 super::draw::draw_frame(self, wayland_manager, delta, now)?;
@@ -485,12 +525,43 @@ impl Renderer {
         // Weather particle physics runs a compute pass every frame.
         let weather_active = self.is_weather_active && self.active_particles > 0;
 
-        // The procedural sky shader animates with time (cloud drift, rain
-        // streaks). It can be on screen whenever no custom background
-        // texture exists; conservatively treat that as always-animating
-        // rather than replicating draw_frame's exact layering rules here.
-        let ambient_possible = self.background.bind_group().is_none();
+        // The procedural sky is paced separately by
+        // ambient_redraw_interval(): only rain and snow need every frame.
+        audio_active || lyrics_moving || fading || weather_active
+    }
 
-        audio_active || lyrics_moving || fading || weather_active || ambient_possible
+    /// How often the procedural sky needs repainting, or `None` when it
+    /// doesn't animate: it's covered (album art or a custom background),
+    /// or the sky is clear. A clear sky only changes with the time-of-day
+    /// colour, which the static-scene heartbeat already keeps fresh - so
+    /// the default scene can pause redraws instead of repainting an
+    /// identical full-screen shader at target fps.
+    fn ambient_redraw_interval(&self) -> Option<Duration> {
+        if !super::frame_params::ambient_sky_visible(self) {
+            return None;
+        }
+        sky_redraw_interval(self.weather_type)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clear_sky_lets_the_scene_idle() {
+        assert_eq!(sky_redraw_interval(0), None);
+    }
+
+    #[test]
+    fn cloud_drift_repaints_slowly() {
+        let interval = sky_redraw_interval(1).unwrap();
+        assert!(interval > Duration::ZERO && interval < STATIC_SCENE_HEARTBEAT);
+    }
+
+    #[test]
+    fn rain_and_snow_repaint_every_frame() {
+        assert_eq!(sky_redraw_interval(2), Some(Duration::ZERO));
+        assert_eq!(sky_redraw_interval(3), Some(Duration::ZERO));
     }
 }

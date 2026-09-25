@@ -428,7 +428,12 @@ impl MprisWatcher {
                             let video_url = assets.video_url.flatten();
                             if let Some(url) = &video_url {
                                 if config_rx.borrow().appearance.prefer_canvas {
-                                    spawn_canvas_decoder(&tx, &mut video_cancel_tx, url);
+                                    spawn_canvas_decoder(
+                                        &tx,
+                                        &mut video_cancel_tx,
+                                        &visible_rx,
+                                        url,
+                                    );
                                 }
                             }
                             let _ = tx
@@ -489,7 +494,7 @@ impl MprisWatcher {
                     }
                     if let Some(url) = track_info.video_url.as_deref() {
                         if config_rx.borrow().appearance.prefer_canvas {
-                            spawn_canvas_decoder(&tx, &mut video_cancel_tx, url);
+                            spawn_canvas_decoder(&tx, &mut video_cancel_tx, &visible_rx, url);
                         }
                     }
 
@@ -693,6 +698,7 @@ impl MprisWatcher {
 fn spawn_canvas_decoder(
     tx: &Sender<Event>,
     video_cancel_tx: &mut Option<tokio::sync::watch::Sender<bool>>,
+    visible_rx: &tokio::sync::watch::Receiver<bool>,
     url: &str,
 ) {
     if let Some(cancel) = video_cancel_tx.take() {
@@ -702,10 +708,13 @@ fn spawn_canvas_decoder(
     let (recycle_tx, recycle_rx) = tokio::sync::mpsc::channel(3);
     *video_cancel_tx = Some(cancel_tx);
     let tx = tx.clone();
+    let visible_rx = visible_rx.clone();
     let url = url.to_string();
     tokio::spawn(async move {
-        let _ = super::video::VideoDecoder::run_decoder(url, tx, cancel_rx, recycle_rx, recycle_tx)
-            .await;
+        let _ = super::video::VideoDecoder::run_decoder(
+            url, tx, cancel_rx, visible_rx, recycle_rx, recycle_tx,
+        )
+        .await;
     });
 }
 

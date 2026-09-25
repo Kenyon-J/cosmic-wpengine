@@ -673,6 +673,7 @@ enum Message {
     /// Index into `library`.
     VideoSelected(usize),
     ToggleWatchCanvas(bool),
+    ToggleHardwareVideoDecode(bool),
     LibraryLoaded(Vec<library::VideoEntry>),
     /// Files dropped on the Live Wallpapers page (None when the payload
     /// could not be decoded).
@@ -936,6 +937,9 @@ impl Application for SettingsApp {
             Message::ThemeSelected(idx) => self.on_theme_selected(idx),
             Message::VideoSelected(idx) => self.on_video_selected(idx),
             Message::ToggleWatchCanvas(state) => self.on_toggle_watch_canvas(state),
+            Message::ToggleHardwareVideoDecode(state) => {
+                self.on_toggle_hardware_video_decode(state)
+            }
             Message::LibraryLoaded(entries) => self.on_library_loaded(entries),
             Message::FilesDropped(files) => self.on_files_dropped(files),
             Message::DndEntered => self.on_dnd_entered(),

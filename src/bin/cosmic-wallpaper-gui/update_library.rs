@@ -1,5 +1,5 @@
 //! `update()` handlers for the Live Wallpapers page: the video library,
-//! its drag-and-drop import, and the canvas-preference toggle.
+//! its drag-and-drop import, and the canvas and hardware-decoding toggles.
 use super::*;
 
 impl SettingsApp {
@@ -13,6 +13,15 @@ impl SettingsApp {
 
     pub(super) fn on_toggle_watch_canvas(&mut self, state: bool) -> Task<cosmic::Action<Message>> {
         self.wp_config.appearance.prefer_canvas = state;
+        let _ = self.wp_config.save();
+        Task::none()
+    }
+
+    pub(super) fn on_toggle_hardware_video_decode(
+        &mut self,
+        state: bool,
+    ) -> Task<cosmic::Action<Message>> {
+        self.wp_config.appearance.hardware_video_decode = state;
         let _ = self.wp_config.save();
         Task::none()
     }

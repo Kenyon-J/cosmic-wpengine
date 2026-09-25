@@ -33,8 +33,9 @@ jobs:
           # nasm: assembler for the static ffmpeg build (static-ffmpeg
           # feature); the libav*-dev packages are gone for the same reason -
           # the standalone binaries must not link the host's ffmpeg.
+          # libva-dev: VAAPI hardware decoding in the static ffmpeg build.
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev libssl-dev nasm
+          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev libssl-dev nasm libva-dev
 
       - name: Set up Rust cache
         uses: Swatinem/rust-cache@v2
@@ -64,6 +65,13 @@ jobs:
               exit 1
             fi
           done
+          # The engine decodes video, so its static ffmpeg must have VAAPI
+          # compiled in (which links libva) - otherwise every release
+          # silently falls back to software decoding.
+          if ! ldd target/release/cosmic-wallpaper | grep -q "libva-drm"; then
+            echo "::error::cosmic-wallpaper was built without VAAPI; check the build-vaapi feature and libva-dev"
+            exit 1
+          fi
 
       # NOTE on the v1.3.1 SIGILL bug: see pr-build.yml's static-ffmpeg job for
       # the full story and why there's deliberately no automated "no AVX-512

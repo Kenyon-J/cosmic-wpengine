@@ -77,6 +77,10 @@ pub struct AppearanceConfig {
     /// the configured background.
     #[serde(default = "default_true")]
     pub prefer_canvas: bool,
+    /// Decode video backgrounds on the GPU (VAAPI) when the driver and
+    /// codec support it, falling back to software decoding otherwise.
+    #[serde(default = "default_true")]
+    pub hardware_video_decode: bool,
     /// Fixed sRGB text colour. `None` picks a colour automatically from
     /// whatever is behind the text.
     #[serde(default)]
@@ -100,6 +104,7 @@ impl Default for AppearanceConfig {
             custom_background_path: None,
             video_background_path: None,
             prefer_canvas: true,
+            hardware_video_decode: true,
             text_color: None,
         }
     }

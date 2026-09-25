@@ -1,73 +1,36 @@
 use super::*;
 
-/// Uploads RGBA8 pixel data to `texture`, honouring wgpu's 256-byte row-alignment
-/// requirement. `pad_buffer` is reused across calls (and only grown, never shrunk)
-/// to avoid re-allocating a scratch buffer on every frame.
+/// Uploads tightly packed RGBA8 pixel data to `texture`.
+///
+/// `Queue::write_texture` has no row-alignment requirement (unlike
+/// buffer-to-texture copies): wgpu repacks the rows into its own aligned
+/// staging buffer, so padding them here first would just be a second copy.
 fn upload_rgba_to_texture(
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
     width: u32,
     height: u32,
     data: &[u8],
-    pad_buffer: &mut Vec<u8>,
 ) {
-    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-    let unpadded_bytes_per_row = width * 4;
-    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
-    let texture_size = wgpu::Extent3d {
-        width,
-        height,
-        depth_or_array_layers: 1,
-    };
-
-    if unpadded_bytes_per_row == padded_bytes_per_row {
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(unpadded_bytes_per_row),
-                rows_per_image: Some(height),
-            },
-            texture_size,
-        );
-    } else {
-        let required_size = (padded_bytes_per_row * height) as usize;
-        // Skip .clear() so we don't re-zero the whole buffer every frame; resize()
-        // only zero-fills newly-allocated space.
-        if pad_buffer.len() < required_size {
-            pad_buffer.resize(required_size, 0);
-        }
-
-        // Exact chunks + zip eliminate manual bounds checking and index arithmetic,
-        // letting LLVM auto-vectorize the copy.
-        for (dst_row, src_row) in pad_buffer[..required_size]
-            .chunks_exact_mut(padded_bytes_per_row as usize)
-            .zip(data.chunks_exact(unpadded_bytes_per_row as usize))
-        {
-            dst_row[..unpadded_bytes_per_row as usize].copy_from_slice(src_row);
-        }
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &pad_buffer[..required_size],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(padded_bytes_per_row),
-                rows_per_image: Some(height),
-            },
-            texture_size,
-        );
-    }
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
 }
 
 impl Renderer {
@@ -104,7 +67,6 @@ impl Renderer {
             dimensions.0,
             dimensions.1,
             rgba.as_raw(),
-            &mut self.album_art_pad_buffer,
         );
 
         let blur_enabled = self.album_blur_enabled();
@@ -197,7 +159,6 @@ impl Renderer {
                     dimensions.0,
                     dimensions.1,
                     rgba.as_raw(),
-                    &mut self.video_frame_buffer,
                 );
             }
             self.run_album_blur();
@@ -219,7 +180,6 @@ impl Renderer {
                     dimensions.0,
                     dimensions.1,
                     rgba.as_raw(),
-                    &mut self.video_frame_buffer,
                 );
             }
             self.run_custom_bg_blur();
@@ -347,7 +307,6 @@ impl Renderer {
             dimensions.0,
             dimensions.1,
             img.as_raw(),
-            &mut self.album_art_pad_buffer,
         );
 
         self.background.avg_color = Some(crate::modules::colour::average_colour(img));
