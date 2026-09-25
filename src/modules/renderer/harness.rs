@@ -239,9 +239,9 @@ fn synthetic_album_art() -> image::RgbaImage {
     })
 }
 
-/// Copies `texture` back to the CPU as an `RgbaImage`. wgpu requires each
-/// copied row to be padded to a 256-byte stride; this strips that padding
-/// back out, mirroring `upload_rgba_to_texture`'s padding math in reverse.
+/// Copies `texture` back to the CPU as an `RgbaImage`. Texture-to-buffer
+/// copies require each row to be padded to a 256-byte stride; this strips
+/// that padding back out.
 fn read_texture_to_image(
     device: &wgpu::Device,
     queue: &wgpu::Queue,

@@ -44,6 +44,10 @@ async fn main() -> Result<()> {
             let (event_tx, event_rx) = mpsc::channel(64);
 
             let (is_visible_tx, is_visible_rx) = tokio::sync::watch::channel(true);
+            // Largest monitor size in physical pixels, published by the
+            // renderer so the local video decoder can convert frames at
+            // display size rather than the video's own (often larger) size.
+            let (video_size_tx, video_size_rx) = tokio::sync::watch::channel(None);
             let (show_lyrics_tx, show_lyrics_rx) =
                 tokio::sync::watch::channel(config.audio.show_lyrics);
 
@@ -67,8 +71,9 @@ async fn main() -> Result<()> {
 
             let video_tx = event_tx.clone();
             let video_config_rx = config_watch_rx.clone();
+            let video_vis_rx = is_visible_rx.clone();
             tokio::spawn(async move {
-                spawn_video_watcher(video_tx, video_config_rx).await;
+                spawn_video_watcher(video_tx, video_config_rx, video_vis_rx, video_size_rx).await;
             });
             let config_tx = event_tx.clone();
             tokio::spawn(async move {
@@ -95,7 +100,7 @@ async fn main() -> Result<()> {
             info!("All subsystems started. Entering render loop.");
 
             tokio::select! {
-                res = renderer.run(event_rx, &mut wayland_manager, is_visible_tx) => {
+                res = renderer.run(event_rx, &mut wayland_manager, is_visible_tx, video_size_tx) => {
                     res?;
                 }
                 _ = shutdown_rx.recv() => {
@@ -149,10 +154,17 @@ fn render_frame_harness_args() -> Option<(
     Some((out_path, compare_path, style))
 }
 
+/// Receivers a local video decoder watches besides its own cancel signal.
+struct VideoDecoderInputs {
+    config_rx: tokio::sync::watch::Receiver<Config>,
+    visible_rx: tokio::sync::watch::Receiver<bool>,
+    size_rx: tokio::sync::watch::Receiver<Option<(u32, u32)>>,
+}
+
 fn start_video_decoder(
     video: &str,
     video_tx: mpsc::Sender<modules::event::Event>,
-    video_config_rx: tokio::sync::watch::Receiver<Config>,
+    inputs: &VideoDecoderInputs,
 ) -> Option<tokio::sync::watch::Sender<bool>> {
     let video_name = std::path::Path::new(video).file_name()?;
     let full_path = Config::config_dir().join("videos").join(video_name);
@@ -161,14 +173,17 @@ fn start_video_decoder(
         let (recycle_tx, recycle_rx) = tokio::sync::mpsc::channel(3);
         let tx_clone = video_tx.clone();
 
-        let thread_config_rx = video_config_rx.clone();
+        let config_rx = inputs.config_rx.clone();
+        let visible_rx = inputs.visible_rx.clone();
+        let size_rx = inputs.size_rx.clone();
         tokio::spawn(async move {
-            let c_config_rx = thread_config_rx;
             let _ = modules::video::VideoDecoder::run_local_decoder(
                 full_path.to_string_lossy().to_string(),
                 tx_clone,
                 c_rx,
-                c_config_rx,
+                config_rx,
+                visible_rx,
+                size_rx,
                 recycle_rx,
                 recycle_tx,
             )
@@ -183,7 +198,14 @@ fn start_video_decoder(
 async fn spawn_video_watcher(
     video_tx: mpsc::Sender<modules::event::Event>,
     mut video_config_rx: tokio::sync::watch::Receiver<Config>,
+    visible_rx: tokio::sync::watch::Receiver<bool>,
+    size_rx: tokio::sync::watch::Receiver<Option<(u32, u32)>>,
 ) {
+    let inputs = VideoDecoderInputs {
+        config_rx: video_config_rx.clone(),
+        visible_rx,
+        size_rx,
+    };
     let mut local_video_cancel_tx: Option<tokio::sync::watch::Sender<bool>> = None;
 
     // Read initial state
@@ -193,8 +215,7 @@ async fn spawn_video_watcher(
     };
 
     if let Some(video) = &current_video_path {
-        local_video_cancel_tx =
-            start_video_decoder(video, video_tx.clone(), video_config_rx.clone());
+        local_video_cancel_tx = start_video_decoder(video, video_tx.clone(), &inputs);
     }
 
     while video_config_rx.changed().await.is_ok() {
@@ -211,8 +232,7 @@ async fn spawn_video_watcher(
             current_video_path = path.clone();
 
             if let Some(video) = &current_video_path {
-                local_video_cancel_tx =
-                    start_video_decoder(video, video_tx.clone(), video_config_rx.clone());
+                local_video_cancel_tx = start_video_decoder(video, video_tx.clone(), &inputs);
             }
         }
     }

@@ -15,6 +15,9 @@ use crate::modules::event::WeatherCondition;
 use crate::modules::state::SceneHint;
 use tracing::warn;
 
+/// Period, in seconds, at which the procedural sky's `time` uniform wraps.
+const SKY_TIME_PERIOD_SECS: f64 = 3600.0;
+
 pub(crate) struct FrameParams {
     pub(crate) has_audio: bool,
     /// Base volume energy combined with the treble pulse, capped to
@@ -32,8 +35,8 @@ pub(crate) struct FrameParams {
     pub(crate) elapsed: f32,
     pub(crate) track_hash: u64,
     pub(crate) weather_hash: u64,
-    /// `Some` only when the procedural sky can be on screen (no custom
-    /// background bound): (elapsed, weather type, sky colour).
+    /// `Some` only when the procedural sky is on screen (see
+    /// `ambient_sky_visible`): (elapsed, weather type, sky colour).
     pub(crate) sky_color_data: Option<(f32, u32, [f32; 3])>,
     pub(crate) vis_shape_u32: u32,
     pub(crate) vis_align_u32: u32,
@@ -104,6 +107,19 @@ fn lyric_window_bounds(current_lyric_idx: usize, lyrics_len: Option<usize>) -> (
     }
 }
 
+/// Whether `draw_frame` paints the procedural sky as this frame's
+/// background. Mirrors its precedence - album art/colour background, then
+/// a custom background texture, then the sky - so the render loop's
+/// redraw gate and the draw itself can't disagree about it.
+pub(crate) fn ambient_sky_visible(renderer: &super::Renderer) -> bool {
+    let has_art = renderer.art.fg_bind_group().is_some()
+        || renderer.state.config.mode == WallpaperMode::AlbumArt;
+    let appearance = &renderer.state.config.appearance;
+    let album_bg =
+        has_art && (appearance.album_art_background || appearance.album_color_background);
+    !album_bg && renderer.background.bind_group().is_none()
+}
+
 impl FrameParams {
     pub(crate) fn compute(renderer: &super::Renderer, now: std::time::Instant) -> Self {
         let force_art = renderer.state.config.mode == WallpaperMode::AlbumArt;
@@ -172,14 +188,22 @@ impl FrameParams {
             [0.1, 0.1, 0.1]
         };
 
-        let elapsed = now
+        let elapsed_secs = now
             .saturating_duration_since(renderer.start_time)
-            .as_secs_f32();
+            .as_secs_f64();
+        // Custom visualiser shaders are promised a monotonic `time`
+        // (docs/CUSTOM_SHADERS.md), so only the built-in sky wraps its own.
+        let elapsed = elapsed_secs as f32;
 
-        // Ambient sky uniforms are only needed when no custom background
-        // texture will cover them.
-        let sky_color_data = if renderer.background.bind_group().is_none() {
-            Some((elapsed, weather_type, final_sky))
+        // Ambient sky uniforms are only needed while the sky is on screen.
+        let sky_color_data = if ambient_sky_visible(renderer) {
+            // The sky's time wraps hourly. An f32 seconds counter loses
+            // precision as it grows (1/16 s steps after a week of uptime),
+            // which makes its rain and snow visibly stutter; wrapping keeps
+            // it at sub-millisecond precision, at the cost of one reshuffle
+            // of the (random-looking) rain/snow pattern per hour.
+            let sky_time = (elapsed_secs % SKY_TIME_PERIOD_SECS) as f32;
+            Some((sky_time, weather_type, final_sky))
         } else {
             None
         };

@@ -249,8 +249,6 @@ impl Renderer {
             cached_weather_hash: 0,
             current_lyric_idx: 0,
             lyric_scroll_offset: 0.0,
-            video_frame_buffer: Vec::new(),
-            album_art_pad_buffer: Vec::new(),
             primary_text_color: [1.0, 1.0, 1.0, 1.0],
             secondary_text_color: [1.0, 1.0, 1.0, 0.7],
             text_color_diff: [0.0, 0.0, 0.0, 0.3],

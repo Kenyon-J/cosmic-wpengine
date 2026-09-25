@@ -227,12 +227,6 @@ impl Renderer {
                 self.current_lyric_idx = 0;
                 self.lyric_scroll_offset = 0.0;
                 self.state.begin_transition();
-
-                // Free the padding buffers back to the OS allocator on idle
-                self.video_frame_buffer.clear();
-                self.video_frame_buffer.shrink_to_fit();
-                self.album_art_pad_buffer.clear();
-                self.album_art_pad_buffer.shrink_to_fit();
             }
 
             Event::PlaybackPosition(pos) => {

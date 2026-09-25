@@ -75,30 +75,25 @@ fn copy_scaled_frame(
     }
 }
 
+/// Everything the local decode loop derives from one opened file.
+struct LocalStream {
+    ictx: ffmpeg::format::context::Input,
+    stream_index: usize,
+    decoder: ffmpeg::decoder::Video,
+    time_base_f64: f64,
+}
+
 /// Opens `path` fresh and derives everything the local decode loop needs
-/// from it: the demuxer context, which stream is video, a decoder + scaler
-/// matched to that stream's own parameters, and its time base. Used both
-/// for the loop's initial setup and to fully reinitialize after a failed
-/// seek-to-start - a bare reopen of just `ictx` used to leave `decoder`/
-/// `scaler`/`stream_index`/`time_base_f64` all still pointing at state
-/// derived from the *previous* `Input`, which a fresh one isn't guaranteed
-/// to match (ffmpeg's C API gives no guarantee a codec context stays valid
-/// once the format context that produced its parameters is gone).
-#[allow(clippy::type_complexity)]
-fn open_video_stream(
-    path: &str,
-) -> Result<
-    (
-        ffmpeg::format::context::Input,
-        usize,
-        ffmpeg::decoder::Video,
-        ffmpeg::software::scaling::Context,
-        u32,
-        u32,
-        f64,
-    ),
-    String,
-> {
+/// from it: the demuxer context, which stream is video, a decoder matched
+/// to that stream's own parameters, and its time base. Used both for the
+/// loop's initial setup and to fully reinitialize after a failed
+/// seek-to-start - a bare reopen of just `ictx` used to leave the decoder,
+/// stream index and time base all still pointing at state derived from the
+/// *previous* `Input`, which a fresh one isn't guaranteed to match
+/// (ffmpeg's C API gives no guarantee a codec context stays valid once the
+/// format context that produced its parameters is gone). The scaler is
+/// rebuilt from the new decoder alongside it.
+fn open_video_stream(path: &str) -> Result<LocalStream, String> {
     let ictx = ffmpeg::format::input(&path).map_err(|e| format!("failed to open input: {e}"))?;
 
     let input = ictx
@@ -115,65 +110,195 @@ fn open_video_stream(
         .video()
         .map_err(|e| format!("failed to get video decoder: {e}"))?;
 
-    let width = decoder.width();
-    let height = decoder.height();
-
-    let scaler = ffmpeg::software::scaling::Context::get(
-        decoder.format(),
-        width,
-        height,
-        ffmpeg::format::Pixel::RGBA,
-        width,
-        height,
-        ffmpeg::software::scaling::flag::Flags::BILINEAR,
-    )
-    .map_err(|e| format!("failed to create scaler: {e}"))?;
-
     let time_base = input.time_base();
     let time_base_f64 = time_base.numerator() as f64 / time_base.denominator() as f64;
 
-    Ok((
+    Ok(LocalStream {
         ictx,
         stream_index,
         decoder,
-        scaler,
-        width,
-        height,
         time_base_f64,
-    ))
+    })
+}
+
+/// The size to convert a `src`-sized video to so it still covers a
+/// `target` (the largest monitor, in physical pixels): scaled down with its
+/// aspect ratio kept, never scaled up. The renderer crops/fits the texture
+/// to each screen afterwards, so anything larger than this is converted,
+/// copied and uploaded only to be thrown away by the GPU sampler. `None`
+/// (monitor size not known yet) keeps the source size.
+pub(crate) fn scaled_video_size(src: (u32, u32), target: Option<(u32, u32)>) -> (u32, u32) {
+    let Some((tw, th)) = target.filter(|&(w, h)| w > 0 && h > 0) else {
+        return src;
+    };
+    if src.0 == 0 || src.1 == 0 {
+        return src;
+    }
+    let scale = (tw as f64 / src.0 as f64).max(th as f64 / src.1 as f64);
+    if scale >= 1.0 {
+        return src;
+    }
+    // Round up so the result never falls short of covering the target.
+    let w = ((src.0 as f64 * scale).ceil() as u32).clamp(1, src.0);
+    let h = ((src.1 as f64 * scale).ceil() as u32).clamp(1, src.1);
+    (w, h)
+}
+
+/// The RGBA converter for the local decoder, sized by `scaled_video_size`.
+struct FrameScaler {
+    ctx: ffmpeg::software::scaling::Context,
+    target: Option<(u32, u32)>,
+    width: u32,
+    height: u32,
+    frame_size: usize,
+}
+
+impl FrameScaler {
+    fn new(decoder: &ffmpeg::decoder::Video, target: Option<(u32, u32)>) -> Result<Self, String> {
+        let (width, height) = scaled_video_size((decoder.width(), decoder.height()), target);
+        let ctx = ffmpeg::software::scaling::Context::get(
+            decoder.format(),
+            decoder.width(),
+            decoder.height(),
+            ffmpeg::format::Pixel::RGBA,
+            width,
+            height,
+            ffmpeg::software::scaling::flag::Flags::BILINEAR,
+        )
+        .map_err(|e| format!("failed to create scaler: {e}"))?;
+        if (width, height) != (decoder.width(), decoder.height()) {
+            info!(
+                "Scaling {}x{} video to {}x{} to match the display",
+                decoder.width(),
+                decoder.height(),
+                width,
+                height
+            );
+        }
+        Ok(Self {
+            ctx,
+            target,
+            width,
+            height,
+            frame_size: (width * height * 4) as usize,
+        })
+    }
+}
+
+/// What happened to one frame handed to `send_frame`.
+enum FrameSent {
+    Sent,
+    /// Conversion failed, or the renderer's queue was full.
+    Dropped,
+    /// The renderer has gone away; the decoder should stop.
+    Closed,
+}
+
+/// Converts one decoded frame to RGBA at the scaler's output size and hands
+/// it to the renderer, reusing a recycled buffer when one is available.
+fn send_frame(
+    scaler: &mut FrameScaler,
+    decoded: &ffmpeg::frame::Video,
+    rgb_frame: &mut ffmpeg::frame::Video,
+    recycle_rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>,
+    recycle_tx: &tokio::sync::mpsc::Sender<Vec<u8>>,
+    tx: &Sender<Event>,
+) -> FrameSent {
+    if scaler.ctx.run(decoded, rgb_frame).is_err() {
+        return FrameSent::Dropped;
+    }
+    let frame_size = scaler.frame_size;
+    let mut buffer = recycle_rx
+        .try_recv()
+        .unwrap_or_else(|_| vec![0u8; frame_size]);
+    if buffer.len() != frame_size {
+        buffer.resize(frame_size, 0);
+    }
+
+    copy_scaled_frame(&mut buffer, rgb_frame, scaler.width, frame_size);
+
+    let Some(img) = image::RgbaImage::from_raw(scaler.width, scaler.height, buffer) else {
+        return FrameSent::Dropped;
+    };
+    let pooled_img = Box::new(PooledImage::new(img, recycle_tx.clone()));
+    match tx.try_send(Event::BackgroundVideoFrame(pooled_img)) {
+        Ok(_) => FrameSent::Sent,
+        Err(tokio::sync::mpsc::error::TrySendError::Full(Event::BackgroundVideoFrame(dropped))) => {
+            let _ = recycle_tx.try_send(dropped.into_raw());
+            FrameSent::Dropped
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => FrameSent::Closed,
+        Err(_) => FrameSent::Dropped,
+    }
+}
+
+/// Blocks the decode thread while the wallpaper is hidden (fully covered,
+/// or the monitor is off), so nothing is decoded or converted just to be
+/// thrown away. Returns `false` when the decoder should stop instead: it
+/// was cancelled, or a sender went away.
+fn wait_until_visible(
+    handle: &tokio::runtime::Handle,
+    visible_rx: &mut tokio::sync::watch::Receiver<bool>,
+    cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
+) -> bool {
+    info!("Wallpaper hidden; pausing video decode");
+    let resumed = handle.block_on(async {
+        loop {
+            if *cancel_rx.borrow_and_update() {
+                return false;
+            }
+            if *visible_rx.borrow_and_update() {
+                return true;
+            }
+            tokio::select! {
+                res = visible_rx.changed() => if res.is_err() { return false; },
+                res = cancel_rx.changed() => if res.is_err() { return false; },
+            }
+        }
+    });
+    if resumed {
+        info!("Wallpaper visible again; resuming video decode");
+    }
+    resumed
 }
 
 pub struct VideoDecoder;
 
 impl VideoDecoder {
+    /// Decodes a local video file on a blocking thread, looping forever and
+    /// streaming frames to the renderer as `BackgroundVideoFrame`s.
+    ///
+    /// Frames are paced to the file's own timestamps and thinned to the
+    /// configured fps; decoding pauses entirely while `visible_rx` reads
+    /// false, and frames are converted at the size `size_rx` asks for (see
+    /// `scaled_video_size`).
+    #[allow(clippy::too_many_arguments)]
     pub async fn run_local_decoder(
         path: String,
         tx: Sender<Event>,
-        cancel_rx: tokio::sync::watch::Receiver<bool>,
+        mut cancel_rx: tokio::sync::watch::Receiver<bool>,
         config_rx: tokio::sync::watch::Receiver<super::config::Config>,
+        mut visible_rx: tokio::sync::watch::Receiver<bool>,
+        mut size_rx: tokio::sync::watch::Receiver<Option<(u32, u32)>>,
         mut recycle_rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
         recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
     ) -> Result<()> {
         let _ = ffmpeg::init();
         info!("Starting local ffmpeg-next video decoder for: {}", path);
 
+        let handle = tokio::runtime::Handle::current();
         tokio::task::spawn_blocking(move || {
-            let (
-                mut ictx,
-                mut stream_index,
-                mut decoder,
-                mut scaler,
-                mut width,
-                mut height,
-                mut time_base_f64,
-            ) = match open_video_stream(&path) {
+            let opened = open_video_stream(&path).and_then(|stream| {
+                let scaler = FrameScaler::new(&stream.decoder, *size_rx.borrow_and_update())?;
+                Ok((stream, scaler))
+            });
+            let (mut stream, mut scaler) = match opened {
                 Ok(v) => v,
                 Err(e) => {
                     warn!("ffmpeg-next failed to open {}: {}", path, e);
                     return;
                 }
             };
-            let mut frame_size = (width * height * 4) as usize;
 
             // Reused across every frame: scaler.run() only allocates this frame's
             // internal buffer the first time (while it's still empty), so keeping
@@ -187,34 +312,20 @@ impl VideoDecoder {
                 }
 
                 // We need to seek to the beginning if we loop.
-                if let Err(e) = ictx.seek(0, 0..ictx.duration().max(0)) {
+                if let Err(e) = stream.ictx.seek(0, 0..stream.ictx.duration().max(0)) {
                     warn!("ffmpeg-next seek failed: {}", e);
-                    // Reopening alone isn't enough: `decoder`/`scaler`/
-                    // `stream_index`/`time_base_f64` were all derived from
-                    // the *previous* `ictx` and aren't guaranteed valid
-                    // against a freshly reopened one (ffmpeg's C API gives
-                    // no guarantee a codec context stays usable once the
-                    // format context that produced its parameters is gone).
-                    // Rebuild everything from the new input together, not
-                    // just `ictx` itself.
-                    match open_video_stream(&path) {
-                        Ok((
-                            new_ictx,
-                            new_stream_index,
-                            new_decoder,
-                            new_scaler,
-                            new_width,
-                            new_height,
-                            new_time_base_f64,
-                        )) => {
-                            ictx = new_ictx;
-                            stream_index = new_stream_index;
-                            decoder = new_decoder;
+                    // Reopening alone isn't enough: the decoder, stream
+                    // index and time base were all derived from the
+                    // *previous* input (see open_video_stream), so rebuild
+                    // everything from the new one together, scaler included.
+                    let reopened = open_video_stream(&path).and_then(|new_stream| {
+                        let new_scaler = FrameScaler::new(&new_stream.decoder, scaler.target)?;
+                        Ok((new_stream, new_scaler))
+                    });
+                    match reopened {
+                        Ok((new_stream, new_scaler)) => {
+                            stream = new_stream;
                             scaler = new_scaler;
-                            width = new_width;
-                            height = new_height;
-                            time_base_f64 = new_time_base_f64;
-                            frame_size = (width * height * 4) as usize;
                             rgb_frame = ffmpeg::frame::Video::empty();
                         }
                         Err(e) => {
@@ -223,19 +334,44 @@ impl VideoDecoder {
                         }
                     }
                 }
-                decoder.flush();
+                stream.decoder.flush();
                 let mut first_pts: Option<i64> = None;
-                let start_time = tokio::time::Instant::now();
+                let mut start_time = tokio::time::Instant::now();
                 let mut last_sent_time = 0.0;
 
-                for (stream, packet) in ictx.packets() {
+                for (packet_stream, packet) in stream.ictx.packets() {
                     if *cancel_rx.borrow() {
                         break 'outer;
                     }
 
-                    if stream.index() == stream_index && decoder.send_packet(&packet).is_ok() {
+                    if !*visible_rx.borrow() {
+                        let paused_at = tokio::time::Instant::now();
+                        if !wait_until_visible(&handle, &mut visible_rx, &mut cancel_rx) {
+                            break 'outer;
+                        }
+                        // Shift the pacing clock past the pause, or playback
+                        // would race through every frame "owed" since then.
+                        start_time += paused_at.elapsed();
+                    }
+
+                    if size_rx.has_changed().unwrap_or(false) {
+                        let target = *size_rx.borrow_and_update();
+                        if target != scaler.target {
+                            match FrameScaler::new(&stream.decoder, target) {
+                                Ok(new_scaler) => {
+                                    scaler = new_scaler;
+                                    rgb_frame = ffmpeg::frame::Video::empty();
+                                }
+                                Err(e) => warn!("Keeping the current video scaler: {}", e),
+                            }
+                        }
+                    }
+
+                    if packet_stream.index() == stream.stream_index
+                        && stream.decoder.send_packet(&packet).is_ok()
+                    {
                         let mut decoded = ffmpeg::frame::Video::empty();
-                        while decoder.receive_frame(&mut decoded).is_ok() {
+                        while stream.decoder.receive_frame(&mut decoded).is_ok() {
                             if *cancel_rx.borrow() {
                                 break 'outer;
                             }
@@ -246,7 +382,7 @@ impl VideoDecoder {
                             }
 
                             let pts_diff = pts - first_pts.unwrap_or(pts);
-                            let target_time = pts_diff as f64 * time_base_f64;
+                            let target_time = pts_diff as f64 * stream.time_base_f64;
                             let elapsed = start_time.elapsed().as_secs_f64();
 
                             if target_time > elapsed {
@@ -267,58 +403,34 @@ impl VideoDecoder {
                                 continue;
                             }
 
-                            if scaler.run(&decoded, &mut rgb_frame).is_ok() {
-                                let mut buffer = recycle_rx
-                                    .try_recv()
-                                    .unwrap_or_else(|_| vec![0u8; frame_size]);
-                                if buffer.len() != frame_size {
-                                    buffer.resize(frame_size, 0);
-                                }
-
-                                copy_scaled_frame(&mut buffer, &rgb_frame, width, frame_size);
-
-                                if let Some(img) = image::RgbaImage::from_raw(width, height, buffer)
-                                {
-                                    let pooled_img =
-                                        Box::new(PooledImage::new(img, recycle_tx.clone()));
-                                    match tx.try_send(Event::BackgroundVideoFrame(pooled_img)) {
-                                        Ok(_) => {
-                                            last_sent_time = target_time;
-                                        }
-                                        Err(tokio::sync::mpsc::error::TrySendError::Full(
-                                            Event::BackgroundVideoFrame(dropped),
-                                        )) => {
-                                            let _ = recycle_tx.try_send(dropped.into_raw());
-                                        }
-                                        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                                            break 'outer
-                                        }
-                                        _ => {}
-                                    }
-                                }
+                            match send_frame(
+                                &mut scaler,
+                                &decoded,
+                                &mut rgb_frame,
+                                &mut recycle_rx,
+                                &recycle_tx,
+                                &tx,
+                            ) {
+                                FrameSent::Sent => last_sent_time = target_time,
+                                FrameSent::Dropped => {}
+                                FrameSent::Closed => break 'outer,
                             }
                         }
                     }
                 }
                 // Flush decoder at end of stream
-                if decoder.send_eof().is_ok() {
+                if stream.decoder.send_eof().is_ok() {
                     let mut decoded = ffmpeg::frame::Video::empty();
-                    while decoder.receive_frame(&mut decoded).is_ok() {
-                        if scaler.run(&decoded, &mut rgb_frame).is_ok() {
-                            let mut buffer = recycle_rx
-                                .try_recv()
-                                .unwrap_or_else(|_| vec![0u8; frame_size]);
-                            if buffer.len() != frame_size {
-                                buffer.resize(frame_size, 0);
-                            }
-
-                            copy_scaled_frame(&mut buffer, &rgb_frame, width, frame_size);
-
-                            if let Some(img) = image::RgbaImage::from_raw(width, height, buffer) {
-                                let pooled_img =
-                                    Box::new(PooledImage::new(img, recycle_tx.clone()));
-                                let _ = tx.try_send(Event::BackgroundVideoFrame(pooled_img));
-                            }
+                    while stream.decoder.receive_frame(&mut decoded).is_ok() {
+                        if let FrameSent::Closed = send_frame(
+                            &mut scaler,
+                            &decoded,
+                            &mut rgb_frame,
+                            &mut recycle_rx,
+                            &recycle_tx,
+                            &tx,
+                        ) {
+                            break 'outer;
                         }
                     }
                 }
@@ -329,10 +441,16 @@ impl VideoDecoder {
 
         Ok(())
     }
+    /// Streams a remote canvas video through an ffmpeg subprocess as
+    /// `CanvasVideoFrame`s. While `visible_rx` reads false the subprocess is
+    /// stopped entirely, and a fresh one starts when the wallpaper is
+    /// visible again - canvases are short loops, so restarting from the top
+    /// isn't noticeable, and it avoids holding an idle network stream open.
     pub async fn run_decoder(
         url: String,
         tx: Sender<Event>,
         mut cancel_rx: tokio::sync::watch::Receiver<bool>,
+        mut visible_rx: tokio::sync::watch::Receiver<bool>,
         mut recycle_rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
         recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
     ) -> Result<()> {
@@ -414,79 +532,114 @@ impl VideoDecoder {
         let height = 960;
         let frame_size = width * height * 4;
 
-        let mut child = Command::new(&ffmpeg_path)
-            .args([
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-protocol_whitelist",
-                "http,https,tcp,tls,crypto",
-                "-re", // Read input at native frame rate so we don't peg the CPU!
-                "-stream_loop",
-                "-1", // Loop the video stream infinitely
-                "-i",
-                &safe_url,
-                // Scale and crop seamlessly to ensure it fits the 9:16 Canvas perfectly
-                "-vf",
-                "scale=540:960:force_original_aspect_ratio=increase,crop=540:960",
-                "-f",
-                "rawvideo",
-                "-pix_fmt",
-                "rgba",
-                "-r",
-                "30", // Lock output to 30fps
-                "-",
-            ])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .kill_on_drop(true) // Ensure the FFmpeg process dies instantly if the task is dropped
-            .spawn()?;
-
-        let mut stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("Failed to open ffmpeg stdout"))?;
-
-        loop {
-            let mut buffer = recycle_rx
-                .try_recv()
-                .unwrap_or_else(|_| vec![0u8; frame_size]);
-
-            if buffer.len() != frame_size {
-                buffer.resize(frame_size, 0);
-            }
-            tokio::select! {
-                res = cancel_rx.changed() => {
-                    // Err means the cancel sender was dropped without signalling
-                    // (e.g. the MPRIS watcher exited). Treat it as a cancel: if we
-                    // looped instead, changed() would resolve instantly on every
-                    // iteration - spinning a core - and each resolution would
-                    // cancel read_exact() mid-frame, losing partial reads and
-                    // shearing the raw video stream out of frame alignment.
-                    if res.is_err() || *cancel_rx.borrow() {
-                        info!("Cancelling video stream playback");
-                        break;
+        'session: loop {
+            // Wait out any period where the wallpaper is hidden before
+            // (re)starting ffmpeg. Err on either channel means its sender
+            // is gone: treat that as a cancel.
+            while !*visible_rx.borrow_and_update() {
+                if *cancel_rx.borrow() {
+                    break 'session;
+                }
+                tokio::select! {
+                    res = visible_rx.changed() => if res.is_err() { break 'session; },
+                    res = cancel_rx.changed() => {
+                        if res.is_err() || *cancel_rx.borrow() {
+                            break 'session;
+                        }
                     }
                 }
-                result = stdout.read_exact(&mut buffer) => {
-                    match result {
-                        Ok(_) => {
-                            if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, buffer) {
-                                let pooled_img = Box::new(PooledImage::new(img, recycle_tx.clone()));
-                            match tx.try_send(Event::CanvasVideoFrame(pooled_img)) {
-                                    Ok(_) => {}
-                                Err(tokio::sync::mpsc::error::TrySendError::Full(Event::CanvasVideoFrame(dropped))) => {
-                                        warn!("Renderer busy, dropping video frame to prevent memory bloat");
-                                        let _ = recycle_tx.try_send(dropped.into_raw());
+            }
+            if *cancel_rx.borrow() {
+                break;
+            }
+
+            let mut child = Command::new(&ffmpeg_path)
+                .args([
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-protocol_whitelist",
+                    "http,https,tcp,tls,crypto",
+                    "-re", // Read input at native frame rate so we don't peg the CPU!
+                    "-stream_loop",
+                    "-1", // Loop the video stream infinitely
+                    "-i",
+                    &safe_url,
+                    // Scale and crop seamlessly to ensure it fits the 9:16 Canvas perfectly
+                    "-vf",
+                    "scale=540:960:force_original_aspect_ratio=increase,crop=540:960",
+                    "-f",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "rgba",
+                    "-r",
+                    "30", // Lock output to 30fps
+                    "-",
+                ])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true) // Ensure the FFmpeg process dies instantly if the task is dropped
+                .spawn()?;
+
+            let mut stdout = child
+                .stdout
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("Failed to open ffmpeg stdout"))?;
+
+            loop {
+                let mut buffer = recycle_rx
+                    .try_recv()
+                    .unwrap_or_else(|_| vec![0u8; frame_size]);
+
+                if buffer.len() != frame_size {
+                    buffer.resize(frame_size, 0);
+                }
+                tokio::select! {
+                    res = cancel_rx.changed() => {
+                        // Err means the cancel sender was dropped without signalling
+                        // (e.g. the MPRIS watcher exited). Treat it as a cancel: if we
+                        // looped instead, changed() would resolve instantly on every
+                        // iteration - spinning a core - and each resolution would
+                        // cancel read_exact() mid-frame, losing partial reads and
+                        // shearing the raw video stream out of frame alignment.
+                        if res.is_err() || *cancel_rx.borrow() {
+                            info!("Cancelling video stream playback");
+                            break 'session;
+                        }
+                    }
+                    res = visible_rx.changed() => {
+                        // Same reasoning as above for Err. Dropping `child`
+                        // (kill_on_drop) stops ffmpeg; a partial frame read
+                        // is discarded with it, so the next session starts
+                        // frame-aligned.
+                        if res.is_err() {
+                            break 'session;
+                        }
+                        if !*visible_rx.borrow() {
+                            info!("Wallpaper hidden; stopping canvas video stream");
+                            continue 'session;
+                        }
+                    }
+                    result = stdout.read_exact(&mut buffer) => {
+                        match result {
+                            Ok(_) => {
+                                if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, buffer) {
+                                    let pooled_img = Box::new(PooledImage::new(img, recycle_tx.clone()));
+                                    match tx.try_send(Event::CanvasVideoFrame(pooled_img)) {
+                                        Ok(_) => {}
+                                        Err(tokio::sync::mpsc::error::TrySendError::Full(Event::CanvasVideoFrame(dropped))) => {
+                                            warn!("Renderer busy, dropping video frame to prevent memory bloat");
+                                            let _ = recycle_tx.try_send(dropped.into_raw());
+                                        }
+                                        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break 'session,
+                                        _ => {}
                                     }
-                                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
-                                    _ => {}
                                 }
                             }
-                        }
-                        Err(e) => {
-                            warn!("FFmpeg stream ended or errored: {}", e);
-                            break;
+                            Err(e) => {
+                                warn!("FFmpeg stream ended or errored: {}", e);
+                                break 'session;
+                            }
                         }
                     }
                 }
