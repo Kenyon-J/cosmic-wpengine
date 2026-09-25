@@ -1,19 +1,43 @@
-# cosmic-wallpaper 1.6.3
+# cosmic-wallpaper 1.7.0
 
-Maintenance release: security hardening, render-loop performance work and
-small settings-app UX improvements. No config or theme format changes.
+Hardware video decoding, a much lighter idle scene, and a round of
+security hardening and settings-app polish. No theme format changes;
+one new config option (below), which defaults on.
 
-## Security
+## New
 
-- **SSRF fix for the Spotify canvas proxy URL.** A user-configured proxy
-  URL is now validated before the engine fetches through it.
-- **`xdg-open` is only handed http(s) URLs**, and a failure to launch it
-  is logged instead of silently ignored.
-- **D-Bus calls made via `busctl`** (autostart toggle, stopping the
-  engine) now log spawn failures instead of discarding them.
+- **Hardware video decoding (VAAPI).** Video backgrounds decode on the
+  GPU when the driver supports the codec (AV1, H.264, HEVC, MPEG-2,
+  MPEG-4, VP8, VP9), cutting CPU and battery use. Anything the GPU can't
+  handle - no driver, an unsupported codec or profile, or errors
+  mid-video - falls back to software decoding automatically. Toggle it
+  under Live Wallpapers → "Hardware video decoding"
+  (`appearance.hardware_video_decode` in config.toml).
+- The standalone binaries now need `libva` for this, which any desktop
+  with GPU drivers already has. The Arch package and .deb use your
+  distro's ffmpeg as before.
+
+## Fixed
+
+- **Video colours.** HD videos were converted with the SD (BT.601)
+  colour matrix, visibly shifting their colours. Each video's own colour
+  space and range are now used.
+- **Rain and snow no longer stutter after long uptimes.** The sky's
+  animation clock lost precision after days of running.
 
 ## Performance
 
+- **The default scene now idles.** With no custom background, the
+  animated sky used to be redrawn at full frame rate forever. A clear sky
+  now lets the engine idle; clouds repaint 4 times a second; rain and
+  snow still animate every frame.
+- **Video pauses while hidden.** Both the video-wallpaper decoder and
+  the Spotify Canvas stream stop while the desktop is covered. Video
+  wallpapers resume where they left off; Canvas loops restart.
+- **Video is converted at your monitor's resolution**, not the file's -
+  a 4K video on a 1080p screen does a quarter of the work.
+- One redundant full-frame copy per video frame was removed from GPU
+  uploads.
 - Gradient backgrounds render faster: the sRGB conversion uses a lookup
   table instead of `powf`, and the pixel buffer is filled directly
   instead of pixel by pixel.
@@ -30,6 +54,15 @@ small settings-app UX improvements. No config or theme format changes.
   gravity term moved out of the loop, and the visualiser band/peak caches
   are updated in place.
 - The lyric window borrows line text instead of cloning it every frame.
+
+## Security
+
+- **SSRF fix for the Spotify canvas proxy URL.** A user-configured proxy
+  URL is now validated before the engine fetches through it.
+- **`xdg-open` is only handed http(s) URLs**, and a failure to launch it
+  is logged instead of silently ignored.
+- **D-Bus calls made via `busctl`** (autostart toggle, stopping the
+  engine) now log spawn failures instead of discarding them.
 
 ## Settings app
 
