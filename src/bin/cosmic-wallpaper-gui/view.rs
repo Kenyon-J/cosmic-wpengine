@@ -1045,20 +1045,34 @@ fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .add(
                 settings::item::builder(fl!("packs-theme-to-bundle"))
                     .description(export_description)
-                    .control(
+                    .control({
+                        let is_export_valid = app.pack_export_theme.is_some();
+                        let mut export_btn = button::suggested(fl!("packs-export-pack"));
+                        if is_export_valid {
+                            export_btn = export_btn.on_press(Message::ExportPack);
+                        }
+
+                        let export_btn_element: cosmic::Element<'_, Message> = if is_export_valid {
+                            export_btn.into()
+                        } else {
+                            cosmic::widget::tooltip(
+                                export_btn,
+                                text::body(fl!("status-select-theme-to-export")),
+                                cosmic::widget::tooltip::Position::Top,
+                            )
+                            .into()
+                        };
+
                         Row::new()
                             .push(dropdown(
                                 &app.available_themes[..],
                                 export_selected,
                                 Message::PackExportThemeSelected,
                             ))
-                            .push(
-                                button::suggested(fl!("packs-export-pack"))
-                                    .on_press(Message::ExportPack),
-                            )
+                            .push(export_btn_element)
                             .spacing(8)
-                            .align_y(cosmic::iced::Alignment::Center),
-                    ),
+                            .align_y(cosmic::iced::Alignment::Center)
+                    }),
             )
             .add(
                 settings::item::builder(fl!("packs-folder"))
