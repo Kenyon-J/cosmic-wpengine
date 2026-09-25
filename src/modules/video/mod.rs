@@ -144,6 +144,25 @@ pub(crate) fn scaled_video_size(src: (u32, u32), target: Option<(u32, u32)>) -> 
     (w, h)
 }
 
+/// The swscale `SWS_CS_*` matrix for converting a video tagged
+/// `space` to RGB. Untagged video (common in the wild) gets the same guess
+/// mpv and most players make: BT.709 for HD (720 lines and up), BT.601
+/// below - swscale's own default is BT.601 regardless, which shifts the
+/// colours of the typical untagged HD file.
+pub(crate) fn sws_colorspace(space: ffmpeg::color::Space, height: u32) -> std::ffi::c_int {
+    use ffmpeg::color::Space;
+    use ffmpeg::ffi::{SWS_CS_BT2020, SWS_CS_FCC, SWS_CS_ITU601, SWS_CS_ITU709, SWS_CS_SMPTE240M};
+    match space {
+        Space::BT709 => SWS_CS_ITU709,
+        Space::FCC => SWS_CS_FCC,
+        Space::BT470BG | Space::SMPTE170M => SWS_CS_ITU601,
+        Space::SMPTE240M => SWS_CS_SMPTE240M,
+        Space::BT2020NCL | Space::BT2020CL => SWS_CS_BT2020,
+        _ if height >= 720 => SWS_CS_ITU709,
+        _ => SWS_CS_ITU601,
+    }
+}
+
 /// The RGBA converter for the local decoder, sized by `scaled_video_size`.
 struct FrameScaler {
     ctx: ffmpeg::software::scaling::Context,
@@ -156,7 +175,7 @@ struct FrameScaler {
 impl FrameScaler {
     fn new(decoder: &ffmpeg::decoder::Video, target: Option<(u32, u32)>) -> Result<Self, String> {
         let (width, height) = scaled_video_size((decoder.width(), decoder.height()), target);
-        let ctx = ffmpeg::software::scaling::Context::get(
+        let mut ctx = ffmpeg::software::scaling::Context::get(
             decoder.format(),
             decoder.width(),
             decoder.height(),
@@ -166,6 +185,33 @@ impl FrameScaler {
             ffmpeg::software::scaling::flag::Flags::BILINEAR,
         )
         .map_err(|e| format!("failed to create scaler: {e}"))?;
+
+        // Left alone, swscale converts every YUV video as limited-range
+        // BT.601. Use the stream's own matrix and range instead (see
+        // sws_colorspace). Output is full-range RGB, as before.
+        let matrix = sws_colorspace(decoder.color_space(), decoder.height());
+        let full_range = i32::from(decoder.color_range() == ffmpeg::color::Range::JPEG);
+        // SAFETY: `ctx` is a live, initialised SwsContext owned by `ctx`;
+        // sws_getCoefficients returns a pointer to a static table for any
+        // input (unknown values fall back to the default table).
+        let status = unsafe {
+            let coefficients = ffmpeg::ffi::sws_getCoefficients(matrix);
+            ffmpeg::ffi::sws_setColorspaceDetails(
+                ctx.as_mut_ptr(),
+                coefficients,
+                full_range,
+                ffmpeg::ffi::sws_getCoefficients(ffmpeg::ffi::SWS_CS_DEFAULT),
+                1,
+                0,
+                1 << 16,
+                1 << 16,
+            )
+        };
+        if status < 0 {
+            // Non-YUV sources (e.g. RGB video) have no matrix to set.
+            tracing::debug!("swscale kept its default colourspace details ({status})");
+        }
+
         if (width, height) != (decoder.width(), decoder.height()) {
             info!(
                 "Scaling {}x{} video to {}x{} to match the display",
