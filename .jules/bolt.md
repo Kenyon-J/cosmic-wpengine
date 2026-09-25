@@ -38,6 +38,9 @@
 ## 2025-03-05 - Avoid Heap Allocation in Hot Render Loops using Borrowing
 **Learning:** Passing `Box<str>` into intermediate rendering structs (like `LyricWindow`) forces high-frequency cloning inside per-frame render loops (`l.text.clone()`), causing unnecessary heap allocations (O(N) operations).
 **Action:** Whenever possible, use string slices (`&'a str`) in intermediate data structures mapped from a parent struct to avoid deep copying, enabling cheap O(1) pointer copies during high-frequency frame operations.
+## 2025-03-05 - Avoid Redundant Clock Queries in Hot Loops
+**Learning:** Calling `Instant::now()` or `.elapsed()` multiple times within a high-refresh-rate render loop adds significant system-call/vDSO overhead.
+**Action:** Always capture a single unified frame timestamp at the start of a render tick and pass it to all sub-components that require timing, instead of letting them fetch the system clock independently.
 ## 2025-03-05 - Avoid Unvectorized Conditionals in Float Arrays
 **Learning:** Manual loops that update `max_val` or search for `peak_abs` by iterating over float slices and performing bounds-checked conditional branch logic (like `if val_abs > peak_abs`) prevent LLVM auto-vectorization and cause significant per-frame overhead. By replacing manual conditional branches with iterator combinators like `.fold(0.0f32, |m, &v| m.max(v))`, LLVM can reliably emit SIMD instructions (like `maxps`) to process multiple values concurrently.
 **Action:** Replace manual `for` loops containing bounds-checked conditional mutations for min/max logic over arrays with vectorizable `.fold()` and `.max()` methods to ensure efficient SIMD evaluation in performance-critical DSP operations.
