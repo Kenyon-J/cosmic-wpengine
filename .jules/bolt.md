@@ -34,6 +34,10 @@
 ## 2025-03-05 - Avoid Skipping Immediate-Mode Command Recording
 **Learning:** Returning early from an immediate-mode command encoder function (like `BlurChain::run`) solely because uniforms (like blur amount) haven't changed breaks rendering. The command buffer must still record the draw calls (like `begin_render_pass`) every frame to process underlying source texture updates (like animated video backgrounds), even if the uniforms are static.
 **Action:** When caching `wgpu` render states to prevent redundant uploads, only conditionally wrap the `queue.write_buffer()` calls with the cache check. Do not use an early return to skip the entire command encoding process.
+
+## 2025-03-05 - Avoid Heap Allocation in Hot Render Loops using Borrowing
+**Learning:** Passing `Box<str>` into intermediate rendering structs (like `LyricWindow`) forces high-frequency cloning inside per-frame render loops (`l.text.clone()`), causing unnecessary heap allocations (O(N) operations).
+**Action:** Whenever possible, use string slices (`&'a str`) in intermediate data structures mapped from a parent struct to avoid deep copying, enabling cheap O(1) pointer copies during high-frequency frame operations.
 ## 2025-03-05 - Avoid Redundant Clock Queries in Hot Loops
 **Learning:** Calling `Instant::now()` or `.elapsed()` multiple times within a high-refresh-rate render loop adds significant system-call/vDSO overhead.
 **Action:** Always capture a single unified frame timestamp at the start of a render tick and pass it to all sub-components that require timing, instead of letting them fetch the system clock independently.
