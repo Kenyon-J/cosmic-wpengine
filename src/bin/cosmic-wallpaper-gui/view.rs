@@ -504,6 +504,14 @@ fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                     ),
             )
             .add(
+                settings::item::builder(fl!("live-wallpapers-hardware-decode"))
+                    .description(fl!("live-wallpapers-hardware-decode-desc"))
+                    .toggler(
+                        app.wp_config.appearance.hardware_video_decode,
+                        Message::ToggleHardwareVideoDecode,
+                    ),
+            )
+            .add(
                 settings::item::builder(fl!("live-wallpapers-library-folder"))
                     .description(fl!("live-wallpapers-library-folder-desc"))
                     .control(

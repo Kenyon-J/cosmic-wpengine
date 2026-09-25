@@ -113,8 +113,9 @@ jobs:
     steps:
       - name: Install prerequisite tools
         # ttf-dejavu: the lyric wrapping test shapes real text and needs at
-        # least one sans-serif font present in the container.
-        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust libxkbcommon wayland wayland-protocols dbus ffmpeg ttf-dejavu nasm
+        # least one sans-serif font present in the container. libva: VAAPI
+        # in the static-ffmpeg build this job tests.
+        run: pacman -Syu --noconfirm && pacman -S --noconfirm git nodejs base-devel clang pipewire pkgconf rust libxkbcommon wayland wayland-protocols dbus ffmpeg ttf-dejavu nasm libva
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -157,7 +158,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev libssl-dev nasm
+          sudo apt-get install -y clang libclang-dev libpipewire-0.3-dev pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdbus-1-dev libssl-dev nasm libva-dev
 
       - name: Set up Rust cache
         uses: Swatinem/rust-cache@v2
@@ -173,6 +174,11 @@ jobs:
               exit 1
             fi
           done
+          # Mirrors release.yml: the static ffmpeg must include VAAPI.
+          if ! ldd target/release/cosmic-wallpaper | grep -q "libva-drm"; then
+            echo "::error::cosmic-wallpaper was built without VAAPI; check the build-vaapi feature and libva-dev"
+            exit 1
+          fi
 
       # NOTE on the v1.3.1 SIGILL bug this static-ffmpeg job exists to catch:
       # a build machine with AVX-512 baked unconditional AVX-512 (zmm-register)

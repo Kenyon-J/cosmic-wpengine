@@ -7,6 +7,8 @@ use tracing::{info, warn};
 
 use super::event::Event;
 
+mod hwaccel;
+
 pub struct PooledImage {
     img: Option<image::RgbaImage>,
     recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
@@ -81,6 +83,9 @@ struct LocalStream {
     stream_index: usize,
     decoder: ffmpeg::decoder::Video,
     time_base_f64: f64,
+    /// Whether the decoder was set up for VAAPI. Individual frames can
+    /// still arrive in software if the GPU turns the stream down.
+    hardware: bool,
 }
 
 /// Opens `path` fresh and derives everything the local decode loop needs
@@ -91,9 +96,14 @@ struct LocalStream {
 /// stream index and time base all still pointing at state derived from the
 /// *previous* `Input`, which a fresh one isn't guaranteed to match
 /// (ffmpeg's C API gives no guarantee a codec context stays valid once the
-/// format context that produced its parameters is gone). The scaler is
-/// rebuilt from the new decoder alongside it.
-fn open_video_stream(path: &str) -> Result<LocalStream, String> {
+/// format context that produced its parameters is gone).
+///
+/// With a `vaapi` device, the decoder decodes on the GPU when the codec
+/// has a VAAPI path.
+fn open_video_stream(
+    path: &str,
+    vaapi: Option<&hwaccel::VaapiDevice>,
+) -> Result<LocalStream, String> {
     let ictx = ffmpeg::format::input(&path).map_err(|e| format!("failed to open input: {e}"))?;
 
     let input = ictx
@@ -103,12 +113,39 @@ fn open_video_stream(path: &str) -> Result<LocalStream, String> {
         .map_err(|e| format!("failed to find video stream: {e}"))?;
     let stream_index = input.index();
 
-    let context_decoder = ffmpeg::codec::context::Context::from_parameters(input.parameters())
+    let mut context_decoder = ffmpeg::codec::context::Context::from_parameters(input.parameters())
         .map_err(|e| format!("failed to get codec context: {e}"))?;
+
+    let codec = ffmpeg::decoder::find(context_decoder.id());
+    let codec_name = codec.as_ref().map_or("unknown", |c| c.name()).to_string();
+    let hardware = match (vaapi, &codec) {
+        (Some(device), Some(codec)) if hwaccel::codec_supports_vaapi(codec) => {
+            match hwaccel::attach(&mut context_decoder, device) {
+                Ok(()) => true,
+                Err(e) => {
+                    warn!("Could not attach VAAPI to the {codec_name} decoder: {e}");
+                    false
+                }
+            }
+        }
+        (Some(_), _) => {
+            info!("No VAAPI decoder for {codec_name}; decoding in software");
+            false
+        }
+        (None, _) => false,
+    };
+
     let decoder = context_decoder
         .decoder()
         .video()
         .map_err(|e| format!("failed to get video decoder: {e}"))?;
+    if hardware {
+        info!(
+            "Decoding {codec_name} {}x{} video with VAAPI",
+            decoder.width(),
+            decoder.height()
+        );
+    }
 
     let time_base = input.time_base();
     let time_base_f64 = time_base.numerator() as f64 / time_base.denominator() as f64;
@@ -118,6 +155,7 @@ fn open_video_stream(path: &str) -> Result<LocalStream, String> {
         stream_index,
         decoder,
         time_base_f64,
+        hardware,
     })
 }
 
@@ -163,22 +201,47 @@ pub(crate) fn sws_colorspace(space: ffmpeg::color::Space, height: u32) -> std::f
     }
 }
 
+/// Everything a scaler is built for. Frames are checked against it, so a
+/// change in any of these (a new monitor size, or a stream that switches
+/// between hardware and software frames) rebuilds the scaler.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct ScalerKey {
+    format: ffmpeg::format::Pixel,
+    src: (u32, u32),
+    target: Option<(u32, u32)>,
+    space: ffmpeg::color::Space,
+    range: ffmpeg::color::Range,
+}
+
+impl ScalerKey {
+    fn for_frame(frame: &ffmpeg::frame::Video, target: Option<(u32, u32)>) -> Self {
+        Self {
+            format: frame.format(),
+            src: (frame.width(), frame.height()),
+            target,
+            space: frame.color_space(),
+            range: frame.color_range(),
+        }
+    }
+}
+
 /// The RGBA converter for the local decoder, sized by `scaled_video_size`.
 struct FrameScaler {
     ctx: ffmpeg::software::scaling::Context,
-    target: Option<(u32, u32)>,
+    key: ScalerKey,
     width: u32,
     height: u32,
     frame_size: usize,
 }
 
 impl FrameScaler {
-    fn new(decoder: &ffmpeg::decoder::Video, target: Option<(u32, u32)>) -> Result<Self, String> {
-        let (width, height) = scaled_video_size((decoder.width(), decoder.height()), target);
+    fn new(key: ScalerKey) -> Result<Self, String> {
+        let (src_w, src_h) = key.src;
+        let (width, height) = scaled_video_size(key.src, key.target);
         let mut ctx = ffmpeg::software::scaling::Context::get(
-            decoder.format(),
-            decoder.width(),
-            decoder.height(),
+            key.format,
+            src_w,
+            src_h,
             ffmpeg::format::Pixel::RGBA,
             width,
             height,
@@ -189,8 +252,8 @@ impl FrameScaler {
         // Left alone, swscale converts every YUV video as limited-range
         // BT.601. Use the stream's own matrix and range instead (see
         // sws_colorspace). Output is full-range RGB, as before.
-        let matrix = sws_colorspace(decoder.color_space(), decoder.height());
-        let full_range = i32::from(decoder.color_range() == ffmpeg::color::Range::JPEG);
+        let matrix = sws_colorspace(key.space, src_h);
+        let full_range = i32::from(key.range == ffmpeg::color::Range::JPEG);
         // SAFETY: `ctx` is a live, initialised SwsContext owned by `ctx`;
         // sws_getCoefficients returns a pointer to a static table for any
         // input (unknown values fall back to the default table).
@@ -212,22 +275,32 @@ impl FrameScaler {
             tracing::debug!("swscale kept its default colourspace details ({status})");
         }
 
-        if (width, height) != (decoder.width(), decoder.height()) {
-            info!(
-                "Scaling {}x{} video to {}x{} to match the display",
-                decoder.width(),
-                decoder.height(),
-                width,
-                height
-            );
+        if (width, height) != key.src {
+            info!("Scaling {src_w}x{src_h} video to {width}x{height} to match the display");
         }
         Ok(Self {
             ctx,
-            target,
+            key,
             width,
             height,
             frame_size: (width * height * 4) as usize,
         })
+    }
+
+    /// The scaler for `frame`: the one in `slot` when it still matches,
+    /// otherwise a freshly built one (the `bool` says it was rebuilt).
+    fn for_frame<'a>(
+        slot: &'a mut Option<FrameScaler>,
+        frame: &ffmpeg::frame::Video,
+        target: Option<(u32, u32)>,
+    ) -> Result<(&'a mut FrameScaler, bool), String> {
+        let key = ScalerKey::for_frame(frame, target);
+        let rebuild = slot.as_ref().is_none_or(|scaler| scaler.key != key);
+        if rebuild {
+            *slot = None;
+            *slot = Some(FrameScaler::new(key)?);
+        }
+        Ok((slot.as_mut().expect("scaler was just set"), rebuild))
     }
 }
 
@@ -240,17 +313,31 @@ enum FrameSent {
     Closed,
 }
 
-/// Converts one decoded frame to RGBA at the scaler's output size and hands
-/// it to the renderer, reusing a recycled buffer when one is available.
+/// Converts one decoded (system-memory) frame to RGBA at display size and
+/// hands it to the renderer, reusing a recycled buffer when one is
+/// available.
 fn send_frame(
-    scaler: &mut FrameScaler,
-    decoded: &ffmpeg::frame::Video,
+    scaler_slot: &mut Option<FrameScaler>,
+    target: Option<(u32, u32)>,
+    frame: &ffmpeg::frame::Video,
     rgb_frame: &mut ffmpeg::frame::Video,
     recycle_rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>,
     recycle_tx: &tokio::sync::mpsc::Sender<Vec<u8>>,
     tx: &Sender<Event>,
 ) -> FrameSent {
-    if scaler.ctx.run(decoded, rgb_frame).is_err() {
+    let (scaler, rebuilt) = match FrameScaler::for_frame(scaler_slot, frame, target) {
+        Ok(found) => found,
+        Err(e) => {
+            warn!("Dropping video frame: {e}");
+            return FrameSent::Dropped;
+        }
+    };
+    if rebuilt {
+        // The previous output frame has the old size/format; let the
+        // scaler allocate a matching one.
+        *rgb_frame = ffmpeg::frame::Video::empty();
+    }
+    if scaler.ctx.run(frame, rgb_frame).is_err() {
         return FrameSent::Dropped;
     }
     let frame_size = scaler.frame_size;
@@ -275,6 +362,25 @@ fn send_frame(
         }
         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => FrameSent::Closed,
         Err(_) => FrameSent::Dropped,
+    }
+}
+
+/// Consecutive packets the VAAPI decoder may reject before the decoder
+/// gives up on the GPU and reopens the file for software decoding.
+const MAX_HARDWARE_PACKET_ERRORS: u32 = 8;
+
+/// Turns a decoded frame into one `send_frame` can convert: VAAPI surfaces
+/// are downloaded into `system`, software frames pass through. `Err` means
+/// the download failed and the decoder should fall back to software.
+fn system_frame<'a>(
+    decoded: &'a ffmpeg::frame::Video,
+    system: &'a mut ffmpeg::frame::Video,
+) -> Result<&'a ffmpeg::frame::Video, ffmpeg::Error> {
+    if hwaccel::is_vaapi_frame(decoded) {
+        hwaccel::download(decoded, system)?;
+        Ok(system)
+    } else {
+        Ok(decoded)
     }
 }
 
@@ -317,7 +423,9 @@ impl VideoDecoder {
     /// Frames are paced to the file's own timestamps and thinned to the
     /// configured fps; decoding pauses entirely while `visible_rx` reads
     /// false, and frames are converted at the size `size_rx` asks for (see
-    /// `scaled_video_size`).
+    /// `scaled_video_size`). When `appearance.hardware_video_decode` is on
+    /// and a VAAPI device opens, decoding runs on the GPU, falling back to
+    /// software for codecs it can't handle or if it starts failing.
     #[allow(clippy::too_many_arguments)]
     pub async fn run_local_decoder(
         path: String,
@@ -334,22 +442,39 @@ impl VideoDecoder {
 
         let handle = tokio::runtime::Handle::current();
         tokio::task::spawn_blocking(move || {
-            let opened = open_video_stream(&path).and_then(|stream| {
-                let scaler = FrameScaler::new(&stream.decoder, *size_rx.borrow_and_update())?;
-                Ok((stream, scaler))
-            });
-            let (mut stream, mut scaler) = match opened {
-                Ok(v) => v,
+            let hardware_enabled = config_rx.borrow().appearance.hardware_video_decode;
+            let vaapi = if hardware_enabled {
+                match hwaccel::VaapiDevice::open() {
+                    Ok(device) => Some(device),
+                    Err(e) => {
+                        info!("VAAPI unavailable ({e}); decoding video in software");
+                        None
+                    }
+                }
+            } else {
+                info!("Hardware video decoding is turned off; decoding in software");
+                None
+            };
+            // Cleared for good (for this video) if the GPU path fails.
+            let mut use_vaapi = vaapi.is_some();
+
+            let mut stream = match open_video_stream(&path, vaapi.as_ref()) {
+                Ok(stream) => stream,
                 Err(e) => {
                     warn!("ffmpeg-next failed to open {}: {}", path, e);
                     return;
                 }
             };
 
+            let mut target = *size_rx.borrow_and_update();
+            let mut scaler: Option<FrameScaler> = None;
             // Reused across every frame: scaler.run() only allocates this frame's
             // internal buffer the first time (while it's still empty), so keeping
             // it outside the loop avoids a full-resolution RGBA allocation per frame.
             let mut rgb_frame = ffmpeg::frame::Video::empty();
+            // Destination for downloaded VAAPI frames (see hwaccel::download).
+            let mut system_buffer = ffmpeg::frame::Video::empty();
+            let mut reopen_in_software = false;
 
             // Loop infinitely
             'outer: loop {
@@ -357,23 +482,28 @@ impl VideoDecoder {
                     break;
                 }
 
-                // We need to seek to the beginning if we loop.
-                if let Err(e) = stream.ictx.seek(0, 0..stream.ictx.duration().max(0)) {
+                if reopen_in_software {
+                    // A fresh software stream starts at the beginning, so
+                    // there's nothing to seek.
+                    reopen_in_software = false;
+                    use_vaapi = false;
+                    match open_video_stream(&path, None) {
+                        Ok(new_stream) => stream = new_stream,
+                        Err(e) => {
+                            warn!("ffmpeg-next reopen for software decoding failed: {}", e);
+                            break;
+                        }
+                    }
+                } else if let Err(e) = stream.ictx.seek(0, 0..stream.ictx.duration().max(0)) {
+                    // We need to seek to the beginning if we loop.
                     warn!("ffmpeg-next seek failed: {}", e);
                     // Reopening alone isn't enough: the decoder, stream
                     // index and time base were all derived from the
                     // *previous* input (see open_video_stream), so rebuild
-                    // everything from the new one together, scaler included.
-                    let reopened = open_video_stream(&path).and_then(|new_stream| {
-                        let new_scaler = FrameScaler::new(&new_stream.decoder, scaler.target)?;
-                        Ok((new_stream, new_scaler))
-                    });
-                    match reopened {
-                        Ok((new_stream, new_scaler)) => {
-                            stream = new_stream;
-                            scaler = new_scaler;
-                            rgb_frame = ffmpeg::frame::Video::empty();
-                        }
+                    // everything from the new one together.
+                    let device = vaapi.as_ref().filter(|_| use_vaapi);
+                    match open_video_stream(&path, device) {
+                        Ok(new_stream) => stream = new_stream,
                         Err(e) => {
                             warn!("ffmpeg-next reopen after failed seek also failed: {}", e);
                             break;
@@ -384,6 +514,7 @@ impl VideoDecoder {
                 let mut first_pts: Option<i64> = None;
                 let mut start_time = tokio::time::Instant::now();
                 let mut last_sent_time = 0.0;
+                let mut hardware_errors = 0u32;
 
                 for (packet_stream, packet) in stream.ictx.packets() {
                     if *cancel_rx.borrow() {
@@ -401,66 +532,85 @@ impl VideoDecoder {
                     }
 
                     if size_rx.has_changed().unwrap_or(false) {
-                        let target = *size_rx.borrow_and_update();
-                        if target != scaler.target {
-                            match FrameScaler::new(&stream.decoder, target) {
-                                Ok(new_scaler) => {
-                                    scaler = new_scaler;
-                                    rgb_frame = ffmpeg::frame::Video::empty();
-                                }
-                                Err(e) => warn!("Keeping the current video scaler: {}", e),
-                            }
-                        }
+                        // Picked up by send_frame, which rebuilds the scaler.
+                        target = *size_rx.borrow_and_update();
                     }
 
-                    if packet_stream.index() == stream.stream_index
-                        && stream.decoder.send_packet(&packet).is_ok()
-                    {
-                        let mut decoded = ffmpeg::frame::Video::empty();
-                        while stream.decoder.receive_frame(&mut decoded).is_ok() {
-                            if *cancel_rx.borrow() {
-                                break 'outer;
+                    if packet_stream.index() != stream.stream_index {
+                        continue;
+                    }
+                    match stream.decoder.send_packet(&packet) {
+                        Ok(()) => hardware_errors = 0,
+                        Err(e) if stream.hardware => {
+                            hardware_errors += 1;
+                            if hardware_errors >= MAX_HARDWARE_PACKET_ERRORS {
+                                warn!(
+                                    "VAAPI decoder keeps failing ({e}); switching to software decoding"
+                                );
+                                reopen_in_software = true;
+                                continue 'outer;
                             }
+                            continue;
+                        }
+                        Err(_) => continue,
+                    }
 
-                            let pts = decoded.pts().unwrap_or(0);
-                            if first_pts.is_none() {
-                                first_pts = Some(pts);
+                    let mut decoded = ffmpeg::frame::Video::empty();
+                    while stream.decoder.receive_frame(&mut decoded).is_ok() {
+                        if *cancel_rx.borrow() {
+                            break 'outer;
+                        }
+
+                        let pts = decoded.pts().unwrap_or(0);
+                        if first_pts.is_none() {
+                            first_pts = Some(pts);
+                        }
+
+                        let pts_diff = pts - first_pts.unwrap_or(pts);
+                        let target_time = pts_diff as f64 * stream.time_base_f64;
+                        let elapsed = start_time.elapsed().as_secs_f64();
+
+                        if target_time > elapsed {
+                            let sleep_duration =
+                                std::time::Duration::from_secs_f64(target_time - elapsed);
+                            std::thread::sleep(sleep_duration);
+                        }
+
+                        // Dynamic FPS throttling to save CPU. .max(1) mirrors
+                        // Config::sanitise: fps = 0 would make frame_duration
+                        // infinite and silently drop every frame.
+                        let target_fps = config_rx.borrow().fps.max(1) as f64;
+                        let frame_duration = 1.0 / target_fps;
+
+                        // If this frame's target time is less than the duration from the last frame we sent, drop it!
+                        // (Before the GPU download, so dropped frames never leave VRAM.)
+                        if target_time < last_sent_time + frame_duration && last_sent_time > 0.0 {
+                            continue;
+                        }
+
+                        let frame = match system_frame(&decoded, &mut system_buffer) {
+                            Ok(frame) => frame,
+                            Err(e) => {
+                                warn!(
+                                    "Could not download a VAAPI frame ({e}); switching to software decoding"
+                                );
+                                reopen_in_software = true;
+                                continue 'outer;
                             }
+                        };
 
-                            let pts_diff = pts - first_pts.unwrap_or(pts);
-                            let target_time = pts_diff as f64 * stream.time_base_f64;
-                            let elapsed = start_time.elapsed().as_secs_f64();
-
-                            if target_time > elapsed {
-                                let sleep_duration =
-                                    std::time::Duration::from_secs_f64(target_time - elapsed);
-                                std::thread::sleep(sleep_duration);
-                            }
-
-                            // Dynamic FPS throttling to save CPU. .max(1) mirrors
-                            // Config::sanitise: fps = 0 would make frame_duration
-                            // infinite and silently drop every frame.
-                            let target_fps = config_rx.borrow().fps.max(1) as f64;
-                            let frame_duration = 1.0 / target_fps;
-
-                            // If this frame's target time is less than the duration from the last frame we sent, drop it!
-                            if target_time < last_sent_time + frame_duration && last_sent_time > 0.0
-                            {
-                                continue;
-                            }
-
-                            match send_frame(
-                                &mut scaler,
-                                &decoded,
-                                &mut rgb_frame,
-                                &mut recycle_rx,
-                                &recycle_tx,
-                                &tx,
-                            ) {
-                                FrameSent::Sent => last_sent_time = target_time,
-                                FrameSent::Dropped => {}
-                                FrameSent::Closed => break 'outer,
-                            }
+                        match send_frame(
+                            &mut scaler,
+                            target,
+                            frame,
+                            &mut rgb_frame,
+                            &mut recycle_rx,
+                            &recycle_tx,
+                            &tx,
+                        ) {
+                            FrameSent::Sent => last_sent_time = target_time,
+                            FrameSent::Dropped => {}
+                            FrameSent::Closed => break 'outer,
                         }
                     }
                 }
@@ -468,9 +618,13 @@ impl VideoDecoder {
                 if stream.decoder.send_eof().is_ok() {
                     let mut decoded = ffmpeg::frame::Video::empty();
                     while stream.decoder.receive_frame(&mut decoded).is_ok() {
+                        let Ok(frame) = system_frame(&decoded, &mut system_buffer) else {
+                            continue;
+                        };
                         if let FrameSent::Closed = send_frame(
                             &mut scaler,
-                            &decoded,
+                            target,
+                            frame,
                             &mut rgb_frame,
                             &mut recycle_rx,
                             &recycle_tx,
@@ -487,6 +641,7 @@ impl VideoDecoder {
 
         Ok(())
     }
+
     /// Streams a remote canvas video through an ffmpeg subprocess as
     /// `CanvasVideoFrame`s. While `visible_rx` reads false the subprocess is
     /// stopped entirely, and a fresh one starts when the wallpaper is

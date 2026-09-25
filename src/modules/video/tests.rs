@@ -300,27 +300,29 @@ fn sws_colorspace_uses_the_tag_then_guesses_by_size() {
 }
 
 /// Decodes the first frame of `path` through the local decoder's own
-/// stream/scaler setup and returns its centre pixel.
+/// stream/scaler setup (software decoding) and returns its centre pixel.
 fn first_frame_centre_pixel(path: &std::path::Path) -> [u8; 3] {
-    let mut stream = open_video_stream(&path.to_string_lossy()).unwrap();
-    let mut scaler = FrameScaler::new(&stream.decoder, None).unwrap();
-    let mut rgb = ffmpeg::frame::Video::empty();
+    let mut stream = open_video_stream(&path.to_string_lossy(), None).unwrap();
     let mut decoded = ffmpeg::frame::Video::empty();
+    let mut got_frame = false;
     for (packet_stream, packet) in stream.ictx.packets() {
         if packet_stream.index() != stream.stream_index {
             continue;
         }
         stream.decoder.send_packet(&packet).unwrap();
         if stream.decoder.receive_frame(&mut decoded).is_ok() {
-            scaler.ctx.run(&decoded, &mut rgb).unwrap();
-            let (x, y) = (scaler.width as usize / 2, scaler.height as usize / 2);
-            let offset = y * rgb.stride(0) + x * 4;
-            let px = &rgb.data(0)[offset..offset + 3];
-            return [px[0], px[1], px[2]];
+            got_frame = true;
+            break;
         }
     }
-    stream.decoder.send_eof().unwrap();
-    stream.decoder.receive_frame(&mut decoded).unwrap();
+    if !got_frame {
+        stream.decoder.send_eof().unwrap();
+        stream.decoder.receive_frame(&mut decoded).unwrap();
+    }
+
+    let mut slot = None;
+    let (scaler, _) = FrameScaler::for_frame(&mut slot, &decoded, None).unwrap();
+    let mut rgb = ffmpeg::frame::Video::empty();
     scaler.ctx.run(&decoded, &mut rgb).unwrap();
     let (x, y) = (scaler.width as usize / 2, scaler.height as usize / 2);
     let offset = y * rgb.stride(0) + x * 4;

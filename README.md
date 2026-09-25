@@ -19,7 +19,7 @@
 ## ✨ Features
 
 
-* 🎬 **Video Backgrounds**: Play generic video files (.mp4, .webm) natively as your desktop background, leveraging `ffmpeg-next` and `wgpu`.
+* 🎬 **Video Backgrounds**: Play generic video files (.mp4, .webm) natively as your desktop background, leveraging `ffmpeg-next` and `wgpu`. Decoding runs on the GPU via VAAPI where the driver supports the codec (falling back to software otherwise), pauses while the desktop is covered, and converts frames at your monitor's resolution rather than the video's.
 * 🎵 **Media Integration**: Displays album art from MPRIS-compatible players (Spotify, VLC, Firefox, etc.).
 * 🖼️ **Artwork Fallback**: Queries the iTunes API for cover art if local artwork is unavailable (e.g., due to sandboxing).
 * 🎞️ **Spotify Canvas**: Fetches and plays looping video backgrounds for supported tracks via FFmpeg *(Note: Requires a local Canvas API proxy)*.
@@ -91,7 +91,8 @@ sudo apt install ./cosmic-wallpaper_amd64.deb
 ```
 
 **Other distros** — the standalone binaries bundle FFmpeg statically, so
-they run regardless of your distro's ffmpeg version:
+they run regardless of your distro's ffmpeg version (they need `libva`
+for hardware video decoding, which any desktop with GPU drivers has):
 ```bash
 mkdir -p ~/.local/bin
 wget -O ~/.local/bin/cosmic-wallpaper https://github.com/Kenyon-J/cosmic-wpengine/releases/latest/download/cosmic-wallpaper-x86_64-linux-gnu

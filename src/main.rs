@@ -208,30 +208,31 @@ async fn spawn_video_watcher(
     };
     let mut local_video_cancel_tx: Option<tokio::sync::watch::Sender<bool>> = None;
 
-    // Read initial state
-    let mut current_video_path: Option<String> = {
-        let cfg = video_config_rx.borrow();
-        cfg.appearance.video_background_path.clone()
+    // The decoder is restarted when either the video or the hardware
+    // decoding preference changes (the decoder reads that preference once,
+    // when it opens the file).
+    let video_settings = |config: &Config| {
+        (
+            config.appearance.video_background_path.clone(),
+            config.appearance.hardware_video_decode,
+        )
     };
+    let mut current = video_settings(&video_config_rx.borrow());
 
-    if let Some(video) = &current_video_path {
+    if let Some(video) = &current.0 {
         local_video_cancel_tx = start_video_decoder(video, video_tx.clone(), &inputs);
     }
 
     while video_config_rx.changed().await.is_ok() {
-        let path = video_config_rx
-            .borrow()
-            .appearance
-            .video_background_path
-            .clone();
+        let latest = video_settings(&video_config_rx.borrow());
 
-        if path != current_video_path {
+        if latest != current {
             if let Some(cancel) = local_video_cancel_tx.take() {
                 let _ = cancel.send(true);
             }
-            current_video_path = path.clone();
+            current = latest;
 
-            if let Some(video) = &current_video_path {
+            if let Some(video) = &current.0 {
                 local_video_cancel_tx = start_video_decoder(video, video_tx.clone(), &inputs);
             }
         }
