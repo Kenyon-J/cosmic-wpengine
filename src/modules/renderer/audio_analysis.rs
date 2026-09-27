@@ -310,11 +310,18 @@ impl AudioAnalysis {
             let mut peak = 0.0f32;
             let mut peak_abs = 0.0f32;
             if let Some(slice) = raw_waveform.get(start..end.min(wave_len)) {
-                // Vectorizable search for the peak absolute value
-                peak = slice
-                    .iter()
-                    .fold(0.0f32, |p, &v| if v.abs() > p.abs() { v } else { p });
-                peak_abs = peak.abs();
+                // Optimization: Track (best_p, max_a) in the fold accumulator to avoid
+                // evaluating p.abs() on every fold step and redundant post-loop abs() calls.
+                let (p, p_abs) = slice.iter().fold((0.0f32, 0.0f32), |(best_p, max_a), &v| {
+                    let a = v.abs();
+                    if a > max_a {
+                        (v, a)
+                    } else {
+                        (best_p, max_a)
+                    }
+                });
+                peak = p;
+                peak_abs = p_abs;
             }
             if peak_abs > max_energy {
                 max_energy = peak_abs;
