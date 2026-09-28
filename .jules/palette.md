@@ -33,3 +33,6 @@ Check this list and the open PRs first - some of these were proposed 4-7 times.
 ## 2024-05-24 - Async Button Loading State
 **Learning:** In cosmic::iced, users need visual feedback during async operations to prevent duplicate clicks and indicate progress, especially for network-bound actions like location detection.
 **Action:** Replaced standard button with disabled custom button containing a loading spinner (icon `process-working-symbolic`) and text when `detecting_location` is true.
+## 2024-03-24 - Async Loading States in SettingsApp
+**Learning:** In cosmic-wallpaper-gui, checking `status_msg` string content is an unreliable way to determine if an async task (like fetching patch notes) is running.
+**Action:** Always implement explicit boolean flags (like `fetching_patch_notes: bool`) in the `SettingsApp` struct to represent transient states, which can then be safely bound to UI disabling and loading indicator logic.

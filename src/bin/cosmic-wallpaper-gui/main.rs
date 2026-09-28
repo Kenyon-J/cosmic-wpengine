@@ -62,6 +62,7 @@ struct SettingsApp {
     /// Fetched release notes, shown on the General page when present.
     /// Pre-parsed once on arrival (`markdown::Item` owns its data - no
     /// lifetime tie to the source text) rather than reparsed on every view.
+    fetching_patch_notes: bool,
     patch_notes: Option<Vec<cosmic::widget::markdown::Item>>,
     /// Wallpaper snapshots for the Wallpaper page previews; loaded async at
     /// startup from the same background resolution the engine uses.
@@ -874,6 +875,7 @@ impl Application for SettingsApp {
                 new_theme_name: String::new(),
                 status_msg: fl!("status-ready"),
                 update_state: UpdateState::Checking,
+                fetching_patch_notes: false,
                 patch_notes: None,
                 wallpaper_preview: None,
                 color_picker: ColorPickerModel::new(

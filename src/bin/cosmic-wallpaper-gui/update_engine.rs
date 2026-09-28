@@ -186,12 +186,14 @@ impl SettingsApp {
 
     pub(super) fn on_show_patch_notes(&mut self) -> Task<cosmic::Action<Message>> {
         self.status_msg = fl!("status-fetching-patch-notes");
+        self.fetching_patch_notes = true;
         Task::perform(fetch_patch_notes(), |notes| {
             Message::PatchNotesLoaded(notes).into()
         })
     }
 
     pub(super) fn on_patch_notes_loaded(&mut self, notes: String) -> Task<cosmic::Action<Message>> {
+        self.fetching_patch_notes = false;
         self.patch_notes = Some(cosmic::widget::markdown::parse(&notes).collect());
         self.status_msg = fl!("status-ready");
         Task::none()
@@ -234,6 +236,7 @@ impl SettingsApp {
     }
 
     pub(super) fn on_close_patch_notes(&mut self) -> Task<cosmic::Action<Message>> {
+        self.fetching_patch_notes = false;
         self.patch_notes = None;
         Task::none()
     }
