@@ -1460,19 +1460,25 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                     .description(fl!("general-patch-notes-desc"))
                     .control({
                         let el: cosmic::Element<'_, Message> = if app.patch_notes.is_some() {
-                            button::standard(fl!("common-hide")).on_press(Message::ClosePatchNotes).into()
+                            button::standard(fl!("common-hide"))
+                                .on_press(Message::ClosePatchNotes)
+                                .into()
                         } else if app.fetching_patch_notes {
                             button::custom(
                                 Row::new()
-                                    .push(cosmic::widget::icon::from_name("process-working-symbolic"))
+                                    .push(cosmic::widget::icon::from_name(
+                                        "process-working-symbolic",
+                                    ))
                                     .push(text::body(fl!("common-show")))
                                     .spacing(8)
-                                    .align_y(cosmic::iced::Alignment::Center)
+                                    .align_y(cosmic::iced::Alignment::Center),
                             )
                             .class(cosmic::theme::Button::Standard)
                             .into()
                         } else {
-                            button::standard(fl!("common-show")).on_press(Message::ShowPatchNotes).into()
+                            button::standard(fl!("common-show"))
+                                .on_press(Message::ShowPatchNotes)
+                                .into()
                         };
                         el
                     }),
