@@ -37,17 +37,9 @@ pub(crate) fn engine_autostart_failure() -> Option<String> {
             ENGINE_AUTOSTART_UNIT,
             "--property=ActiveState,ExecMainStatus",
         ])
-        .output();
-    match output {
-        Ok(out) => parse_unit_failure(&String::from_utf8_lossy(&out.stdout)),
-        Err(e) => {
-            tracing::error!(
-                "Failed to execute systemctl to check autostart status: {}",
-                e
-            );
-            None
-        }
-    }
+        .output()
+        .ok()?;
+    parse_unit_failure(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// Pure parse of `systemctl show --property=ActiveState,ExecMainStatus`
