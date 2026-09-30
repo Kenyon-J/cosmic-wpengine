@@ -17,7 +17,7 @@ impl SettingsApp {
                 .unwrap_or_else(|_| std::process::Stdio::null());
             match std::process::Command::new(engine).stderr(stderr).spawn() {
                 Ok(mut child) => {
-                    self.status_msg = fl!("status-engine-starting");
+                    self.engine_starting = true;
                     return Task::perform(
                         async move {
                             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
@@ -80,6 +80,7 @@ impl SettingsApp {
                 };
             }
         }
+        self.engine_starting = false;
         Task::none()
     }
 
@@ -119,7 +120,7 @@ impl SettingsApp {
                         tracing::error!("Failed to launch busctl to stop engine: {}", e);
                     }
                 }
-                self.status_msg = fl!("status-engine-stopping");
+                self.engine_stopping = true;
                 return Task::perform(
                     tokio::time::sleep(std::time::Duration::from_millis(1500)),
                     |()| Message::RefreshEngineStatus.into(),
@@ -132,16 +133,18 @@ impl SettingsApp {
     pub(super) fn on_refresh_engine_status(&mut self) -> Task<cosmic::Action<Message>> {
         self.refresh_engine_status();
         // Resolve the transitional status set by Start/Stop.
-        if self.status_msg == fl!("status-engine-starting") {
+        if self.engine_starting {
             self.status_msg = match self.engine_pid {
                 Some(_) => fl!("status-engine-running"),
                 None => fl!("status-engine-did-not-start"),
             };
-        } else if self.status_msg == fl!("status-engine-stopping") {
+            self.engine_starting = false;
+        } else if self.engine_stopping {
             self.status_msg = match self.engine_pid {
                 Some(_) => fl!("status-engine-still-running"),
                 None => fl!("status-engine-stopped"),
             };
+            self.engine_stopping = false;
         }
         Task::none()
     }

@@ -82,6 +82,8 @@ struct SettingsApp {
     /// Engine process, when running (refreshed on General, and after
     /// Start/Stop).
     engine_pid: Option<u32>,
+    engine_starting: bool,
+    engine_stopping: bool,
     /// Why the engine is not running, when systemd (or a failed Start)
     /// knows: shown on the General page's engine row so a binary that dies
     /// before main() stops failing invisibly.
@@ -893,6 +895,8 @@ impl Application for SettingsApp {
                 theme_save_generation: 0,
                 engine_pid,
                 engine_failure,
+                engine_starting: false,
+                engine_stopping: false,
                 // Not computed here: bootstrap::ensure_desktop_integration()
                 // was just spawned on a background thread by `main` and
                 // hasn't necessarily finished yet. Refreshed for real the

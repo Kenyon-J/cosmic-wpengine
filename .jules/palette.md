@@ -33,3 +33,6 @@ Check this list and the open PRs first - some of these were proposed 4-7 times.
 ## 2024-05-24 - Async Button Loading State
 **Learning:** In cosmic::iced, users need visual feedback during async operations to prevent duplicate clicks and indicate progress, especially for network-bound actions like location detection.
 **Action:** Replaced standard button with disabled custom button containing a loading spinner (icon `process-working-symbolic`) and text when `detecting_location` is true.
+## 2024-11-20 - Engine Start/Stop Loading State
+**Learning:** In the `cosmic-wallpaper-gui` settings app, the engine Start/Stop transition logic originally relied on `status_msg` string comparisons, making it brittle to extend with proper UI loading states. Relying on strings meant that UI couldn't be correctly synchronized with internal flags.
+**Action:** Replace string-based checks (`status_msg == fl!("status-engine-starting")`) with robust boolean state variables (`engine_starting`, `engine_stopping`) to drive both control logic and UI disabled states effectively.

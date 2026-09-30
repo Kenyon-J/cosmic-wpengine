@@ -1416,10 +1416,41 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                         (None, Some(failure)) => failure.clone(),
                         (None, None) => fl!("general-engine-not-running"),
                     })
-                    .control(if app.engine_pid.is_some() {
-                        button::standard(fl!("common-stop")).on_press(Message::StopEngine)
-                    } else {
-                        button::suggested(fl!("common-start")).on_press(Message::StartEngine)
+                    .control({
+                        let el: cosmic::Element<'_, Message> = if app.engine_stopping {
+                            button::custom(
+                                Row::new()
+                                    .push(cosmic::widget::icon::from_name(
+                                        "process-working-symbolic",
+                                    ))
+                                    .push(text::body(fl!("common-stop")))
+                                    .spacing(8)
+                                    .align_y(cosmic::iced::Alignment::Center),
+                            )
+                            .class(cosmic::theme::Button::Standard)
+                            .into()
+                        } else if app.engine_starting {
+                            button::custom(
+                                Row::new()
+                                    .push(cosmic::widget::icon::from_name(
+                                        "process-working-symbolic",
+                                    ))
+                                    .push(text::body(fl!("common-start")))
+                                    .spacing(8)
+                                    .align_y(cosmic::iced::Alignment::Center),
+                            )
+                            .class(cosmic::theme::Button::Suggested)
+                            .into()
+                        } else if app.engine_pid.is_some() {
+                            button::standard(fl!("common-stop"))
+                                .on_press(Message::StopEngine)
+                                .into()
+                        } else {
+                            button::suggested(fl!("common-start"))
+                                .on_press(Message::StartEngine)
+                                .into()
+                        };
+                        el
                     }),
             )
             .add(
