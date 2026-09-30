@@ -220,8 +220,8 @@ pub(crate) fn encode_frame(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     view: &wgpu::TextureView,
-    width: u32,
-    height: u32,
+    _width: u32,
+    _height: u32,
     album_art_pipeline: &wgpu::RenderPipeline,
     art: &ArtLayer,
     background: &BackgroundLayer,
@@ -238,8 +238,10 @@ pub(crate) fn encode_frame(
     has_audio: bool,
     visualiser_instance_count: u32,
 ) {
+    // Optimization: Use a static string slice for command encoder descriptor label
+    // to avoid heap string allocations (`format!`) on every rendered frame.
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some(&format!("Frame Encoder {width}x{height}")),
+        label: Some("Frame Encoder"),
     });
 
     {
