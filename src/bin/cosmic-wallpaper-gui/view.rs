@@ -1458,10 +1458,29 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .add(
                 settings::item::builder(fl!("general-patch-notes"))
                     .description(fl!("general-patch-notes-desc"))
-                    .control(if app.patch_notes.is_some() {
-                        button::standard(fl!("common-hide")).on_press(Message::ClosePatchNotes)
-                    } else {
-                        button::standard(fl!("common-show")).on_press(Message::ShowPatchNotes)
+                    .control({
+                        let el: cosmic::Element<'_, Message> = if app.fetching_patch_notes {
+                            button::custom(
+                                Row::new()
+                                    .push(cosmic::widget::icon::from_name(
+                                        "process-working-symbolic",
+                                    ))
+                                    .push(text::body(fl!("status-fetching-patch-notes")))
+                                    .spacing(8)
+                                    .align_y(cosmic::iced::Alignment::Center),
+                            )
+                            .class(cosmic::theme::Button::Standard)
+                            .into()
+                        } else if app.patch_notes.is_some() {
+                            button::standard(fl!("common-hide"))
+                                .on_press(Message::ClosePatchNotes)
+                                .into()
+                        } else {
+                            button::standard(fl!("common-show"))
+                                .on_press(Message::ShowPatchNotes)
+                                .into()
+                        };
+                        el
                     }),
             )
             .add(

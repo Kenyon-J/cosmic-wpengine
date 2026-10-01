@@ -33,3 +33,6 @@ Check this list and the open PRs first - some of these were proposed 4-7 times.
 ## 2024-05-24 - Async Button Loading State
 **Learning:** In cosmic::iced, users need visual feedback during async operations to prevent duplicate clicks and indicate progress, especially for network-bound actions like location detection.
 **Action:** Replaced standard button with disabled custom button containing a loading spinner (icon `process-working-symbolic`) and text when `detecting_location` is true.
+## 2024-05-25 - Async Button Loading State for Patch Notes
+**Learning:** Network-bound actions like fetching patch notes need visual feedback to prevent users from wondering if the application has frozen.
+**Action:** Replaced the standard "Show" button for patch notes with a custom button containing a loading spinner (icon `process-working-symbolic`) and text when `fetching_patch_notes` is true, ensuring it is visually consistent with other loading states like `detecting_location`.
