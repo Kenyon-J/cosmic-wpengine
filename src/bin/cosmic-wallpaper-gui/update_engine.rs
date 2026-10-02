@@ -17,6 +17,7 @@ impl SettingsApp {
                 .unwrap_or_else(|_| std::process::Stdio::null());
             match std::process::Command::new(engine).stderr(stderr).spawn() {
                 Ok(mut child) => {
+                    self.starting_engine = true;
                     self.status_msg = fl!("status-engine-starting");
                     return Task::perform(
                         async move {
@@ -55,6 +56,7 @@ impl SettingsApp {
         probe: Option<(Option<i32>, String)>,
     ) -> Task<cosmic::Action<Message>> {
         self.refresh_engine_status();
+        self.starting_engine = false;
         match probe {
             Some((code, headline)) => {
                 let code = code.map_or_else(
@@ -119,6 +121,7 @@ impl SettingsApp {
                         tracing::error!("Failed to launch busctl to stop engine: {}", e);
                     }
                 }
+                self.stopping_engine = true;
                 self.status_msg = fl!("status-engine-stopping");
                 return Task::perform(
                     tokio::time::sleep(std::time::Duration::from_millis(1500)),
@@ -132,12 +135,14 @@ impl SettingsApp {
     pub(super) fn on_refresh_engine_status(&mut self) -> Task<cosmic::Action<Message>> {
         self.refresh_engine_status();
         // Resolve the transitional status set by Start/Stop.
-        if self.status_msg == fl!("status-engine-starting") {
+        if self.starting_engine {
+            self.starting_engine = false;
             self.status_msg = match self.engine_pid {
                 Some(_) => fl!("status-engine-running"),
                 None => fl!("status-engine-did-not-start"),
             };
-        } else if self.status_msg == fl!("status-engine-stopping") {
+        } else if self.stopping_engine {
+            self.stopping_engine = false;
             self.status_msg = match self.engine_pid {
                 Some(_) => fl!("status-engine-still-running"),
                 None => fl!("status-engine-stopped"),
