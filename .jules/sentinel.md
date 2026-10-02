@@ -6,6 +6,11 @@
 - `xdg-open` URL-scheme validation and error handling (#440, #518).
 - SSRF check on the Spotify canvas proxy URL (#512).
 
+**Rejected:** logging an error when `systemctl` can't be spawned in
+`engine_autostart_failure` - it runs on every engine status refresh, so a
+system without systemctl would log the same error repeatedly; `None` is the
+intended "unknown" result there.
+
 **Policy:** don't add new entries to `.cargo/audit.toml` as a drive-by in an
 unrelated PR. A new advisory gets its own PR that upgrades the dependency,
 or explains why the ignore is safe.

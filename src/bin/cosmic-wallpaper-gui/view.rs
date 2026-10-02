@@ -1276,25 +1276,15 @@ fn weather(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                                 lon_input.error(fl!("weather-invalid-longitude"))
                             }
                         })
-                        .push({
-                            let el: cosmic::Element<'_, Message> = if app.detecting_location {
-                                button::custom(
-                                    Row::new()
-                                        .push(cosmic::widget::icon::from_name(
-                                            "process-working-symbolic",
-                                        ))
-                                        .push(text::body(fl!("weather-use-my-location")))
-                                        .spacing(8)
-                                        .align_y(cosmic::iced::Alignment::Center),
-                                )
-                                .class(cosmic::theme::Button::Standard)
+                        .push(if app.detecting_location {
+                            busy_button(
+                                fl!("weather-use-my-location"),
+                                cosmic::theme::Button::Standard,
+                            )
+                        } else {
+                            button::standard(fl!("weather-use-my-location"))
+                                .on_press(Message::DetectLocation)
                                 .into()
-                            } else {
-                                button::standard(fl!("weather-use-my-location"))
-                                    .on_press(Message::DetectLocation)
-                                    .into()
-                            };
-                            el
                         })
                         .spacing(8)
                         .align_y(cosmic::iced::Alignment::Center),
@@ -1416,35 +1406,20 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                         (None, Some(failure)) => failure.clone(),
                         (None, None) => fl!("general-engine-not-running"),
                     })
+                    // The status line already says "Engine starting..."; the
+                    // busy button keeps its short label.
                     .control(if app.starting_engine {
-                        let el: cosmic::Element<'_, Message> = button::custom(
-                            Row::new()
-                                .push(cosmic::widget::icon::from_name("process-working-symbolic"))
-                                .push(text::body(fl!("status-engine-starting"))),
-                        )
-                        .class(cosmic::theme::Button::Suggested)
-                        .into();
-                        el
+                        busy_button(fl!("common-start"), cosmic::theme::Button::Suggested)
                     } else if app.stopping_engine {
-                        let el: cosmic::Element<'_, Message> = button::custom(
-                            Row::new()
-                                .push(cosmic::widget::icon::from_name("process-working-symbolic"))
-                                .push(text::body(fl!("status-engine-stopping"))),
-                        )
-                        .class(cosmic::theme::Button::Standard)
-                        .into();
-                        el
+                        busy_button(fl!("common-stop"), cosmic::theme::Button::Standard)
                     } else if app.engine_pid.is_some() {
-                        let el: cosmic::Element<'_, Message> = button::standard(fl!("common-stop"))
+                        button::standard(fl!("common-stop"))
                             .on_press(Message::StopEngine)
-                            .into();
-                        el
+                            .into()
                     } else {
-                        let el: cosmic::Element<'_, Message> =
-                            button::suggested(fl!("common-start"))
-                                .on_press(Message::StartEngine)
-                                .into();
-                        el
+                        button::suggested(fl!("common-start"))
+                            .on_press(Message::StartEngine)
+                            .into()
                     }),
             )
             .add(
@@ -1483,29 +1458,16 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .add(
                 settings::item::builder(fl!("general-patch-notes"))
                     .description(fl!("general-patch-notes-desc"))
-                    .control({
-                        let el: cosmic::Element<'_, Message> = if app.patch_notes.is_some() {
-                            button::standard(fl!("common-hide"))
-                                .on_press(Message::ClosePatchNotes)
-                                .into()
-                        } else if app.fetching_patch_notes {
-                            button::custom(
-                                Row::new()
-                                    .push(cosmic::widget::icon::from_name(
-                                        "process-working-symbolic",
-                                    ))
-                                    .push(text::body(fl!("common-show")))
-                                    .spacing(8)
-                                    .align_y(cosmic::iced::Alignment::Center),
-                            )
-                            .class(cosmic::theme::Button::Standard)
+                    .control(if app.patch_notes.is_some() {
+                        button::standard(fl!("common-hide"))
+                            .on_press(Message::ClosePatchNotes)
                             .into()
-                        } else {
-                            button::standard(fl!("common-show"))
-                                .on_press(Message::ShowPatchNotes)
-                                .into()
-                        };
-                        el
+                    } else if app.fetching_patch_notes {
+                        busy_button(fl!("common-show"), cosmic::theme::Button::Standard)
+                    } else {
+                        button::standard(fl!("common-show"))
+                            .on_press(Message::ShowPatchNotes)
+                            .into()
                     }),
             )
             .add(
@@ -1576,4 +1538,18 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
         fl!("general-page-summary"),
         sections,
     )
+}
+
+/// A disabled button with a spinner beside its label, shown while the
+/// async action it triggers is in flight - it also stops repeat clicks.
+fn busy_button<'a>(label: String, class: cosmic::theme::Button) -> cosmic::Element<'a, Message> {
+    button::custom(
+        Row::new()
+            .push(cosmic::widget::icon::from_name("process-working-symbolic"))
+            .push(text::body(label))
+            .spacing(8)
+            .align_y(cosmic::iced::Alignment::Center),
+    )
+    .class(class)
+    .into()
 }

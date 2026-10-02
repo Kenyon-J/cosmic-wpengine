@@ -8,11 +8,10 @@ Check this list and the open PRs first - some of these were proposed 4-7 times.
 - "Export pack" disabled with a tooltip until a theme is selected (#566).
 - Inline validation on weather latitude/longitude (#514).
 - Progress indicator for update check/install states (#535).
-
-**Rejected:**
-- Engine Start/Stop loading state derived by comparing `status_msg` to
-  translated strings. If this is revisited, it needs a real state field
-  (like `detecting_location`), not string comparison.
+- Engine Start/Stop busy state via `starting_engine`/`stopping_engine`
+  fields (#590), and a busy "Show" button while patch notes load (#579).
+- Busy buttons share one helper, `view::busy_button(label, class)` - use it
+  rather than hand-building another spinner row.
 
 ---
 

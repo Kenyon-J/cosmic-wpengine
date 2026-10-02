@@ -220,8 +220,6 @@ pub(crate) fn encode_frame(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     view: &wgpu::TextureView,
-    width: u32,
-    height: u32,
     album_art_pipeline: &wgpu::RenderPipeline,
     art: &ArtLayer,
     background: &BackgroundLayer,
@@ -239,7 +237,7 @@ pub(crate) fn encode_frame(
     visualiser_instance_count: u32,
 ) {
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some(&format!("Frame Encoder {width}x{height}")),
+        label: Some("Frame Encoder"),
     });
 
     {
@@ -639,8 +637,6 @@ pub(crate) fn draw_frame(
             &renderer.device,
             &renderer.queue,
             &view,
-            current_res.0,
-            current_res.1,
             &renderer.album_art_pipeline,
             &renderer.art,
             &renderer.background,

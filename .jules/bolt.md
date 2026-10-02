@@ -32,6 +32,12 @@ Several ideas were proposed three or more times; the duplicates were closed.
   size (`scaled_video_size`), and uses VAAPI when available.
 - `upload_rgba_to_texture` passes tightly packed rows straight to
   `write_texture` - it needs no 256-byte row padding; don't reintroduce it.
+- Static `"Frame Encoder"` label in `encode_frame` (its unused width/height
+  parameters were removed too) - proposed six times.
+
+**Also rejected (reviewed 2026-10-02):**
+- Further micro-tweaks to `AudioAnalysis`'s peak fold (e.g. caching `abs()`
+  in the accumulator): a 2048-sample fold per frame is already negligible.
 
 ---
 
