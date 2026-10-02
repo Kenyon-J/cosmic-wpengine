@@ -1440,9 +1440,10 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                             .into();
                         el
                     } else {
-                        let el: cosmic::Element<'_, Message> = button::suggested(fl!("common-start"))
-                            .on_press(Message::StartEngine)
-                            .into();
+                        let el: cosmic::Element<'_, Message> =
+                            button::suggested(fl!("common-start"))
+                                .on_press(Message::StartEngine)
+                                .into();
                         el
                     }),
             )
