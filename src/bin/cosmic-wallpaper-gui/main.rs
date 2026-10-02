@@ -63,6 +63,7 @@ struct SettingsApp {
     /// Pre-parsed once on arrival (`markdown::Item` owns its data - no
     /// lifetime tie to the source text) rather than reparsed on every view.
     patch_notes: Option<Vec<cosmic::widget::markdown::Item>>,
+    fetching_patch_notes: bool,
     /// Wallpaper snapshots for the Wallpaper page previews; loaded async at
     /// startup from the same background resolution the engine uses.
     wallpaper_preview: Option<WallpaperPreview>,
@@ -877,6 +878,7 @@ impl Application for SettingsApp {
                 status_msg: fl!("status-ready"),
                 update_state: UpdateState::Checking,
                 patch_notes: None,
+                fetching_patch_notes: false,
                 wallpaper_preview: None,
                 color_picker: ColorPickerModel::new(
                     "Hex",

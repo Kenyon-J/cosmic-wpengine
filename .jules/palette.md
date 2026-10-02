@@ -33,6 +33,11 @@ Check this list and the open PRs first - some of these were proposed 4-7 times.
 ## 2024-05-24 - Async Button Loading State
 **Learning:** In cosmic::iced, users need visual feedback during async operations to prevent duplicate clicks and indicate progress, especially for network-bound actions like location detection.
 **Action:** Replaced standard button with disabled custom button containing a loading spinner (icon `process-working-symbolic`) and text when `detecting_location` is true.
+
+## 2024-05-24 - Async Button Loading States
+**Learning:** Buttons triggering async network requests (like fetching patch notes) without visual loading states appear unresponsive and can cause user confusion or duplicate clicks.
+**Action:** Always replace standard buttons with a disabled custom button containing a 'process-working-symbolic' icon while the async operation is in progress.
+
 ## 2024-05-24 - Async Engine Start/Stop State
 **Learning:** In cosmic::iced, determining loading states by comparing `status_msg` against localized strings (via `fl!()`) is brittle and confusing to read. It's much cleaner and robust to manage transient async states with dedicated boolean fields in the Application struct.
 **Action:** Replaced string-comparison logic with `starting_engine: bool` and `stopping_engine: bool` fields in `SettingsApp`, and updated the start/stop buttons to show `process-working-symbolic` spinners while these are true.
