@@ -1416,10 +1416,34 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
                         (None, Some(failure)) => failure.clone(),
                         (None, None) => fl!("general-engine-not-running"),
                     })
-                    .control(if app.engine_pid.is_some() {
-                        button::standard(fl!("common-stop")).on_press(Message::StopEngine)
+                    .control(if app.starting_engine {
+                        let el: cosmic::Element<'_, Message> = button::custom(
+                            Row::new()
+                                .push(cosmic::widget::icon::from_name("process-working-symbolic"))
+                                .push(text::body(fl!("status-engine-starting"))),
+                        )
+                        .class(cosmic::theme::Button::Suggested)
+                        .into();
+                        el
+                    } else if app.stopping_engine {
+                        let el: cosmic::Element<'_, Message> = button::custom(
+                            Row::new()
+                                .push(cosmic::widget::icon::from_name("process-working-symbolic"))
+                                .push(text::body(fl!("status-engine-stopping"))),
+                        )
+                        .class(cosmic::theme::Button::Standard)
+                        .into();
+                        el
+                    } else if app.engine_pid.is_some() {
+                        let el: cosmic::Element<'_, Message> = button::standard(fl!("common-stop"))
+                            .on_press(Message::StopEngine)
+                            .into();
+                        el
                     } else {
-                        button::suggested(fl!("common-start")).on_press(Message::StartEngine)
+                        let el: cosmic::Element<'_, Message> = button::suggested(fl!("common-start"))
+                            .on_press(Message::StartEngine)
+                            .into();
+                        el
                     }),
             )
             .add(

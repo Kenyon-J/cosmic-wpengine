@@ -86,6 +86,8 @@ struct SettingsApp {
     /// knows: shown on the General page's engine row so a binary that dies
     /// before main() stops failing invisibly.
     engine_failure: Option<String>,
+    starting_engine: bool,
+    stopping_engine: bool,
     /// `None` when the app is properly registered with the desktop's
     /// launcher (or a packaged install, whose job that isn't ours);
     /// `Some(reason)` surfaces a "Setup" section on General - the app
@@ -893,6 +895,8 @@ impl Application for SettingsApp {
                 theme_save_generation: 0,
                 engine_pid,
                 engine_failure,
+                starting_engine: false,
+                stopping_engine: false,
                 // Not computed here: bootstrap::ensure_desktop_integration()
                 // was just spawned on a background thread by `main` and
                 // hasn't necessarily finished yet. Refreshed for real the
