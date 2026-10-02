@@ -133,8 +133,6 @@ pub async fn render_frame_to_png(
         &renderer.device,
         &renderer.queue,
         &view,
-        WIDTH,
-        HEIGHT,
         &renderer.album_art_pipeline,
         &renderer.art,
         &renderer.background,
