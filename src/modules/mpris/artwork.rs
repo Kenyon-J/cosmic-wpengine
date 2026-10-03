@@ -71,14 +71,11 @@ impl MprisWatcher {
             // image::RgbaImage::from_raw, completely bypassing bounds checks,
             // slice method overhead, and offset arithmetic in put_pixel.
             let mut raw = vec![0u8; 640 * 640 * 4];
-            for (y, row) in raw.chunks_exact_mut(640 * 4).enumerate() {
+            for (y, row) in raw.as_chunks_mut::<2560>().0.iter_mut().enumerate() {
                 let b = b_vals[y];
-                for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+                for (x, pixel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                     let r = r_vals[x];
-                    pixel[0] = r;
-                    pixel[1] = 20;
-                    pixel[2] = b;
-                    pixel[3] = 255;
+                    *pixel = [r, 20, b, 255];
                 }
             }
 
