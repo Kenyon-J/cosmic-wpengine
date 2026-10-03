@@ -311,10 +311,17 @@ impl AudioAnalysis {
             let mut peak_abs = 0.0f32;
             if let Some(slice) = raw_waveform.get(start..end.min(wave_len)) {
                 // Vectorizable search for the peak absolute value
-                peak = slice
-                    .iter()
-                    .fold(0.0f32, |p, &v| if v.abs() > p.abs() { v } else { p });
-                peak_abs = peak.abs();
+                (peak, peak_abs) =
+                    slice
+                        .iter()
+                        .fold((0.0f32, 0.0f32), |(max_signed, max_abs), &v| {
+                            let v_abs = v.abs();
+                            if v_abs > max_abs {
+                                (v, v_abs)
+                            } else {
+                                (max_signed, max_abs)
+                            }
+                        });
             }
             if peak_abs > max_energy {
                 max_energy = peak_abs;
