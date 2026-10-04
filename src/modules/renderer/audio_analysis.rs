@@ -310,10 +310,11 @@ impl AudioAnalysis {
             let mut peak = 0.0f32;
             let mut peak_abs = 0.0f32;
             if let Some(slice) = raw_waveform.get(start..end.min(wave_len)) {
-                // Vectorizable search for the peak absolute value
-                peak = slice
-                    .iter()
-                    .fold(0.0f32, |p, &v| if v.abs() > p.abs() { v } else { p });
+                // Optimization: By keeping max and min instead of checking v.abs() > p.abs(), LLVM auto-vectorizes this loop.
+                // The max and min operations translate well into SIMD instruction.
+                let max = slice.iter().fold(0.0f32, |m, &v| m.max(v));
+                let min = slice.iter().fold(0.0f32, |m, &v| m.min(v));
+                peak = if max > -min { max } else { min };
                 peak_abs = peak.abs();
             }
             if peak_abs > max_energy {
