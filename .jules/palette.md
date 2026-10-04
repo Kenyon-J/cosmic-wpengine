@@ -40,3 +40,6 @@ Check this list and the open PRs first - some of these were proposed 4-7 times.
 ## 2024-05-24 - Async Engine Start/Stop State
 **Learning:** In cosmic::iced, determining loading states by comparing `status_msg` against localized strings (via `fl!()`) is brittle and confusing to read. It's much cleaner and robust to manage transient async states with dedicated boolean fields in the Application struct.
 **Action:** Replaced string-comparison logic with `starting_engine: bool` and `stopping_engine: bool` fields in `SettingsApp`, and updated the start/stop buttons to show `process-working-symbolic` spinners while these are true.
+## 2024-11-20 - False Positive Code Reviews on Helpers
+**Learning:** Automated code reviews (like the one that complained `busy_button` was missing or hallucinated and missing `.into()`) can sometimes provide false positives, especially when a helper function is defined lower down in the file and natively returns `cosmic::Element`.
+**Action:** Always trust `cargo check` / `cargo test` over the automated code review if the compiler proves the function exists and the types match.
