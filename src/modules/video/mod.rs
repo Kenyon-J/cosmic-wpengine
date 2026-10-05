@@ -300,7 +300,11 @@ impl FrameScaler {
             *slot = None;
             *slot = Some(FrameScaler::new(key)?);
         }
-        Ok((slot.as_mut().ok_or_else(|| "scaler was just set".to_string())?, rebuild))
+        Ok((
+            slot.as_mut()
+                .ok_or_else(|| "scaler was just set".to_string())?,
+            rebuild,
+        ))
     }
 }
 
