@@ -309,7 +309,10 @@ impl TextSubsystem {
                 shifts[idx] = shift;
             }
 
-            for (line, shift) in shaped_lines.into_iter().zip(shifts[..shaped_len].iter().copied()) {
+            for (line, shift) in shaped_lines
+                .into_iter()
+                .zip(shifts[..shaped_len].iter().copied())
+            {
                 self.text_buffers.push(PositionedBuffer {
                     buffer: line.buffer,
                     text_key: line.text_key,
