@@ -572,19 +572,24 @@ pub(crate) fn draw_frame(
                     .as_ref()
                     .and_then(|t| t.lyrics.as_ref())
                     .map(|lyrics| {
-                        (lyric_start_idx..=lyric_end_idx)
-                            .map(|line_idx| {
+                        let mut lines = [(0, "", 0u64); 5];
+                        let mut count = 0;
+                        for line_idx in lyric_start_idx..=lyric_end_idx {
+                            if count < 5 {
                                 let l = &lyrics[line_idx - 1];
-                                (line_idx, l.text.as_ref(), l.text_hash)
-                            })
-                            .collect::<Vec<_>>()
+                                lines[count] = (line_idx, l.text.as_ref(), l.text_hash);
+                                count += 1;
+                            }
+                        }
+                        (lines, count)
                     })
             } else {
                 None
             }
-            .map(|window| {
+            .map(|(window, count)| {
                 (
                     window,
+                    count,
                     super::core::LyricPhysics {
                         current_lyric_idx: renderer.current_lyric_idx,
                         lyric_scroll_offset: renderer.lyric_scroll_offset,
