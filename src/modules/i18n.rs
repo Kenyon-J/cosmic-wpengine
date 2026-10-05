@@ -19,7 +19,12 @@ pub static LANGUAGE_LOADER: LazyLock<FluentLanguageLoader> = LazyLock::new(|| {
     let loader: FluentLanguageLoader = fluent_language_loader!();
     loader
         .load_fallback_language(&Localizations)
-        .expect("failed to load the fallback (en) translation catalog");
+        .unwrap_or_else(|e| {
+            tracing::error!(
+                "failed to load the fallback (en) translation catalog: {}",
+                e
+            )
+        });
     loader
 });
 

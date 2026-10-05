@@ -78,7 +78,7 @@ impl MetadataUpdate {
 }
 
 enum MprisUpdate {
-    Metadata(MetadataUpdate),
+    Metadata(Box<MetadataUpdate>),
     Status(mpris::PlaybackStatus),
     Position(std::time::Duration),
     /// Result of a background network fetch (remote art, lyrics, canvas video)
@@ -234,7 +234,7 @@ impl MprisWatcher {
                         if let Some(metadata) = player.get_metadata().ok().as_ref() {
                             let meta = MetadataUpdate::from_metadata(metadata);
                             last_track_id = meta.effective_track_id();
-                            let _ = update_tx.blocking_send(MprisUpdate::Metadata(meta));
+                            let _ = update_tx.blocking_send(MprisUpdate::Metadata(Box::new(meta)));
                         }
                         let _ = update_tx.blocking_send(MprisUpdate::Status(current_status));
                         last_status = current_status;
@@ -261,7 +261,8 @@ impl MprisWatcher {
                             let track_id = meta.effective_track_id();
                             if track_id != last_track_id {
                                 last_track_id = track_id;
-                                let _ = update_tx.blocking_send(MprisUpdate::Metadata(meta));
+                                let _ =
+                                    update_tx.blocking_send(MprisUpdate::Metadata(Box::new(meta)));
                             }
                         }
                         if current_status != last_status {
@@ -359,7 +360,7 @@ impl MprisWatcher {
                         let is_empty = (meta.title == "Unknown" || meta.title.trim().is_empty())
                             && meta.artist.trim().is_empty();
                         if !is_empty {
-                            last_metadata = Some(meta);
+                            last_metadata = Some(*meta);
                         }
                     }
                     MprisUpdate::Status(status) => {
@@ -787,9 +788,9 @@ fn run_event_watcher(
 
         match event {
             mpris::Event::TrackChanged(metadata) => {
-                let _ = update_tx.blocking_send(MprisUpdate::Metadata(
+                let _ = update_tx.blocking_send(MprisUpdate::Metadata(Box::new(
                     MetadataUpdate::from_metadata(&metadata),
-                ));
+                )));
             }
             mpris::Event::Playing => {
                 let _ =

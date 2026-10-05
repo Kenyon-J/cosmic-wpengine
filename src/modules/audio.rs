@@ -41,7 +41,7 @@ impl AudioCapture {
 
         // Pre-calculate the Hann window coefficients to avoid redundant trig calculations in the hot loop.
         // This optimization saves ~2048 cos() calls per FFT processing window.
-        let hann_window: Vec<f32> = (0..FFT_SIZE)
+        let hann_window: Box<[f32]> = (0..FFT_SIZE)
             .map(|i| {
                 0.5 * (1.0
                     - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE as f32 - 1.0)).cos())
