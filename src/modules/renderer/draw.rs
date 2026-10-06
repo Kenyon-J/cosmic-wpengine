@@ -565,6 +565,7 @@ pub(crate) fn draw_frame(
             // alongside other renderer fields. This block only runs on
             // resolution/DPI change, so the clones are rare, not a
             // per-frame cost.
+            // Optimization: Populate a fixed stack-allocated array instead of allocating a dynamic Vec.
             let lyric_window = if renderer.state.config.audio.show_lyrics {
                 renderer
                     .state
@@ -572,26 +573,28 @@ pub(crate) fn draw_frame(
                     .as_ref()
                     .and_then(|t| t.lyrics.as_ref())
                     .map(|lyrics| {
-                        (lyric_start_idx..=lyric_end_idx)
-                            .map(|line_idx| {
+                        let mut arr = [(0, "", 0u64); 5];
+                        let mut len = 0;
+                        for line_idx in lyric_start_idx..=lyric_end_idx {
+                            if len < 5 {
                                 let l = &lyrics[line_idx - 1];
-                                (line_idx, l.text.as_ref(), l.text_hash)
-                            })
-                            .collect::<Vec<_>>()
+                                arr[len] = (line_idx, l.text.as_ref(), l.text_hash);
+                                len += 1;
+                            }
+                        }
+                        (
+                            arr,
+                            len,
+                            super::core::LyricPhysics {
+                                current_lyric_idx: renderer.current_lyric_idx,
+                                lyric_scroll_offset: renderer.lyric_scroll_offset,
+                                lyric_bounce,
+                            },
+                        )
                     })
             } else {
                 None
-            }
-            .map(|window| {
-                (
-                    window,
-                    super::core::LyricPhysics {
-                        current_lyric_idx: renderer.current_lyric_idx,
-                        lyric_scroll_offset: renderer.lyric_scroll_offset,
-                        lyric_bounce,
-                    },
-                )
-            });
+            };
 
             let track_text = (renderer.state.current_track.is_some()
                 && !renderer.cached_track_str.is_empty())

@@ -170,7 +170,7 @@ impl TextSubsystem {
 
         let logical_height = height_f / scale_factor;
 
-        if let Some((lyric_window, physics)) = lyric_window {
+        if let Some((lyric_lines, lyric_lines_len, physics)) = lyric_window {
             let base_font_size = (logical_height * 0.04).clamp(16.0, 48.0)
                 * scale_factor
                 * lyrics_size.clamp(0.25, 4.0);
@@ -216,9 +216,12 @@ impl TextSubsystem {
                 text_key: TextCacheKey,
                 buffer: Buffer,
             }
-            let mut shaped_lines: Vec<ShapedLyric> = Vec::with_capacity(5);
+            // Optimization: Use stack-allocated fixed array to avoid heap vector allocations
+            // in the lyric text preparation hot path.
+            let mut shaped_lines: [Option<ShapedLyric>; 5] = [None, None, None, None, None];
+            let mut shaped_count = 0usize;
 
-            for (line_idx, text, text_hash) in lyric_window {
+            for &(line_idx, text, text_hash) in &lyric_lines[..lyric_lines_len] {
                 // Compute exactly how far this string is from the "current active string"
                 let dist = (line_idx as f32)
                     - (physics.current_lyric_idx as f32)
@@ -275,15 +278,18 @@ impl TextSubsystem {
                     );
                     let rows = buffer.layout_runs().count().max(1);
                     let extra = (rows - 1) as f32 * line_spacing * render_scale;
-                    shaped_lines.push(ShapedLyric {
-                        dist,
-                        render_scale,
-                        color: final_color,
-                        y_base,
-                        extra,
-                        text_key,
-                        buffer,
-                    });
+                    if shaped_count < 5 {
+                        shaped_lines[shaped_count] = Some(ShapedLyric {
+                            dist,
+                            render_scale,
+                            color: final_color,
+                            y_base,
+                            extra,
+                            text_key,
+                            buffer,
+                        });
+                        shaped_count += 1;
+                    }
                 }
             }
 
@@ -296,28 +302,34 @@ impl TextSubsystem {
             // the anchored active line.
             let anchor_x = lyrics_position[0] * width_f;
             let anchor_y = lyrics_position[1] * height_f;
-            let shifts: Vec<f32> = (0..shaped_lines.len())
-                .map(|idx| {
-                    let mut shift = 0.0;
-                    for line in &shaped_lines[..idx] {
-                        shift += line.extra * (line.dist + 1.0).clamp(0.0, 1.0);
-                    }
-                    for line in &shaped_lines[idx..] {
-                        shift -= line.extra * (-line.dist).clamp(0.0, 1.0);
-                    }
-                    shift
-                })
-                .collect();
 
-            for (line, shift) in shaped_lines.into_iter().zip(shifts) {
-                self.text_buffers.push(PositionedBuffer {
-                    buffer: line.buffer,
-                    text_key: line.text_key,
-                    pos: [anchor_x, anchor_y + line.y_base + shift],
-                    color: line.color,
-                    scale: line.render_scale,
-                    align: lyrics_align,
-                });
+            // Optimization: Calculate shifts in a stack-allocated array instead of collecting into a Vec.
+            let mut shifts = [0.0f32; 5];
+            for idx in 0..shaped_count {
+                let mut shift = 0.0;
+                for line in shaped_lines[..idx].iter().flatten() {
+                    shift += line.extra * (line.dist + 1.0).clamp(0.0, 1.0);
+                }
+                for line in shaped_lines[idx..shaped_count].iter().flatten() {
+                    shift -= line.extra * (-line.dist).clamp(0.0, 1.0);
+                }
+                shifts[idx] = shift;
+            }
+
+            for (line_opt, shift) in shaped_lines[..shaped_count]
+                .iter_mut()
+                .zip(&shifts[..shaped_count])
+            {
+                if let Some(line) = line_opt.take() {
+                    self.text_buffers.push(PositionedBuffer {
+                        buffer: line.buffer,
+                        text_key: line.text_key,
+                        pos: [anchor_x, anchor_y + line.y_base + shift],
+                        color: line.color,
+                        scale: line.render_scale,
+                        align: lyrics_align,
+                    });
+                }
             }
         }
 
@@ -444,4 +456,4 @@ pub(crate) struct LyricPhysics {
 /// The visible lyric window: (line number, text, content hash) for each
 /// line within ±2 of the current one, plus the physics driving where they
 /// land on screen.
-pub(crate) type LyricWindow<'a> = (Vec<(usize, &'a str, u64)>, LyricPhysics);
+pub(crate) type LyricWindow<'a> = ([(usize, &'a str, u64); 5], usize, LyricPhysics);
