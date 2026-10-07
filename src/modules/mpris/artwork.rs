@@ -67,11 +67,15 @@ impl MprisWatcher {
                 .map(|y| ((y as f32 / 640.0) * 80.0) as u8 + 40)
                 .collect();
 
-            // Optimization: Directly write into zeroed pre-allocated pixel buffer via
-            // chunks_exact_mut. This avoids 409,600 `extend_from_slice` call overheads and capacity checks.
+            // Optimization: Directly write into zeroed pre-allocated pixel buffer.
+            // This avoids 409,600 `extend_from_slice` call overheads and capacity checks.
             let mut raw = vec![0u8; 640 * 640 * 4];
+            #[allow(unknown_lints)]
+            #[allow(clippy::chunks_exact_to_as_chunks)]
             for (y, row) in raw.chunks_exact_mut(640 * 4).enumerate() {
                 let b = b_vals[y];
+                #[allow(unknown_lints)]
+                #[allow(clippy::chunks_exact_to_as_chunks)]
                 for (pixel, &r) in row.chunks_exact_mut(4).zip(&r_vals) {
                     pixel[0] = r;
                     pixel[1] = 20;
