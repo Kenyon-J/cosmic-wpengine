@@ -218,7 +218,7 @@ impl TextSubsystem {
             }
             let mut shaped_lines: Vec<ShapedLyric> = Vec::with_capacity(5);
 
-            for (line_idx, text, text_hash) in lyric_window {
+            for &(line_idx, text, text_hash) in lyric_window {
                 // Compute exactly how far this string is from the "current active string"
                 let dist = (line_idx as f32)
                     - (physics.current_lyric_idx as f32)
@@ -444,4 +444,4 @@ pub(crate) struct LyricPhysics {
 /// The visible lyric window: (line number, text, content hash) for each
 /// line within ±2 of the current one, plus the physics driving where they
 /// land on screen.
-pub(crate) type LyricWindow<'a> = (Vec<(usize, &'a str, u64)>, LyricPhysics);
+pub(crate) type LyricWindow<'a> = (&'a [(usize, &'a str, u64)], LyricPhysics);

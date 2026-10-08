@@ -565,6 +565,8 @@ pub(crate) fn draw_frame(
             // alongside other renderer fields. This block only runs on
             // resolution/DPI change, so the clones are rare, not a
             // per-frame cost.
+            let mut lyric_arr = [(0, "", 0u64); 5];
+            let mut lyric_count = 0;
             let lyric_window = if renderer.state.config.audio.show_lyrics {
                 renderer
                     .state
@@ -572,12 +574,14 @@ pub(crate) fn draw_frame(
                     .as_ref()
                     .and_then(|t| t.lyrics.as_ref())
                     .map(|lyrics| {
-                        (lyric_start_idx..=lyric_end_idx)
-                            .map(|line_idx| {
+                        for line_idx in lyric_start_idx..=lyric_end_idx {
+                            if lyric_count < 5 && line_idx >= 1 && line_idx <= lyrics.len() {
                                 let l = &lyrics[line_idx - 1];
-                                (line_idx, l.text.as_ref(), l.text_hash)
-                            })
-                            .collect::<Vec<_>>()
+                                lyric_arr[lyric_count] = (line_idx, l.text.as_ref(), l.text_hash);
+                                lyric_count += 1;
+                            }
+                        }
+                        &lyric_arr[..lyric_count]
                     })
             } else {
                 None
