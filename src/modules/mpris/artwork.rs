@@ -71,6 +71,7 @@ impl MprisWatcher {
             // Writing directly into 4-byte subpixel buffers eliminates 409,600 `extend_from_slice`
             // method calls, vector length updates, and per-pixel bounds checks.
             let mut raw = vec![0u8; 640 * 640 * 4];
+            #[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
             for (y, row) in raw.chunks_exact_mut(640 * 4).enumerate() {
                 let b = b_vals[y];
                 for (&r, pixel) in r_vals.iter().zip(row.chunks_exact_mut(4)) {
