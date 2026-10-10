@@ -67,13 +67,20 @@ impl MprisWatcher {
                 .map(|y| ((y as f32 / 640.0) * 80.0) as u8 + 40)
                 .collect();
 
-            // Populate flat pre-allocated pixel buffer directly to construct
-            // image::RgbaImage::from_raw, completely bypassing bounds checks
-            // and offset arithmetic in put_pixel.
-            let mut raw = Vec::with_capacity(640 * 640 * 4);
-            for &b in &b_vals {
-                for &r in &r_vals {
-                    raw.extend_from_slice(&[r, 20, b, 255]);
+            // Optimization: Pre-allocate zeroed buffer and populate rows directly via `as_chunks_mut`.
+            // Writing to 4-byte subpixel slices eliminates 409,600 `extend_from_slice` capacity/length
+            // checks and bounds checks, allowing compiler auto-vectorization and packed 32-bit stores.
+            let mut raw = vec![0u8; 640 * 640 * 4];
+            let (rows, _) = raw.as_chunks_mut::<{ 640 * 4 }>();
+            for (y, row) in rows.iter_mut().enumerate() {
+                let b = b_vals[y];
+                let (pixels, _) = row.as_chunks_mut::<4>();
+                for (x, pixel) in pixels.iter_mut().enumerate() {
+                    let r = r_vals[x];
+                    pixel[0] = r;
+                    pixel[1] = 20;
+                    pixel[2] = b;
+                    pixel[3] = 255;
                 }
             }
 
