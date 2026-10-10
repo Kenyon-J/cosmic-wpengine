@@ -67,13 +67,15 @@ impl MprisWatcher {
                 .map(|y| ((y as f32 / 640.0) * 80.0) as u8 + 40)
                 .collect();
 
-            // Optimization: Pre-allocate zeroed buffer and populate rows directly via `chunks_exact_mut`.
+            // Optimization: Pre-allocate zeroed buffer and populate rows directly via `as_chunks_mut`.
             // Writing to 4-byte subpixel slices eliminates 409,600 `extend_from_slice` capacity/length
             // checks and bounds checks, allowing compiler auto-vectorization and packed 32-bit stores.
             let mut raw = vec![0u8; 640 * 640 * 4];
-            for (y, row) in raw.chunks_exact_mut(640 * 4).enumerate() {
+            let (rows, _) = raw.as_chunks_mut::<{ 640 * 4 }>();
+            for (y, row) in rows.iter_mut().enumerate() {
                 let b = b_vals[y];
-                for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+                let (pixels, _) = row.as_chunks_mut::<4>();
+                for (x, pixel) in pixels.iter_mut().enumerate() {
                     let r = r_vals[x];
                     pixel[0] = r;
                     pixel[1] = 20;
