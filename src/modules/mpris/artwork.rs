@@ -71,8 +71,10 @@ impl MprisWatcher {
             // to construct image::RgbaImage::from_raw, eliminating 409,600 extend_from_slice
             // calls, vector capacity re-checks, and slice bounds checks.
             let mut raw = vec![0u8; 640 * 640 * 4];
+            #[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
             for (y, row) in raw.chunks_exact_mut(640 * 4).enumerate() {
                 let b = b_vals[y];
+                #[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
                 for (x, px) in row.chunks_exact_mut(4).enumerate() {
                     let r = r_vals[x];
                     px[0] = r;
