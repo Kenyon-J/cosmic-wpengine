@@ -68,14 +68,15 @@ impl MprisWatcher {
                 .collect();
 
             // Optimization: Directly populate a zero-initialized pre-allocated slice
-            // using `chunks_exact_mut`. This eliminates 409,600 `extend_from_slice` calls,
-            // vector length/capacity checks, and per-pixel bounds assertions.
+            // using `chunks_exact_mut` and `as_chunks_mut::<4>()`. This eliminates 409,600
+            // `extend_from_slice` calls, vector length/capacity checks, and per-pixel
+            // bounds assertions, allowing direct 32-bit pixel writes.
             let mut raw = vec![0u8; 640 * 640 * 4];
-            #[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
-            for (y_idx, row_chunk) in raw.chunks_exact_mut(640 * 4).enumerate() {
+            let row_stride = 640 * 4;
+            for (y_idx, row_chunk) in raw.chunks_exact_mut(row_stride).enumerate() {
                 let b = b_vals[y_idx];
-                #[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
-                for (x_idx, pixel) in row_chunk.chunks_exact_mut(4).enumerate() {
+                let (pixels_4, _) = row_chunk.as_chunks_mut::<4>();
+                for (x_idx, pixel) in pixels_4.iter_mut().enumerate() {
                     let r = r_vals[x_idx];
                     pixel[0] = r;
                     pixel[1] = 20;
