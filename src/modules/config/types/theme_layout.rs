@@ -344,7 +344,7 @@ impl ThemeLayout {
             theme.visualiser.align = VisAlign::Center;
             theme.album_art.position = [0.5, 0.3];
             theme.album_art.size = 0.15;
-            theme.track_info.position = [0.5, 0.45];
+            theme.track_info.position = [0.5, 0.15];
             theme.track_info.align = TextAlign::Center;
             theme.lyrics.position = [0.5, 0.55];
             theme.lyrics.align = TextAlign::Center;
