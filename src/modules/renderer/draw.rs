@@ -559,39 +559,41 @@ pub(crate) fn draw_frame(
         );
 
         if last_text_params != Some(current_text_params) {
-            // Clone the small (~5-line) active window of lyric text up
-            // front, ending the borrow through renderer.state.current_track
-            // before renderer.text.prepare() below needs `&mut renderer.text`
-            // alongside other renderer fields. This block only runs on
-            // resolution/DPI change, so the clones are rare, not a
-            // per-frame cost.
+            // Optimization: Populate a fixed stack-allocated array for the active window of lyric text
+            // to completely eliminate dynamic heap allocations in the lyric rendering hot path.
+            let mut lyric_buf = [(0usize, "", 0u64); 5];
+            let mut lyric_count = 0;
+
             let lyric_window = if renderer.state.config.audio.show_lyrics {
                 renderer
                     .state
                     .current_track
                     .as_ref()
                     .and_then(|t| t.lyrics.as_ref())
-                    .map(|lyrics| {
-                        (lyric_start_idx..=lyric_end_idx)
-                            .map(|line_idx| {
+                    .and_then(|lyrics| {
+                        for line_idx in lyric_start_idx..=lyric_end_idx {
+                            if line_idx >= 1 && line_idx <= lyrics.len() && lyric_count < 5 {
                                 let l = &lyrics[line_idx - 1];
-                                (line_idx, l.text.as_ref(), l.text_hash)
-                            })
-                            .collect::<Vec<_>>()
+                                lyric_buf[lyric_count] = (line_idx, l.text.as_ref(), l.text_hash);
+                                lyric_count += 1;
+                            }
+                        }
+                        if lyric_count > 0 {
+                            Some((
+                                &lyric_buf[..lyric_count],
+                                super::core::LyricPhysics {
+                                    current_lyric_idx: renderer.current_lyric_idx,
+                                    lyric_scroll_offset: renderer.lyric_scroll_offset,
+                                    lyric_bounce,
+                                },
+                            ))
+                        } else {
+                            None
+                        }
                     })
             } else {
                 None
-            }
-            .map(|window| {
-                (
-                    window,
-                    super::core::LyricPhysics {
-                        current_lyric_idx: renderer.current_lyric_idx,
-                        lyric_scroll_offset: renderer.lyric_scroll_offset,
-                        lyric_bounce,
-                    },
-                )
-            });
+            };
 
             let track_text = (renderer.state.current_track.is_some()
                 && !renderer.cached_track_str.is_empty())
