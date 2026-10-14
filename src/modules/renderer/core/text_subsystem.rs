@@ -308,7 +308,10 @@ impl TextSubsystem {
                 for line in shaped_lines[..idx].iter().filter_map(|x| x.as_ref()) {
                     shift += line.extra * (line.dist + 1.0).clamp(0.0, 1.0);
                 }
-                for line in shaped_lines[idx..shaped_count].iter().filter_map(|x| x.as_ref()) {
+                for line in shaped_lines[idx..shaped_count]
+                    .iter()
+                    .filter_map(|x| x.as_ref())
+                {
                     shift -= line.extra * (-line.dist).clamp(0.0, 1.0);
                 }
                 shifts[idx] = shift;
