@@ -40,3 +40,9 @@ Check this list and the open PRs first - some of these were proposed 4-7 times.
 ## 2024-05-24 - Async Engine Start/Stop State
 **Learning:** In cosmic::iced, determining loading states by comparing `status_msg` against localized strings (via `fl!()`) is brittle and confusing to read. It's much cleaner and robust to manage transient async states with dedicated boolean fields in the Application struct.
 **Action:** Replaced string-comparison logic with `starting_engine: bool` and `stopping_engine: bool` fields in `SettingsApp`, and updated the start/stop buttons to show `process-working-symbolic` spinners while these are true.
+## 2026-10-14 - Wrap interactive widgets properly in tooltips
+**Learning:** In , when wrapping an interactive widget (such as a ) in a , ensure that event handlers like  are chained directly to the inner widget before it is passed into the tooltip builder, as the  struct does not inherit or implement these event methods.
+**Action:** Always chain  to the button itself, not the tooltip.
+## 2024-10-14 - Wrap interactive widgets properly in tooltips
+**Learning:** In cosmic::iced, when wrapping an interactive widget (such as a button) in a tooltip, ensure that event handlers like .on_press() are chained directly to the inner widget before it is passed into the tooltip builder, as the Tooltip struct does not inherit or implement these event methods.
+**Action:** Always chain .on_press() to the button itself, not the tooltip.
