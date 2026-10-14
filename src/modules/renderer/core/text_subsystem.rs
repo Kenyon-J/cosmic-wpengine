@@ -216,9 +216,13 @@ impl TextSubsystem {
                 text_key: TextCacheKey,
                 buffer: Buffer,
             }
-            let mut shaped_lines: Vec<ShapedLyric> = Vec::with_capacity(5);
+            // Optimization: Replace dynamic heap allocations for shaped lyric lines and shift buffers
+            // with fixed stack-allocated arrays. Since the visible lyric window contains at most 5 lines,
+            // this completely avoids dynamic heap allocations on the lyric rendering hot path.
+            let mut shaped_lines: [Option<ShapedLyric>; 5] = [None, None, None, None, None];
+            let mut shaped_count = 0;
 
-            for (line_idx, text, text_hash) in lyric_window {
+            for &(line_idx, text, text_hash) in lyric_window {
                 // Compute exactly how far this string is from the "current active string"
                 let dist = (line_idx as f32)
                     - (physics.current_lyric_idx as f32)
@@ -258,7 +262,7 @@ impl TextSubsystem {
                 let alpha_fade = (1.5 - abs_dist).clamp(0.0, 1.0);
                 let final_color = [color[0], color[1], color[2], color[3] * alpha_fade];
 
-                if final_color[3] > 0.01 {
+                if final_color[3] > 0.01 && shaped_count < 5 {
                     let text_key = TextCacheKey::Lyric {
                         monitor,
                         line: line_idx as u32,
@@ -275,7 +279,7 @@ impl TextSubsystem {
                     );
                     let rows = buffer.layout_runs().count().max(1);
                     let extra = (rows - 1) as f32 * line_spacing * render_scale;
-                    shaped_lines.push(ShapedLyric {
+                    shaped_lines[shaped_count] = Some(ShapedLyric {
                         dist,
                         render_scale,
                         color: final_color,
@@ -284,6 +288,7 @@ impl TextSubsystem {
                         text_key,
                         buffer,
                     });
+                    shaped_count += 1;
                 }
             }
 
@@ -296,28 +301,31 @@ impl TextSubsystem {
             // the anchored active line.
             let anchor_x = lyrics_position[0] * width_f;
             let anchor_y = lyrics_position[1] * height_f;
-            let shifts: Vec<f32> = (0..shaped_lines.len())
-                .map(|idx| {
-                    let mut shift = 0.0;
-                    for line in &shaped_lines[..idx] {
-                        shift += line.extra * (line.dist + 1.0).clamp(0.0, 1.0);
-                    }
-                    for line in &shaped_lines[idx..] {
-                        shift -= line.extra * (-line.dist).clamp(0.0, 1.0);
-                    }
-                    shift
-                })
-                .collect();
+            let mut shifts = [0.0f32; 5];
 
-            for (line, shift) in shaped_lines.into_iter().zip(shifts) {
-                self.text_buffers.push(PositionedBuffer {
-                    buffer: line.buffer,
-                    text_key: line.text_key,
-                    pos: [anchor_x, anchor_y + line.y_base + shift],
-                    color: line.color,
-                    scale: line.render_scale,
-                    align: lyrics_align,
-                });
+            for idx in 0..shaped_count {
+                let mut shift = 0.0;
+                for line in shaped_lines[..idx].iter().filter_map(|x| x.as_ref()) {
+                    shift += line.extra * (line.dist + 1.0).clamp(0.0, 1.0);
+                }
+                for line in shaped_lines[idx..shaped_count].iter().filter_map(|x| x.as_ref()) {
+                    shift -= line.extra * (-line.dist).clamp(0.0, 1.0);
+                }
+                shifts[idx] = shift;
+            }
+
+            for idx in 0..shaped_count {
+                if let Some(line) = shaped_lines[idx].take() {
+                    let shift = shifts[idx];
+                    self.text_buffers.push(PositionedBuffer {
+                        buffer: line.buffer,
+                        text_key: line.text_key,
+                        pos: [anchor_x, anchor_y + line.y_base + shift],
+                        color: line.color,
+                        scale: line.render_scale,
+                        align: lyrics_align,
+                    });
+                }
             }
         }
 
@@ -444,4 +452,4 @@ pub(crate) struct LyricPhysics {
 /// The visible lyric window: (line number, text, content hash) for each
 /// line within ±2 of the current one, plus the physics driving where they
 /// land on screen.
-pub(crate) type LyricWindow<'a> = (Vec<(usize, &'a str, u64)>, LyricPhysics);
+pub(crate) type LyricWindow<'a> = (&'a [(usize, &'a str, u64)], LyricPhysics);
