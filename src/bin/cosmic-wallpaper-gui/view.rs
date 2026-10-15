@@ -514,10 +514,12 @@ fn live_wallpapers(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .add(
                 settings::item::builder(fl!("live-wallpapers-library-folder"))
                     .description(fl!("live-wallpapers-library-folder-desc"))
-                    .control(
-                        button::standard(fl!("common-open-folder"))
+                    .control(cosmic::widget::tooltip(
+                        button::icon(cosmic::widget::icon::from_name("folder-open-symbolic"))
                             .on_press(Message::OpenVideosFolder),
-                    ),
+                        text::body(fl!("common-open-folder")),
+                        cosmic::widget::tooltip::Position::Top,
+                    )),
             )
             .into(),
     ];
@@ -971,10 +973,12 @@ fn themes(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .add(
                 settings::item::builder(fl!("theme-import"))
                     .description(fl!("theme-import-desc"))
-                    .control(
-                        button::standard(fl!("common-open-folder"))
+                    .control(cosmic::widget::tooltip(
+                        button::icon(cosmic::widget::icon::from_name("folder-open-symbolic"))
                             .on_press(Message::OpenConfigFolder),
-                    ),
+                        text::body(fl!("common-open-folder")),
+                        cosmic::widget::tooltip::Position::Top,
+                    )),
             )
             .into(),
     );
@@ -1085,10 +1089,12 @@ fn packs(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .add(
                 settings::item::builder(fl!("packs-folder"))
                     .description(fl!("packs-folder-desc"))
-                    .control(
-                        button::standard(fl!("common-open-folder"))
+                    .control(cosmic::widget::tooltip(
+                        button::icon(cosmic::widget::icon::from_name("folder-open-symbolic"))
                             .on_press(Message::OpenPacksFolder),
-                    ),
+                        text::body(fl!("common-open-folder")),
+                        cosmic::widget::tooltip::Position::Top,
+                    )),
             )
             .into(),
         settings::item(fl!("packs-import"), text::body(fl!("packs-import-desc"))).into(),
@@ -1442,10 +1448,12 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .add(
                 settings::item::builder(fl!("general-config-folder"))
                     .description(fl!("general-config-folder-desc"))
-                    .control(
-                        button::standard(fl!("common-open-folder"))
+                    .control(cosmic::widget::tooltip(
+                        button::icon(cosmic::widget::icon::from_name("folder-open-symbolic"))
                             .on_press(Message::OpenConfigFolder),
-                    ),
+                        text::body(fl!("common-open-folder")),
+                        cosmic::widget::tooltip::Position::Top,
+                    )),
             )
             .into(),
         settings::section()
@@ -1473,9 +1481,12 @@ fn general(app: &SettingsApp) -> cosmic::Element<'_, Message> {
             .add(
                 settings::item::builder(fl!("general-diagnostics"))
                     .description(fl!("general-diagnostics-desc"))
-                    .control(
-                        button::standard(fl!("common-copy")).on_press(Message::CopyDiagnostics),
-                    ),
+                    .control(cosmic::widget::tooltip(
+                        button::icon(cosmic::widget::icon::from_name("edit-copy-symbolic"))
+                            .on_press(Message::CopyDiagnostics),
+                        text::body(fl!("common-copy")),
+                        cosmic::widget::tooltip::Position::Top,
+                    )),
             )
             .add(
                 settings::item::builder(fl!("general-something-broken"))
