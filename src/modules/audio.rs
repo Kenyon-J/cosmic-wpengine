@@ -64,13 +64,26 @@ impl AudioCapture {
                                 Ok(buf) => buf,
                                 Err(_) => Vec::with_capacity(FFT_SIZE),
                             };
-                            process_buffer.clear();
-                            // Optimization: Use zipped iterators and `.extend()` instead of manual `.push()`
-                            // to enable LLVM auto-vectorization and eliminate bounds checking overhead
-                            process_buffer.extend(samples.iter().zip(hann_window.iter()).map(|(&s, &w)| Complex {
-                                re: s * w,
-                                im: 0.0,
-                            }));
+                            // Optimization: In-place update when recycled buffer has target size (FFT_SIZE)
+                            // to avoid clear() and extend() allocation/capacity checks, allowing LLVM
+                            // to auto-vectorize the Hann window multiplication loop directly into the buffer.
+                            if process_buffer.len() == FFT_SIZE {
+                                for (c, (&s, &w)) in process_buffer
+                                    .iter_mut()
+                                    .zip(samples.iter().zip(hann_window.iter()))
+                                {
+                                    c.re = s * w;
+                                    c.im = 0.0;
+                                }
+                            } else {
+                                process_buffer.clear();
+                                process_buffer.extend(samples.iter().zip(hann_window.iter()).map(
+                                    |(&s, &w)| Complex {
+                                        re: s * w,
+                                        im: 0.0,
+                                    },
+                                ));
+                            }
 
                             let fft_clone = std::sync::Arc::clone(&fft);
 
