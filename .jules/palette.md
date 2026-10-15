@@ -40,3 +40,6 @@ Check this list and the open PRs first - some of these were proposed 4-7 times.
 ## 2024-05-24 - Async Engine Start/Stop State
 **Learning:** In cosmic::iced, determining loading states by comparing `status_msg` against localized strings (via `fl!()`) is brittle and confusing to read. It's much cleaner and robust to manage transient async states with dedicated boolean fields in the Application struct.
 **Action:** Replaced string-comparison logic with `starting_engine: bool` and `stopping_engine: bool` fields in `SettingsApp`, and updated the start/stop buttons to show `process-working-symbolic` spinners while these are true.
+## 2024-10-24 - Accessible Icon Buttons in cosmic::iced
+**Learning:** In cosmic::iced, replacing standard text buttons with icon buttons requires explicitly wrapping them in a `cosmic::widget::tooltip` with an explanatory `text::body` to ensure screen readers and users without context can understand the button's purpose.
+**Action:** Always wrap `button::icon` instances in a `tooltip` when removing visible text labels to maintain accessibility.
