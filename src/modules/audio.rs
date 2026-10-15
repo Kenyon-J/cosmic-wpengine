@@ -67,7 +67,7 @@ impl AudioCapture {
                             // Optimization: In-place update when recycled buffer has target size (FFT_SIZE)
                             // to avoid clear() and extend() allocation/capacity checks, allowing LLVM
                             // to auto-vectorize the Hann window multiplication loop directly into the buffer.
-                            if process_buffer.len() == FFT_SIZE {
+                            if process_buffer.len() == FFT_SIZE && samples.len() == FFT_SIZE {
                                 for (c, (&s, &w)) in process_buffer
                                     .iter_mut()
                                     .zip(samples.iter().zip(hann_window.iter()))
