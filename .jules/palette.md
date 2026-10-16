@@ -40,3 +40,6 @@ Check this list and the open PRs first - some of these were proposed 4-7 times.
 ## 2024-05-24 - Async Engine Start/Stop State
 **Learning:** In cosmic::iced, determining loading states by comparing `status_msg` against localized strings (via `fl!()`) is brittle and confusing to read. It's much cleaner and robust to manage transient async states with dedicated boolean fields in the Application struct.
 **Action:** Replaced string-comparison logic with `starting_engine: bool` and `stopping_engine: bool` fields in `SettingsApp`, and updated the start/stop buttons to show `process-working-symbolic` spinners while these are true.
+## 2024-05-24 - Async Engine Start/Stop State
+**Learning:** Hardcoding standard spinner rows for loading UI states leads to duplicated layouts and scattered implementations throughout the UI.
+**Action:** Reused the standard `busy_button` helper for consistency instead of manually constructing Rows with icons and text across different async states like Update Checking or Updating.
