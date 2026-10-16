@@ -68,12 +68,18 @@ impl MprisWatcher {
                 .collect();
 
             // Populate flat pre-allocated pixel buffer directly to construct
-            // image::RgbaImage::from_raw, completely bypassing bounds checks
-            // and offset arithmetic in put_pixel.
-            let mut raw = Vec::with_capacity(640 * 640 * 4);
-            for &b in &b_vals {
-                for &r in &r_vals {
-                    raw.extend_from_slice(&[r, 20, b, 255]);
+            // image::RgbaImage::from_raw. Writing directly into pre-allocated
+            // chunks avoids 409,600 extend_from_slice calls and length/capacity checks.
+            let mut raw = vec![0u8; 640 * 640 * 4];
+            #[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
+            for (row_idx, row_chunks) in raw.chunks_exact_mut(640 * 4).enumerate() {
+                let b = b_vals[row_idx];
+                for (col_idx, pixel) in row_chunks.chunks_exact_mut(4).enumerate() {
+                    let r = r_vals[col_idx];
+                    pixel[0] = r;
+                    pixel[1] = 20;
+                    pixel[2] = b;
+                    pixel[3] = 255;
                 }
             }
 
