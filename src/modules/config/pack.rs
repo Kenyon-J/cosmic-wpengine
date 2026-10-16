@@ -218,7 +218,11 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
                 continue;
             };
             let mut bytes = Vec::new();
-            entry.read_to_end(&mut bytes)?;
+            std::io::Read::take(entry.by_ref(), MAX_ENTRY_BYTES).read_to_end(&mut bytes)?;
+            let mut chunk = [0; 1];
+            if std::io::Read::read(&mut entry, &mut chunk)? != 0 {
+                bail!("pack entry size exceeds the {MAX_ENTRY_BYTES}-byte limit (tar bomb protection)");
+            }
             background = Some((name.to_string(), bytes));
         } else if let Some(name) = path_str.strip_prefix("shader/") {
             let Some(name) = Path::new(name).file_name().and_then(|n| n.to_str()) else {
@@ -228,7 +232,11 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
                 continue;
             }
             let mut bytes = Vec::new();
-            entry.read_to_end(&mut bytes)?;
+            std::io::Read::take(entry.by_ref(), MAX_ENTRY_BYTES).read_to_end(&mut bytes)?;
+            let mut chunk = [0; 1];
+            if std::io::Read::read(&mut entry, &mut chunk)? != 0 {
+                bail!("pack entry size exceeds the {MAX_ENTRY_BYTES}-byte limit (tar bomb protection)");
+            }
             shader = Some((name.to_string(), bytes));
         }
         // Anything else is ignored, per the extensibility design: a future
@@ -266,7 +274,11 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
 
 fn read_capped(entry: &mut tar::Entry<'_, impl Read>) -> Result<String> {
     let mut bytes = Vec::new();
-    entry.read_to_end(&mut bytes)?;
+    std::io::Read::take(entry.by_ref(), MAX_ENTRY_BYTES).read_to_end(&mut bytes)?;
+    let mut chunk = [0; 1];
+    if std::io::Read::read(entry, &mut chunk)? != 0 {
+        bail!("pack entry size exceeds the {MAX_ENTRY_BYTES}-byte limit (tar bomb protection)");
+    }
     String::from_utf8(bytes).context("pack entry is not valid UTF-8")
 }
 
