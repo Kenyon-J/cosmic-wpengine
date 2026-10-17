@@ -217,8 +217,7 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
             let Some(name) = Path::new(name).file_name().and_then(|n| n.to_str()) else {
                 continue;
             };
-            let mut bytes = Vec::new();
-            entry.read_to_end(&mut bytes)?;
+            let bytes = read_capped_bytes(&mut entry, MAX_ENTRY_BYTES)?;
             background = Some((name.to_string(), bytes));
         } else if let Some(name) = path_str.strip_prefix("shader/") {
             let Some(name) = Path::new(name).file_name().and_then(|n| n.to_str()) else {
@@ -227,8 +226,7 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
             if !name.to_ascii_lowercase().ends_with(".wgsl") {
                 continue;
             }
-            let mut bytes = Vec::new();
-            entry.read_to_end(&mut bytes)?;
+            let bytes = read_capped_bytes(&mut entry, MAX_ENTRY_BYTES)?;
             shader = Some((name.to_string(), bytes));
         }
         // Anything else is ignored, per the extensibility design: a future
@@ -264,9 +262,17 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
     })
 }
 
-fn read_capped(entry: &mut tar::Entry<'_, impl Read>) -> Result<String> {
+fn read_capped_bytes(entry: &mut tar::Entry<'_, impl Read>, limit: u64) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    entry.read_to_end(&mut bytes)?;
+    entry.by_ref().take(limit).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 == limit && entry.bytes().next().is_some() {
+        bail!("pack entry exceeded cap limit");
+    }
+    Ok(bytes)
+}
+
+fn read_capped(entry: &mut tar::Entry<'_, impl Read>) -> Result<String> {
+    let bytes = read_capped_bytes(entry, MAX_ENTRY_BYTES)?;
     String::from_utf8(bytes).context("pack entry is not valid UTF-8")
 }
 
