@@ -1,3 +1,32 @@
+# cosmic-wallpaper 1.7.1
+
+Security fix and lower memory use. No config or theme changes.
+
+## Security
+
+- **Theme packs can no longer exhaust memory on import.** A crafted
+  `.cwtheme` file of about 1 MB could make the settings app try to
+  allocate gigabytes (a "tar bomb" hidden in archive header records),
+  crashing it. Packs are now checked before anything large is read.
+- Dependency updates for published advisories in `rustls` and
+  `quinn-proto`.
+
+## Performance
+
+- **Lower memory use.** The engine no longer initialises the OpenGL
+  driver alongside Vulkan (OpenGL is still used if Vulkan isn't
+  available), saving about 20 MB.
+- **Desktop wallpaper images are scaled to your monitor's resolution**
+  instead of being loaded at full size - a 4K wallpaper on a 1080p
+  screen uses roughly a quarter of the memory, an 8K one far less.
+
+## Settings app
+
+- "Checking for updates" and "Updating" now show a busy button in place
+  of the one you clicked.
+
+---
+
 # cosmic-wallpaper 1.7.0
 
 Hardware video decoding, a much lighter idle scene, and a round of
