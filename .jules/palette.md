@@ -11,7 +11,13 @@ Check this list and the open PRs first - some of these were proposed 4-7 times.
 - Engine Start/Stop busy state via `starting_engine`/`stopping_engine`
   fields (#590), and a busy "Show" button while patch notes load (#579).
 - Busy buttons share one helper, `view::busy_button(label, class)` - use it
-  rather than hand-building another spinner row.
+  rather than hand-building another spinner row. The update check/install
+  states use it too (#595).
+
+**Rejected (reviewed 2026-10-17):** replacing labelled text buttons ("Open
+Folder", "Copy") with icon-only buttons plus a tooltip. That makes them
+*less* accessible - the label moves into a hover-only tooltip that
+keyboard and screen-reader users don't reliably get.
 
 ---
 

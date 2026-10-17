@@ -35,9 +35,20 @@ Several ideas were proposed three or more times; the duplicates were closed.
 - Static `"Frame Encoder"` label in `encode_frame` (its unused width/height
   parameters were removed too) - proposed six times.
 
-**Also rejected (reviewed 2026-10-02):**
-- Further micro-tweaks to `AudioAnalysis`'s peak fold (e.g. caching `abs()`
-  in the accumulator): a 2048-sample fold per frame is already negligible.
+**Also rejected (reviewed 2026-10-02, and again 2026-10-17 - 12 more
+times):**
+- ANY change to `AudioAnalysis`'s waveform/band peak search: min/max
+  folds, `abs()` caching, "SIMD-friendly" rewrites. A ~2048-sample fold per
+  frame is negligible, and a sequential float min/max reduction doesn't
+  auto-vectorize anyway. Don't propose this without a benchmark showing a
+  measurable whole-app difference.
+- `generate_placeholder_art` pixel-loop rewrites (chunked writes, direct
+  indexing) - it runs once per track without artwork, and was already
+  optimized in #531 (9 duplicates closed).
+- Fixed-size stack arrays for the lyric window / shaped lyric lines
+  instead of their two small per-frame `Vec`s - more code and a silent
+  line cap, to save allocations dwarfed by text shaping.
+- In-place updates of the FFT `process_buffer` (~45 windows/s).
 
 ---
 

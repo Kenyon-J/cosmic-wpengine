@@ -5,6 +5,20 @@
   No `let _ = Command::...output()` remains in `src/`.
 - `xdg-open` URL-scheme validation and error handling (#440, #518).
 - SSRF check on the Spotify canvas proxy URL (#512).
+- Theme-pack (`.cwtheme`) tar bombs, in `config::pack::parse`: the gzip
+  stream is capped at `MAX_DECOMPRESSED_BYTES`, a header pre-scan rejects
+  GNU long-name/long-link and PAX records over 64 KiB (the `tar` crate
+  buffers those whole, before any entry-level check), and text entries are
+  capped at 1 MiB. The pre-scan mirrors `tar`'s header positioning (PAX
+  `size` overrides, GNU sparse extension blocks) - if `tar` is bumped,
+  re-check `check_extension_records` against its `next_entry` logic. Each
+  piece has a regression test.
+
+**Rejected (reviewed 2026-10-17, seven times):** wrapping pack entry reads
+in `.take(MAX_ENTRY_BYTES)`. It does nothing: `tar` already stops reading
+an entry at its declared size, and `parse` already rejects any declared
+size over `MAX_ENTRY_BYTES` before reading. A pack fix must target memory
+the existing checks don't cover, with a test that fails without it.
 
 **Rejected:** logging an error when `systemctl` can't be spawned in
 `engine_autostart_failure` - it runs on every engine status refresh, so a
