@@ -43,6 +43,26 @@ const MAX_ENTRY_BYTES: u64 = 512 * 1024 * 1024;
 /// `.cwtheme` bigger than this is never a legitimate export from this app.
 pub const MAX_PACK_BYTES: u64 = 600 * 1024 * 1024;
 
+/// Ceiling on the decompressed size of the whole tar stream, enforced on
+/// the gzip reader itself so it bounds *every* record - including the GNU
+/// long-name/long-link and PAX header records the `tar` crate consumes
+/// internally and reads fully into memory before `parse`'s loop ever sees
+/// an entry (so none of the per-entry checks below apply to them). Without
+/// it, a ~1 MB pack declaring a 1 GiB long-name record made the app
+/// allocate 1 GiB. The slack over `MAX_PACK_BYTES` covers tar's own
+/// headers and block padding.
+const MAX_DECOMPRESSED_BYTES: u64 = MAX_PACK_BYTES + 1024 * 1024;
+
+/// Cap on GNU long-name/long-link and PAX header records, which `tar`
+/// reads whole into memory (see `MAX_DECOMPRESSED_BYTES`). A real one holds
+/// a file name or a few attributes - well under a kilobyte.
+const MAX_EXTENSION_RECORD_BYTES: u64 = 64 * 1024;
+
+/// Cap for the small text-like entries (`pack.toml`, `theme.toml`, the
+/// shader). Real ones are a few KB; without this they could each be up to
+/// `MAX_ENTRY_BYTES` of "text" held in memory and handed to the TOML parser.
+const MAX_TEXT_ENTRY_BYTES: u64 = 1024 * 1024;
+
 /// Cheap defence against a pack with an absurd number of tiny entries (each
 /// individually well under `MAX_ENTRY_BYTES`/`MAX_PACK_BYTES`) built purely
 /// to make this loop do unnecessary work - a real pack only ever has four
@@ -157,6 +177,12 @@ pub struct ParsedPack {
 /// path-traversal risk); anything else, including any entry outside the
 /// allow-listed names, is ignored.
 pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
+    parse_with_limit(bytes, MAX_DECOMPRESSED_BYTES)
+}
+
+/// `parse`, with the decompressed-size ceiling as a parameter so tests can
+/// exercise it without building a 600 MB archive.
+fn parse_with_limit(bytes: &[u8], decompressed_limit: u64) -> Result<ParsedPack> {
     if bytes.len() as u64 > MAX_PACK_BYTES {
         bail!(
             "pack file too large ({} bytes, limit {MAX_PACK_BYTES})",
@@ -164,9 +190,34 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
         );
     }
 
-    let gz = GzDecoder::new(bytes);
-    let mut archive = tar::Archive::new(gz);
+    // First pass: walk the raw tar headers, keeping no data, so oversized
+    // extension records are refused before `tar` would buffer them.
+    with_capped_stream(bytes, decompressed_limit, check_extension_records)?;
+    with_capped_stream(bytes, decompressed_limit, |stream| {
+        parse_archive(tar::Archive::new(stream))
+    })
+}
 
+/// Runs `pass` over the pack's decompressed stream, capped at `limit`
+/// bytes. Hitting the cap looks like a truncated archive to whatever is
+/// reading, so that error is replaced with the real one.
+fn with_capped_stream<'a, T>(
+    bytes: &'a [u8],
+    limit: u64,
+    pass: impl FnOnce(LimitedReader<GzDecoder<&'a [u8]>>) -> Result<T>,
+) -> Result<T> {
+    let stream = LimitedReader::new(GzDecoder::new(bytes), limit);
+    let limit_hit = stream.limit_hit.clone();
+    pass(stream).map_err(|e| {
+        if limit_hit.get() {
+            anyhow::anyhow!("pack decompresses to more than {limit} bytes")
+        } else {
+            e
+        }
+    })
+}
+
+fn parse_archive(mut archive: tar::Archive<impl Read>) -> Result<ParsedPack> {
     let mut manifest: Option<PackManifest> = None;
     let mut theme_toml: Option<String> = None;
     let mut background: Option<(String, Vec<u8>)> = None;
@@ -199,7 +250,7 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
         let path_str = path.to_string_lossy().into_owned();
 
         if path_str == "pack.toml" {
-            let text = read_capped(&mut entry)?;
+            let text = read_text_entry(&mut entry)?;
             manifest = Some(toml::from_str(&text).context("parsing pack.toml")?);
         } else if path_str == "theme.toml" {
             // Not validated here: doing that only after the schema-version
@@ -207,7 +258,7 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
             // that check's clearer message even when the entries happen to
             // appear in an unusual order, and lets a theme parse failure
             // below name the app version that produced the pack.
-            theme_toml = Some(read_capped(&mut entry)?);
+            theme_toml = Some(read_text_entry(&mut entry)?);
         } else if let Some(name) = path_str.strip_prefix("background/") {
             // Only the file name is trusted (strips any directory
             // component a crafted archive might smuggle in); this crate
@@ -226,6 +277,9 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
             };
             if !name.to_ascii_lowercase().ends_with(".wgsl") {
                 continue;
+            }
+            if entry.size() > MAX_TEXT_ENTRY_BYTES {
+                bail!("pack shader too large (limit {MAX_TEXT_ENTRY_BYTES} bytes)");
             }
             let mut bytes = Vec::new();
             entry.read_to_end(&mut bytes)?;
@@ -264,10 +318,172 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
     })
 }
 
-fn read_capped(entry: &mut tar::Entry<'_, impl Read>) -> Result<String> {
+/// Streams through a tar archive's raw 512-byte headers (without the `tar`
+/// crate, which would buffer the very records being checked), skipping
+/// each record's data, and rejects any GNU long-name/long-link or PAX
+/// record over `MAX_EXTENSION_RECORD_BYTES`.
+///
+/// To check the records `tar` will actually buffer, this must find headers
+/// exactly where `tar` 0.4 does, so it mirrors its positioning rules: a PAX
+/// `size` overrides the next non-extension member's size (a crafted pack
+/// can otherwise hide a record in what the raw header calls data), GNU
+/// sparse members are followed by their extension blocks, and an all-zero
+/// block or a bad checksum ends the archive. Anything else malformed is
+/// left for the real parse to report. When bumping the `tar` crate,
+/// re-check these rules against its `EntriesFields::next_entry`.
+fn check_extension_records(mut reader: impl Read) -> Result<()> {
+    const BLOCK: u64 = 512;
+    let mut block = [0u8; BLOCK as usize];
+    // PAX extensions apply to the next non-extension member only.
+    let mut pending_pax: Option<Vec<u8>> = None;
+    loop {
+        if !read_block(&mut reader, &mut block)? || block.iter().all(|&b| b == 0) {
+            return Ok(());
+        }
+        let header = tar::Header::from_byte_slice(&block);
+        if !checksum_matches(header) {
+            return Ok(());
+        }
+        let kind = header.entry_type();
+        let is_extension = kind.is_gnu_longname()
+            || kind.is_gnu_longlink()
+            || kind.is_pax_local_extensions()
+            || kind.is_pax_global_extensions();
+        let Ok(mut size) = header.entry_size() else {
+            return Ok(());
+        };
+
+        if is_extension {
+            if size > MAX_EXTENSION_RECORD_BYTES {
+                bail!(
+                    "pack has an oversized tar header record ({size} bytes, limit \
+                     {MAX_EXTENSION_RECORD_BYTES})"
+                );
+            }
+            let recognized = header.as_gnu().is_some() || header.as_ustar().is_some();
+            if kind.is_pax_local_extensions() && recognized {
+                let mut data = Vec::new();
+                (&mut reader).take(size).read_to_end(&mut data)?;
+                if (data.len() as u64) < size || !skip(&mut reader, padding(size))? {
+                    return Ok(());
+                }
+                pending_pax = Some(data);
+                continue;
+            }
+        } else if let Some(pax) = pending_pax.take() {
+            if let Some(pax_size) = pax_size(&pax) {
+                size = pax_size;
+            }
+        }
+
+        // GNU sparse members carry extension blocks between the header and
+        // the data, read while each one says another follows.
+        let mut extended = kind.is_gnu_sparse() && header.as_gnu().is_some_and(|g| g.is_extended());
+        while extended {
+            if !read_block(&mut reader, &mut block)? {
+                return Ok(());
+            }
+            // `isextended` sits at byte 504 of a GNU extension block.
+            extended = block[504] != 0;
+        }
+
+        if !skip(&mut reader, size.div_ceil(BLOCK).saturating_mul(BLOCK))? {
+            return Ok(());
+        }
+    }
+}
+
+/// Reads one 512-byte block; `false` at end of stream.
+fn read_block(reader: &mut impl Read, block: &mut [u8; 512]) -> Result<bool> {
+    match reader.read_exact(block) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(e) => Err(e).context("reading pack archive"),
+    }
+}
+
+/// Discards `amount` bytes; `false` if the stream ended first.
+fn skip(reader: &mut impl Read, amount: u64) -> Result<bool> {
+    let skipped = std::io::copy(&mut reader.take(amount), &mut std::io::sink())
+        .context("reading pack archive")?;
+    Ok(skipped == amount)
+}
+
+fn padding(size: u64) -> u64 {
+    size.div_ceil(512).saturating_mul(512) - size
+}
+
+/// The tar header checksum, computed as `tar` does (checksum field read as
+/// spaces).
+fn checksum_matches(header: &tar::Header) -> bool {
+    let bytes = header.as_bytes();
+    let sum: u32 = bytes[..148]
+        .iter()
+        .chain(&bytes[156..])
+        .map(|&b| u32::from(b))
+        .sum::<u32>()
+        + 8 * 32;
+    header.cksum().is_ok_and(|c| c == sum)
+}
+
+/// The `size` a PAX record sets, parsed exactly as `tar` parses it (any
+/// malformed record means no override).
+fn pax_size(pax: &[u8]) -> Option<u64> {
+    for extension in tar::PaxExtensions::new(pax) {
+        let extension = extension.ok()?;
+        if extension.key() == Ok("size") {
+            return extension.value().ok()?.parse().ok();
+        }
+    }
+    None
+}
+
+/// Reads a TOML entry, refusing anything over `MAX_TEXT_ENTRY_BYTES`. The
+/// check on the declared size is exact: `tar` never reads an entry past it.
+fn read_text_entry(entry: &mut tar::Entry<'_, impl Read>) -> Result<String> {
+    if entry.size() > MAX_TEXT_ENTRY_BYTES {
+        bail!("pack text entry too large (limit {MAX_TEXT_ENTRY_BYTES} bytes)");
+    }
     let mut bytes = Vec::new();
     entry.read_to_end(&mut bytes)?;
     String::from_utf8(bytes).context("pack entry is not valid UTF-8")
+}
+
+/// A reader that returns end-of-file after `remaining` bytes, recording
+/// that it cut the stream short (unlike `Read::take`, which can't tell a
+/// short stream from a truncated one).
+struct LimitedReader<R> {
+    inner: R,
+    remaining: u64,
+    limit_hit: std::rc::Rc<std::cell::Cell<bool>>,
+}
+
+impl<R> LimitedReader<R> {
+    fn new(inner: R, limit: u64) -> Self {
+        Self {
+            inner,
+            remaining: limit,
+            limit_hit: Default::default(),
+        }
+    }
+}
+
+impl<R: Read> Read for LimitedReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.remaining == 0 {
+            // Only "hit" if the stream really had more to give.
+            if self.inner.read(&mut [0u8; 1])? > 0 {
+                self.limit_hit.set(true);
+            }
+            return Ok(0);
+        }
+        let max = buf
+            .len()
+            .min(usize::try_from(self.remaining).unwrap_or(usize::MAX));
+        let n = self.inner.read(&mut buf[..max])?;
+        self.remaining -= n as u64;
+        Ok(n)
+    }
 }
 
 #[cfg(test)]
@@ -385,6 +601,165 @@ mod tests {
             err.to_string().contains("too many entries"),
             "unexpected error: {err}"
         );
+    }
+
+    /// Builds a gzipped tar holding a valid pack.toml/theme.toml, then
+    /// whatever `extra` appends.
+    fn pack_with(extra: impl FnOnce(&mut tar::Builder<GzEncoder<Vec<u8>>>)) -> Vec<u8> {
+        let manifest_toml = toml::to_string_pretty(&PackManifest {
+            schema_version: SUPPORTED_SCHEMA_VERSION,
+            name: "crafted".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+        let theme_toml = toml::to_string_pretty(&ThemeLayout::default()).unwrap();
+        let gz = GzEncoder::new(Vec::new(), Compression::default());
+        let mut tar = tar::Builder::new(gz);
+        append_file(&mut tar, "pack.toml", manifest_toml.as_bytes()).unwrap();
+        append_file(&mut tar, "theme.toml", theme_toml.as_bytes()).unwrap();
+        extra(&mut tar);
+        tar.into_inner().unwrap().finish().unwrap()
+    }
+
+    /// Regression test for a tar bomb in a header record: `tar` reads GNU
+    /// long-name records whole into memory before `parse` sees an entry,
+    /// so a ~1 MB pack declaring a 1 GiB long name used to make the app
+    /// allocate 1 GiB. The oversized record must be refused up front.
+    #[test]
+    fn an_oversized_long_name_record_is_rejected_before_it_is_buffered() {
+        let bytes = pack_with(|tar| {
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::GNULongName);
+            header.as_gnu_mut().unwrap().name[..13].copy_from_slice(b"././@LongLink");
+            header.set_size(MAX_EXTENSION_RECORD_BYTES + 1);
+            header.set_mode(0o644);
+            header.set_cksum();
+            let data = std::io::repeat(b'a').take(MAX_EXTENSION_RECORD_BYTES + 1);
+            tar.append(&header, data).unwrap();
+            append_file(tar, "theme.toml", b"").unwrap();
+        });
+
+        let err = parse(&bytes).unwrap_err();
+        assert!(
+            err.to_string().contains("oversized tar header record"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// A PAX `size` override makes `tar` place the next header somewhere
+    /// other than where the raw header's own size says. A header scan
+    /// that ignored the override would skip straight over a long-name
+    /// record that `tar` then reads (and buffers) - so the scan has to
+    /// follow the override exactly as `tar` does.
+    #[test]
+    fn a_long_name_record_hidden_by_a_pax_size_override_is_still_caught() {
+        fn header_block(name: &[u8], kind: tar::EntryType, size: u64) -> [u8; 512] {
+            let mut header = tar::Header::new_ustar();
+            header.as_ustar_mut().unwrap().name[..name.len()].copy_from_slice(name);
+            header.set_entry_type(kind);
+            header.set_size(size);
+            header.set_mode(0o644);
+            header.set_cksum();
+            *header.as_bytes()
+        }
+        fn padded(data: &[u8]) -> Vec<u8> {
+            let mut v = data.to_vec();
+            v.resize(data.len().div_ceil(512) * 512, 0);
+            v
+        }
+
+        let pax = b"10 size=0\n";
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&header_block(
+            b"pax",
+            tar::EntryType::XHeader,
+            pax.len() as u64,
+        ));
+        raw.extend(padded(pax));
+        // Claims 1024 bytes of data, but the PAX override says 0: `tar`
+        // reads the very next block as the next header.
+        raw.extend_from_slice(&header_block(b"decoy", tar::EntryType::Regular, 1024));
+        let oversized = MAX_EXTENSION_RECORD_BYTES + 1;
+        raw.extend_from_slice(&header_block(
+            b"././@LongLink",
+            tar::EntryType::GNULongName,
+            oversized,
+        ));
+        raw.extend(padded(&vec![b'a'; oversized as usize]));
+        raw.extend_from_slice(&[0u8; 1024]);
+
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(&raw).unwrap();
+        let bytes = gz.finish().unwrap();
+
+        let err = parse(&bytes).unwrap_err();
+        assert!(
+            err.to_string().contains("oversized tar header record"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// The header check must not reject the long names `tar` legitimately
+    /// emits for a file name over 100 bytes.
+    #[test]
+    fn a_long_background_file_name_still_imports() {
+        let name = format!("{}.mp4", "a".repeat(200));
+        let bytes = pack_with(|tar| {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(4);
+            header.set_mode(0o644);
+            tar.append_data(&mut header, format!("background/{name}"), &b"data"[..])
+                .unwrap();
+        });
+
+        let parsed = parse(&bytes).unwrap();
+        assert_eq!(parsed.background, Some((name, b"data".to_vec())));
+    }
+
+    /// The decompressed-size ceiling bounds the whole stream, whatever
+    /// records it is made of.
+    #[test]
+    fn a_pack_that_decompresses_past_the_ceiling_is_rejected() {
+        let bytes = pack_with(|tar| {
+            append_file(tar, "background/big.mp4", &vec![0u8; 256 * 1024]).unwrap();
+        });
+
+        let err = parse_with_limit(&bytes, 64 * 1024).unwrap_err();
+        assert!(
+            err.to_string().contains("decompresses to more than"),
+            "unexpected error: {err}"
+        );
+        // ...while the real ceiling leaves the same pack alone.
+        assert!(parse(&bytes).is_ok());
+    }
+
+    #[test]
+    fn an_oversized_theme_toml_is_rejected() {
+        let bytes = pack_with(|tar| {
+            let huge = vec![b'#'; MAX_TEXT_ENTRY_BYTES as usize + 1];
+            append_file(tar, "theme.toml", &huge).unwrap();
+        });
+
+        let err = parse(&bytes).unwrap_err();
+        assert!(
+            err.to_string().contains("text entry too large"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn limited_reader_only_reports_a_hit_when_data_was_cut_off() {
+        let mut exact = LimitedReader::new(&[1u8; 8][..], 8);
+        let mut out = Vec::new();
+        exact.read_to_end(&mut out).unwrap();
+        assert_eq!(out.len(), 8);
+        assert!(!exact.limit_hit.get());
+
+        let mut over = LimitedReader::new(&[1u8; 9][..], 8);
+        let mut out = Vec::new();
+        over.read_to_end(&mut out).unwrap();
+        assert_eq!(out.len(), 8);
+        assert!(over.limit_hit.get());
     }
 
     /// A legitimately-sized pack (comfortably under every new cap) must

@@ -219,7 +219,19 @@ fn issue_body_attaches_recent_engine_errors_when_present() {
 /// Circular/0.25/1.0 one instead of restoring what monstercat ships with.
 #[test]
 fn reset_theme_element_restores_this_styles_own_shipped_defaults_for_one_element_only() {
+    // `ThemeLayout::load` reads `$XDG_CONFIG_HOME/.../shaders/monstercat.toml`
+    // when it exists, so isolate this test from a parallel one that writes an
+    // edited copy there (and from the real config dir): lock the env and
+    // point it at an empty dir, so it loads the shipped style.
+    let _guard = ENV_MUTEX.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let prev = std::env::var("XDG_CONFIG_HOME").ok();
+    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
     let mut layout = cosmic_wallpaper::modules::config::ThemeLayout::load("monstercat");
+    match prev {
+        Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+        None => std::env::remove_var("XDG_CONFIG_HOME"),
+    }
     let monstercat_defaults =
         cosmic_wallpaper::modules::config::ThemeLayout::builtin_default("monstercat");
     let generic_defaults = cosmic_wallpaper::modules::config::ThemeLayout::default();
