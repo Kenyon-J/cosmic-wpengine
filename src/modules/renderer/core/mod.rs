@@ -290,16 +290,20 @@ impl Renderer {
             }
 
             // Publish the largest monitor size so the local video decoder
-            // converts frames at display size (video::scaled_video_size).
-            // Width and height are maxed independently so the target covers
-            // every monitor, portrait ones included. An empty output list
-            // (mid-reconfigure) keeps the last size rather than flapping.
-            if let Some(largest) = self
-                .outputs
-                .iter()
-                .map(|out| (out.config.width, out.config.height))
-                .reduce(|a, b| (a.0.max(b.0), a.1.max(b.1)))
-            {
+            // converts frames at display size (utils::cover_size). An empty
+            // output list (mid-reconfigure) keeps the last size rather than
+            // flapping.
+            if let Some(largest) = self.largest_output_size() {
+                // A desktop wallpaper image is scaled to cover the monitors
+                // it was loaded for; reload it if they grew past that.
+                if self.background.needs_larger_source(largest)
+                    && self.state.config.appearance.video_background_path.is_none()
+                {
+                    let bg = self.background.current_bg.clone();
+                    self.load_resolved_background(bg.as_ref());
+                    scene_dirty = true;
+                }
+
                 video_size_tx.send_if_modified(|size| {
                     let changed = *size != Some(largest);
                     *size = Some(largest);
@@ -485,6 +489,16 @@ impl Renderer {
             // dropped textures and command buffers will queue up indefinitely and cause an OOM crash!
             let _ = self.device.poll(wgpu::PollType::Poll);
         }
+    }
+
+    /// The size that covers every monitor: width and height maxed
+    /// independently, so portrait and landscape screens are both covered.
+    /// `None` while there are no outputs.
+    pub(crate) fn largest_output_size(&self) -> Option<(u32, u32)> {
+        self.outputs
+            .iter()
+            .map(|out| (out.config.width, out.config.height))
+            .reduce(|a, b| (a.0.max(b.0), a.1.max(b.1)))
     }
 
     /// True while any on-screen element is in motion and therefore needs

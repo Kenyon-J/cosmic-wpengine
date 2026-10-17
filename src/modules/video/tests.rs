@@ -24,40 +24,46 @@ fn test_pooled_image_into_raw() {
 }
 
 #[test]
-fn scaled_video_size_downscales_to_cover_the_display() {
+fn cover_size_downscales_to_cover_the_display() {
     // 4K video on a 1080p monitor: exactly half in both directions.
     assert_eq!(
-        scaled_video_size((3840, 2160), Some((1920, 1080))),
+        crate::modules::utils::cover_size((3840, 2160), Some((1920, 1080))),
         (1920, 1080)
     );
     // Aspect ratio mismatch: scaled so the *larger* ratio still covers the
     // target (here height), keeping the video's own aspect.
     assert_eq!(
-        scaled_video_size((3840, 1600), Some((1920, 1080))),
+        crate::modules::utils::cover_size((3840, 1600), Some((1920, 1080))),
         (2592, 1080)
     );
     // Portrait + landscape monitors combined (maxed independently).
     assert_eq!(
-        scaled_video_size((3840, 2160), Some((1920, 1920))),
+        crate::modules::utils::cover_size((3840, 2160), Some((1920, 1920))),
         (3414, 1920)
     );
 }
 
 #[test]
-fn scaled_video_size_never_upscales_or_guesses() {
+fn cover_size_never_upscales_or_guesses() {
     // Smaller than the display: left alone.
     assert_eq!(
-        scaled_video_size((1280, 720), Some((1920, 1080))),
+        crate::modules::utils::cover_size((1280, 720), Some((1920, 1080))),
         (1280, 720)
     );
     // Display size unknown or degenerate: source size.
-    assert_eq!(scaled_video_size((3840, 2160), None), (3840, 2160));
     assert_eq!(
-        scaled_video_size((3840, 2160), Some((0, 1080))),
+        crate::modules::utils::cover_size((3840, 2160), None),
+        (3840, 2160)
+    );
+    assert_eq!(
+        crate::modules::utils::cover_size((3840, 2160), Some((0, 1080))),
         (3840, 2160)
     );
     // Degenerate source doesn't divide by zero.
-    assert_eq!(scaled_video_size((0, 0), Some((1920, 1080))), (0, 0));
+    assert_eq!(
+        crate::modules::utils::cover_size((0, 0), Some((1920, 1080))),
+        (0, 0)
+    );
 }
 
 /// What a test clip's frames contain.

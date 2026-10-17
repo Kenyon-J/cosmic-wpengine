@@ -159,29 +159,6 @@ fn open_video_stream(
     })
 }
 
-/// The size to convert a `src`-sized video to so it still covers a
-/// `target` (the largest monitor, in physical pixels): scaled down with its
-/// aspect ratio kept, never scaled up. The renderer crops/fits the texture
-/// to each screen afterwards, so anything larger than this is converted,
-/// copied and uploaded only to be thrown away by the GPU sampler. `None`
-/// (monitor size not known yet) keeps the source size.
-pub(crate) fn scaled_video_size(src: (u32, u32), target: Option<(u32, u32)>) -> (u32, u32) {
-    let Some((tw, th)) = target.filter(|&(w, h)| w > 0 && h > 0) else {
-        return src;
-    };
-    if src.0 == 0 || src.1 == 0 {
-        return src;
-    }
-    let scale = (tw as f64 / src.0 as f64).max(th as f64 / src.1 as f64);
-    if scale >= 1.0 {
-        return src;
-    }
-    // Round up so the result never falls short of covering the target.
-    let w = ((src.0 as f64 * scale).ceil() as u32).clamp(1, src.0);
-    let h = ((src.1 as f64 * scale).ceil() as u32).clamp(1, src.1);
-    (w, h)
-}
-
 /// The swscale `SWS_CS_*` matrix for converting a video tagged
 /// `space` to RGB. Untagged video (common in the wild) gets the same guess
 /// mpv and most players make: BT.709 for HD (720 lines and up), BT.601
@@ -225,7 +202,7 @@ impl ScalerKey {
     }
 }
 
-/// The RGBA converter for the local decoder, sized by `scaled_video_size`.
+/// The RGBA converter for the local decoder, sized by `utils::cover_size`.
 struct FrameScaler {
     ctx: ffmpeg::software::scaling::Context,
     key: ScalerKey,
@@ -237,7 +214,7 @@ struct FrameScaler {
 impl FrameScaler {
     fn new(key: ScalerKey) -> Result<Self, String> {
         let (src_w, src_h) = key.src;
-        let (width, height) = scaled_video_size(key.src, key.target);
+        let (width, height) = crate::modules::utils::cover_size(key.src, key.target);
         let mut ctx = ffmpeg::software::scaling::Context::get(
             key.format,
             src_w,
@@ -423,7 +400,7 @@ impl VideoDecoder {
     /// Frames are paced to the file's own timestamps and thinned to the
     /// configured fps; decoding pauses entirely while `visible_rx` reads
     /// false, and frames are converted at the size `size_rx` asks for (see
-    /// `scaled_video_size`). When `appearance.hardware_video_decode` is on
+    /// `utils::cover_size`). When `appearance.hardware_video_decode` is on
     /// and a VAAPI device opens, decoding runs on the GPU, falling back to
     /// software for codecs it can't handle or if it starts failing.
     #[allow(clippy::too_many_arguments)]

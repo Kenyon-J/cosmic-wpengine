@@ -25,6 +25,48 @@ async fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::
         .await?)
 }
 
+/// Backends tried in order. Vulkan alone first: asking wgpu for Vulkan and
+/// GL together initialises both drivers even though only one is used,
+/// costing ~19 MiB of resident memory (measured with the render harness).
+/// GL stays as the fallback for GPUs/drivers without Vulkan.
+const BACKEND_PREFERENCE: [wgpu::Backends; 2] = [wgpu::Backends::VULKAN, wgpu::Backends::GL];
+
+/// Requests a low-power adapter from each backend in `BACKEND_PREFERENCE`
+/// until one succeeds. `make_surfaces` creates the surfaces the adapter
+/// must be able to present to (none for offscreen rendering); each backend
+/// gets its own instance, since a surface belongs to the instance that
+/// made it.
+async fn first_adapter(
+    make_surfaces: impl Fn(&wgpu::Instance) -> Result<Vec<wgpu::Surface<'static>>>,
+) -> Result<(wgpu::Instance, Vec<wgpu::Surface<'static>>, wgpu::Adapter)> {
+    let mut last_error = None;
+    for backends in BACKEND_PREFERENCE {
+        let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        instance_desc.backends = backends;
+        let instance = wgpu::Instance::new(instance_desc);
+        let surfaces = make_surfaces(&instance)?;
+        match instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: surfaces.first(),
+                force_fallback_adapter: false,
+                apply_limit_buckets: false,
+            })
+            .await
+        {
+            Ok(adapter) => return Ok((instance, surfaces, adapter)),
+            Err(e) => {
+                warn!("No {backends:?} adapter ({e}); trying the next backend");
+                last_error = Some(e);
+            }
+        }
+    }
+    Err(anyhow::anyhow!(
+        "No suitable GPU adapter found: {}",
+        last_error.map_or_else(|| "no backends tried".to_string(), |e| e.to_string())
+    ))
+}
+
 impl Renderer {
     pub async fn new(
         wayland_manager: &WaylandManager,
@@ -33,33 +75,23 @@ impl Renderer {
     ) -> Result<Self> {
         info!("Initialising wgpu self...");
 
-        let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
-        instance_desc.backends = wgpu::Backends::VULKAN | wgpu::Backends::GL;
-        let instance = wgpu::Instance::new(instance_desc);
-
         let outputs_info: Vec<_> = wayland_manager.outputs().collect();
         if outputs_info.is_empty() {
             anyhow::bail!("No Wayland outputs found to render to");
         }
 
-        let mut surfaces = Vec::new();
-        for info in &outputs_info {
-            let target = wgpu::SurfaceTargetUnsafe::RawHandle {
-                raw_display_handle: Some(info.raw_display_handle()),
-                raw_window_handle: info.raw_window_handle(),
-            };
-            surfaces.push(unsafe { instance.create_surface_unsafe(target) }?);
-        }
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
-                compatible_surface: Some(&surfaces[0]),
-                force_fallback_adapter: false,
-                apply_limit_buckets: false,
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("No suitable GPU adapter found: {}", e))?;
+        let (instance, surfaces, adapter) = first_adapter(|instance| {
+            let mut surfaces = Vec::new();
+            for info in &outputs_info {
+                let target = wgpu::SurfaceTargetUnsafe::RawHandle {
+                    raw_display_handle: Some(info.raw_display_handle()),
+                    raw_window_handle: info.raw_window_handle(),
+                };
+                surfaces.push(unsafe { instance.create_surface_unsafe(target) }?);
+            }
+            Ok(surfaces)
+        })
+        .await?;
 
         let (device, queue) = request_device(&adapter).await?;
 
@@ -100,19 +132,7 @@ impl Renderer {
     ) -> Result<Self> {
         info!("Initialising wgpu self (headless)...");
 
-        let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
-        instance_desc.backends = wgpu::Backends::VULKAN | wgpu::Backends::GL;
-        let instance = wgpu::Instance::new(instance_desc);
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-                apply_limit_buckets: false,
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("No suitable GPU adapter found: {}", e))?;
+        let (instance, _, adapter) = first_adapter(|_| Ok(Vec::new())).await?;
 
         let (device, queue) = request_device(&adapter).await?;
 

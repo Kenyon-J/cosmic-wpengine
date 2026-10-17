@@ -269,8 +269,8 @@ impl Renderer {
         };
 
         info!("Loading custom background from {}", path);
-        let img = match image::open(path) {
-            Ok(i) => i.to_rgba8(),
+        let decoded = match image::open(path) {
+            Ok(i) => i,
             Err(e) => {
                 warn!("Failed to load custom background: {}", e);
                 self.background.clear();
@@ -279,7 +279,26 @@ impl Renderer {
             }
         };
 
+        // Desktop wallpapers are often 4K-8K photos; keep only what covers
+        // the monitors (the GPU would discard the rest when sampling).
+        // Downscaling the decoded image before the RGBA conversion also
+        // avoids ever holding a full-size RGBA copy.
+        let target = self.largest_output_size();
+        let (width, height) =
+            crate::modules::utils::cover_size((decoded.width(), decoded.height()), target);
+        let img = if (width, height) == (decoded.width(), decoded.height()) {
+            decoded.to_rgba8()
+        } else {
+            info!(
+                "Scaling {}x{} background to {width}x{height} for the display",
+                decoded.width(),
+                decoded.height()
+            );
+            decoded.thumbnail_exact(width, height).to_rgba8()
+        };
+
         self.load_custom_background_from_image(&img);
+        self.background.loaded_for = target;
     }
 
     pub fn load_custom_background_from_image(&mut self, img: &image::RgbaImage) {
