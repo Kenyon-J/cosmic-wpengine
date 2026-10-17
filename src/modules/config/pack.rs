@@ -329,7 +329,8 @@ fn parse_archive(mut archive: tar::Archive<impl Read>) -> Result<ParsedPack> {
 /// can otherwise hide a record in what the raw header calls data), GNU
 /// sparse members are followed by their extension blocks, and an all-zero
 /// block or a bad checksum ends the archive. Anything else malformed is
-/// left for the real parse to report.
+/// left for the real parse to report. When bumping the `tar` crate,
+/// re-check these rules against its `EntriesFields::next_entry`.
 fn check_extension_records(mut reader: impl Read) -> Result<()> {
     const BLOCK: u64 = 512;
     let mut block = [0u8; BLOCK as usize];
