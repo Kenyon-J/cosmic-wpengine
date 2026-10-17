@@ -87,3 +87,7 @@ Several ideas were proposed three or more times; the duplicates were closed.
 ## 2025-03-05 - Avoid Unvectorized Conditionals in Float Arrays
 **Learning:** Manual loops that update `max_val` or search for `peak_abs` by iterating over float slices and performing bounds-checked conditional branch logic (like `if val_abs > peak_abs`) prevent LLVM auto-vectorization and cause significant per-frame overhead. By replacing manual conditional branches with iterator combinators like `.fold(0.0f32, |m, &v| m.max(v))`, LLVM can reliably emit SIMD instructions (like `maxps`) to process multiple values concurrently.
 **Action:** Replace manual `for` loops containing bounds-checked conditional mutations for min/max logic over arrays with vectorizable `.fold()` and `.max()` methods to ensure efficient SIMD evaluation in performance-critical DSP operations.
+
+## 2025-03-05 - Branchless Optimization for Peak Detection
+**Learning:** Using conditional branches (e.g., `if v.abs() > p.abs()`) inside tight array loops (like an iterator `.fold`) heavily inhibits CPU pipelining and LLVM auto-vectorization, which severely penalizes per-frame digital signal processing performance.
+**Action:** Replace manual conditional logic with SIMD-friendly concurrent reductions using built-in methods (e.g. `(min.min(v), max.max(v))`), and compute any conditional output (like absolute maximum) outside the loop to maximize CPU efficiency.
