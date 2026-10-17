@@ -64,13 +64,22 @@ impl AudioCapture {
                                 Ok(buf) => buf,
                                 Err(_) => Vec::with_capacity(FFT_SIZE),
                             };
-                            process_buffer.clear();
-                            // Optimization: Use zipped iterators and `.extend()` instead of manual `.push()`
-                            // to enable LLVM auto-vectorization and eliminate bounds checking overhead
-                            process_buffer.extend(samples.iter().zip(hann_window.iter()).map(|(&s, &w)| Complex {
-                                re: s * w,
-                                im: 0.0,
-                            }));
+                            // Optimization: Update in-place via iter_mut when length matches FFT_SIZE
+                            // to avoid clear() and extend() overhead on recycled buffers.
+                            if process_buffer.len() == FFT_SIZE {
+                                for (dst, (&s, &w)) in process_buffer.iter_mut().zip(samples.iter().zip(hann_window.iter())) {
+                                    *dst = Complex {
+                                        re: s * w,
+                                        im: 0.0,
+                                    };
+                                }
+                            } else {
+                                process_buffer.clear();
+                                process_buffer.extend(samples.iter().zip(hann_window.iter()).map(|(&s, &w)| Complex {
+                                    re: s * w,
+                                    im: 0.0,
+                                }));
+                            }
 
                             let fft_clone = std::sync::Arc::clone(&fft);
 
@@ -84,14 +93,18 @@ impl AudioCapture {
                             let (normalised, original_waveform) = match tokio::task::spawn_blocking(move || {
                                 fft_clone.process(&mut process_buffer);
                                 let half = FFT_SIZE / 2;
-                                norm_buffer.clear();
-                                // Pre-allocate the required capacity to avoid reallocations during extension
-                                norm_buffer.reserve_exact(half);
-                                // Avoid allocating inside the mapping closure; use zipped iterators or direct maps
-                                // Optimization: manual calculation replaces expensive hypot() branching from c.norm()
-                                norm_buffer.extend(process_buffer[0..half]
-                                    .iter()
-                                    .map(|c| ((c.re * c.re + c.im * c.im).sqrt() / SCALE_FACTOR).clamp(0.0, 1.0)));
+                                // Optimization: Update in-place when recycled norm_buffer length matches half
+                                if norm_buffer.len() == half {
+                                    for (dst, c) in norm_buffer.iter_mut().zip(&process_buffer[0..half]) {
+                                        *dst = ((c.re * c.re + c.im * c.im).sqrt() / SCALE_FACTOR).clamp(0.0, 1.0);
+                                    }
+                                } else {
+                                    norm_buffer.clear();
+                                    norm_buffer.reserve_exact(half);
+                                    norm_buffer.extend(process_buffer[0..half]
+                                        .iter()
+                                        .map(|c| ((c.re * c.re + c.im * c.im).sqrt() / SCALE_FACTOR).clamp(0.0, 1.0)));
+                                }
                                 let _ = recycle_complex_tx_clone.try_send(process_buffer);
                                 (norm_buffer, samples) // Return the processed data
                             }).await {
@@ -273,8 +286,12 @@ impl AudioCapture {
                             Ok(b) => b.into_vec(),
                             Err(_) => Vec::with_capacity(FFT_SIZE),
                         };
-                        frame.clear();
-                        frame.extend_from_slice(&sample_buffer[..FFT_SIZE]);
+                        if frame.len() == FFT_SIZE {
+                            frame.copy_from_slice(&sample_buffer[..FFT_SIZE]);
+                        } else {
+                            frame.clear();
+                            frame.extend_from_slice(&sample_buffer[..FFT_SIZE]);
+                        }
                         sample_buffer.drain(..FFT_SIZE);
                         match tx.try_send(frame) {
                             Ok(_) => {}
