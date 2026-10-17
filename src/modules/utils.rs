@@ -1,6 +1,29 @@
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 
+/// The size to scale a `src`-sized image or video to so it still covers a
+/// `target` (the largest monitor, in physical pixels): scaled down with its
+/// aspect ratio kept, never scaled up. The renderer crops/fits textures to
+/// each screen anyway, so anything larger is decoded, uploaded and held in
+/// memory only to be thrown away by the GPU sampler. `None` (monitor size
+/// not known yet) keeps the source size.
+pub(crate) fn cover_size(src: (u32, u32), target: Option<(u32, u32)>) -> (u32, u32) {
+    let Some((tw, th)) = target.filter(|&(w, h)| w > 0 && h > 0) else {
+        return src;
+    };
+    if src.0 == 0 || src.1 == 0 {
+        return src;
+    }
+    let scale = (tw as f64 / src.0 as f64).max(th as f64 / src.1 as f64);
+    if scale >= 1.0 {
+        return src;
+    }
+    // Round up so the result never falls short of covering the target.
+    let w = ((src.0 as f64 * scale).ceil() as u32).clamp(1, src.0);
+    let h = ((src.1 as f64 * scale).ceil() as u32).clamp(1, src.1);
+    (w, h)
+}
+
 pub fn resolve_binary(name: &str) -> Option<PathBuf> {
     let trusted_paths = ["/usr/bin", "/bin", "/usr/local/bin", "/opt/homebrew/bin"];
     for path in trusted_paths {

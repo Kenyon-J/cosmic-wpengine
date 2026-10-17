@@ -21,6 +21,9 @@ pub(crate) struct BackgroundLayer {
     /// The desktop background currently resolved and loaded, so a
     /// `ConfigUpdated` event only reloads when it actually changed.
     pub(crate) current_bg: Option<ResolvedBackground>,
+    /// The monitor size an image background was downscaled to cover, or
+    /// `None` when it wasn't (not an image, or loaded at full size).
+    pub(crate) loaded_for: Option<(u32, u32)>,
     pub(crate) custom_bg_uniform_buffer: wgpu::Buffer,
     pub(crate) ambient_pipeline: wgpu::RenderPipeline,
     pub(crate) ambient_bind_group: wgpu::BindGroup,
@@ -44,6 +47,7 @@ impl BackgroundLayer {
             blur_chain: None,
             avg_color: None,
             current_bg: None,
+            loaded_for: None,
             custom_bg_uniform_buffer,
             ambient_pipeline,
             ambient_bind_group,
@@ -177,5 +181,15 @@ impl BackgroundLayer {
         self.bind_group = None;
         self.blur_chain = None;
         self.avg_color = None;
+        self.loaded_for = None;
+    }
+
+    /// Whether the image background was scaled for smaller monitors than
+    /// `largest` and should be reloaded from its source.
+    pub(crate) fn needs_larger_source(&self, largest: (u32, u32)) -> bool {
+        matches!(self.current_bg, Some(ResolvedBackground::Image(_)))
+            && self
+                .loaded_for
+                .is_some_and(|(w, h)| largest.0 > w || largest.1 > h)
     }
 }
