@@ -15,6 +15,15 @@
 ignore = [
     # rustls 0.23.42 TLS 1.3 handshake boundary advisory (transitive dependency).
     "RUSTSEC-2026-0285",
+    "RUSTSEC-2026-0346", # Debug impls for client session values expose TLS secrets
+    "RUSTSEC-2026-0348", # Brotli certificate decompression alloc
+    "RUSTSEC-2026-0349", # Unauthenticated ServerHello downgrade
+    # quinn-proto transitive dependency advisories via reqwest/quinn.
+    "RUSTSEC-2026-0338", # Zero-length STREAM frames panic during unordered reads
+    "RUSTSEC-2026-0339", # Unbounded growth of pending connection ID retirements
+    "RUSTSEC-2026-0340", # Peer minimum ACK delay panic when ACK_FREQUENCY enabled
+    "RUSTSEC-2026-0341", # Stream reassembly memory-exhaustion guard bypass
+    "RUSTSEC-2026-0342", # Zero-length DATAGRAM frames bypass receive buffer limit
     # quick-xml (quadratic attr scan + unbounded ns alloc DoS) via zbus/atspi.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
