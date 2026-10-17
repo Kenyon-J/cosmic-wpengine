@@ -265,7 +265,7 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedPack> {
 fn read_capped_bytes(entry: &mut tar::Entry<'_, impl Read>, limit: u64) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     entry.by_ref().take(limit).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 == limit && entry.bytes().next().is_some() {
+    if bytes.len() as u64 == limit && entry.read(&mut [0; 1]).is_ok_and(|n| n > 0) {
         bail!("pack entry exceeded cap limit");
     }
     Ok(bytes)
