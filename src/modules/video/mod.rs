@@ -12,6 +12,9 @@ mod hwaccel;
 pub struct PooledImage {
     img: Option<image::RgbaImage>,
     recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    /// The decoder's in-flight slot this frame occupies (see
+    /// `MAX_FRAMES_IN_FLIGHT`), released when the frame is dropped.
+    _permit: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
 impl PooledImage {
@@ -19,7 +22,14 @@ impl PooledImage {
         Self {
             img: Some(img),
             recycle_tx,
+            _permit: None,
         }
+    }
+
+    /// Ties this frame to a slot of its decoder's in-flight budget.
+    pub fn with_permit(mut self, permit: tokio::sync::OwnedSemaphorePermit) -> Self {
+        self._permit = Some(permit);
+        self
     }
 
     // Keeps backwards compatibility if the renderer manually consumes the raw buffer
@@ -50,6 +60,29 @@ impl std::fmt::Debug for PooledImage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("PooledImage").finish()
     }
+}
+
+/// Most decoded frames a decoder may have alive at once (queued for the
+/// renderer or being uploaded by it). Without a cap the only bound is the
+/// shared event queue, so a renderer that stalls for a second lets a 4K
+/// video pile up dozens of 33MB buffers. Matches the recycle pool's size:
+/// every frame in flight can be served from a recycled buffer.
+pub(crate) const MAX_FRAMES_IN_FLIGHT: usize = 3;
+
+/// A decoder's in-flight budget: one permit per live frame.
+type FrameBudget = std::sync::Arc<tokio::sync::Semaphore>;
+
+/// Where the local decoder's frame buffers come from and how many may be
+/// alive: the renderer hands used buffers back through the recycle channel,
+/// and `budget` caps the frames in flight.
+struct FramePool {
+    recycle_rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    budget: FrameBudget,
+}
+
+fn frame_budget() -> FrameBudget {
+    std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_FRAMES_IN_FLIGHT))
 }
 
 /// Copies a scaled ffmpeg video frame's plane 0 into `dst`, taking a fast
@@ -298,10 +331,14 @@ fn send_frame(
     target: Option<(u32, u32)>,
     frame: &ffmpeg::frame::Video,
     rgb_frame: &mut ffmpeg::frame::Video,
-    recycle_rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>,
-    recycle_tx: &tokio::sync::mpsc::Sender<Vec<u8>>,
+    pool: &mut FramePool,
     tx: &Sender<Event>,
 ) -> FrameSent {
+    // Checked before the conversion: while the renderer is behind, a frame
+    // costs neither a scaler run nor a new buffer.
+    let Ok(permit) = pool.budget.clone().try_acquire_owned() else {
+        return FrameSent::Dropped;
+    };
     let (scaler, rebuilt) = match FrameScaler::for_frame(scaler_slot, frame, target) {
         Ok(found) => found,
         Err(e) => {
@@ -318,7 +355,8 @@ fn send_frame(
         return FrameSent::Dropped;
     }
     let frame_size = scaler.frame_size;
-    let mut buffer = recycle_rx
+    let mut buffer = pool
+        .recycle_rx
         .try_recv()
         .unwrap_or_else(|_| vec![0u8; frame_size]);
     if buffer.len() != frame_size {
@@ -330,11 +368,11 @@ fn send_frame(
     let Some(img) = image::RgbaImage::from_raw(scaler.width, scaler.height, buffer) else {
         return FrameSent::Dropped;
     };
-    let pooled_img = Box::new(PooledImage::new(img, recycle_tx.clone()));
+    let pooled_img = Box::new(PooledImage::new(img, pool.recycle_tx.clone()).with_permit(permit));
     match tx.try_send(Event::BackgroundVideoFrame(pooled_img)) {
         Ok(_) => FrameSent::Sent,
         Err(tokio::sync::mpsc::error::TrySendError::Full(Event::BackgroundVideoFrame(dropped))) => {
-            let _ = recycle_tx.try_send(dropped.into_raw());
+            let _ = pool.recycle_tx.try_send(dropped.into_raw());
             FrameSent::Dropped
         }
         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => FrameSent::Closed,
@@ -411,7 +449,7 @@ impl VideoDecoder {
         config_rx: tokio::sync::watch::Receiver<super::config::Config>,
         mut visible_rx: tokio::sync::watch::Receiver<bool>,
         mut size_rx: tokio::sync::watch::Receiver<Option<(u32, u32)>>,
-        mut recycle_rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+        recycle_rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
         recycle_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
     ) -> Result<()> {
         let _ = ffmpeg::init();
@@ -445,6 +483,11 @@ impl VideoDecoder {
 
             let mut target = *size_rx.borrow_and_update();
             let mut scaler: Option<FrameScaler> = None;
+            let mut pool = FramePool {
+                recycle_rx,
+                recycle_tx,
+                budget: frame_budget(),
+            };
             // Reused across every frame: scaler.run() only allocates this frame's
             // internal buffer the first time (while it's still empty), so keeping
             // it outside the loop avoids a full-resolution RGBA allocation per frame.
@@ -576,15 +619,8 @@ impl VideoDecoder {
                             }
                         };
 
-                        match send_frame(
-                            &mut scaler,
-                            target,
-                            frame,
-                            &mut rgb_frame,
-                            &mut recycle_rx,
-                            &recycle_tx,
-                            &tx,
-                        ) {
+                        match send_frame(&mut scaler, target, frame, &mut rgb_frame, &mut pool, &tx)
+                        {
                             FrameSent::Sent => last_sent_time = target_time,
                             FrameSent::Dropped => {}
                             FrameSent::Closed => break 'outer,
@@ -598,15 +634,9 @@ impl VideoDecoder {
                         let Ok(frame) = system_frame(&decoded, &mut system_buffer) else {
                             continue;
                         };
-                        if let FrameSent::Closed = send_frame(
-                            &mut scaler,
-                            target,
-                            frame,
-                            &mut rgb_frame,
-                            &mut recycle_rx,
-                            &recycle_tx,
-                            &tx,
-                        ) {
+                        if let FrameSent::Closed =
+                            send_frame(&mut scaler, target, frame, &mut rgb_frame, &mut pool, &tx)
+                        {
                             break 'outer;
                         }
                     }
@@ -709,6 +739,7 @@ impl VideoDecoder {
         let width = 540;
         let height = 960;
         let frame_size = width * height * 4;
+        let budget = frame_budget();
 
         'session: loop {
             // Wait out any period where the wallpaper is hidden before
@@ -801,8 +832,15 @@ impl VideoDecoder {
                     result = stdout.read_exact(&mut buffer) => {
                         match result {
                             Ok(_) => {
+                                // The frame had to be read either way to keep
+                                // the raw stream aligned; without a free
+                                // in-flight slot its buffer goes straight back.
+                                let Ok(permit) = budget.clone().try_acquire_owned() else {
+                                    let _ = recycle_tx.try_send(buffer);
+                                    continue;
+                                };
                                 if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, buffer) {
-                                    let pooled_img = Box::new(PooledImage::new(img, recycle_tx.clone()));
+                                    let pooled_img = Box::new(PooledImage::new(img, recycle_tx.clone()).with_permit(permit));
                                     match tx.try_send(Event::CanvasVideoFrame(pooled_img)) {
                                         Ok(_) => {}
                                         Err(tokio::sync::mpsc::error::TrySendError::Full(Event::CanvasVideoFrame(dropped))) => {

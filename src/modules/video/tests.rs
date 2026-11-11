@@ -252,6 +252,64 @@ async fn local_decoder_scales_to_display_and_pauses_while_hidden() {
     assert!(closed.is_ok(), "decoder did not exit after cancel");
 }
 
+/// A renderer that stops draining events must not let decoded frames pile
+/// up in the event queue: each one is a full display-sized RGBA buffer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn local_decoder_caps_frames_in_flight_while_the_renderer_stalls() {
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let clip = dir.path().join("clip.mkv");
+    encode_test_clip(&clip, 64, 48, 30, 120, ClipStyle::Gradient);
+
+    let (tx, mut rx) = mpsc::channel(64);
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+    let (_config_tx, config_rx) =
+        tokio::sync::watch::channel(crate::modules::config::Config::default());
+    let (_visible_tx, visible_rx) = tokio::sync::watch::channel(true);
+    let (_size_tx, size_rx) = tokio::sync::watch::channel(None);
+    let (recycle_tx, recycle_rx) = mpsc::channel(3);
+
+    VideoDecoder::run_local_decoder(
+        clip.to_string_lossy().to_string(),
+        tx,
+        cancel_rx,
+        config_rx,
+        visible_rx,
+        size_rx,
+        recycle_rx,
+        recycle_tx,
+    )
+    .await
+    .unwrap();
+
+    // Stalled renderer: nothing is received for well over a second.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let mut held = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        if matches!(event, Event::BackgroundVideoFrame(_)) {
+            held.push(event);
+        }
+    }
+    assert!(!held.is_empty(), "decoder produced no frames");
+    assert!(
+        held.len() <= MAX_FRAMES_IN_FLIGHT,
+        "{} frames were queued during the stall",
+        held.len()
+    );
+
+    // Still holding them all: the decoder stays parked on its budget.
+    assert_eq!(frames_within(&mut rx, Duration::from_millis(400)).await, 0);
+
+    // Releasing the frames lets playback resume.
+    drop(held);
+    assert!(next_frame_size(&mut rx, Duration::from_secs(2))
+        .await
+        .is_some());
+
+    cancel_tx.send(true).unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn local_decoder_cancel_while_hidden_exits() {
     use std::time::Duration;
