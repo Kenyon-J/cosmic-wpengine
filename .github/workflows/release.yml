@@ -77,9 +77,9 @@ jobs:
       # the full story and why there's deliberately no automated "no AVX-512
       # instructions" check here (FFmpeg and some dependencies legitimately
       # ship AVX-512 code gated behind their own runtime dispatch - a blanket
-      # scan can't tell that apart from the actual bug). The fix is the
-      # vendored vendor/ffmpeg-sys-next-8.1.0 patch; don't remove it or
-      # reintroduce -march=native/-mtune=native.
+      # scan can't tell that apart from the actual bug). The fix is
+      # ffmpeg-sys-next's build-portable feature, enabled by static-ffmpeg in
+      # Cargo.toml; don't remove it or reintroduce -march=native/-mtune=native.
 
       - name: Package release assets
         run: |

@@ -184,9 +184,9 @@ jobs:
       # a build machine with AVX-512 baked unconditional AVX-512 (zmm-register)
       # instructions into the statically-linked FFmpeg code via
       # ffmpeg-sys-next's -march=native, crashing on any end-user CPU without
-      # it. Fixed by the vendored vendor/ffmpeg-sys-next-8.1.0 patch - do not
-      # remove that patch or reintroduce -march=native/-mtune=native anywhere
-      # in this build.
+      # it. Fixed by ffmpeg-sys-next's build-portable feature (enabled by
+      # static-ffmpeg in Cargo.toml) - do not remove it or reintroduce
+      # -march=native/-mtune=native anywhere in this build.
       #
       # There's deliberately no automated "no AVX-512 instructions" check
       # here: FFmpeg and some of our own dependencies legitimately ship

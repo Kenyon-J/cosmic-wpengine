@@ -13,7 +13,7 @@ instead, which carry their own licensing as independent packages — this
 notice doesn't apply to that installation method.)
 
 FFmpeg (<https://ffmpeg.org/>) is used unmodified, built via the
-`ffmpeg-sys-next` crate from FFmpeg's own `release/8.1` branch (see
+`ffmpeg-sys-next` crate from FFmpeg's own `release/9.1` branch (see
 `Cargo.lock` for the exact `ffmpeg-sys-next` version, and its `build.rs`
 for how that maps to the FFmpeg branch it clones). Only the LGPL build
 configuration is used — no `--enable-gpl` components are enabled — so
@@ -21,7 +21,7 @@ FFmpeg's own dual license applies here as LGPL-2.1-or-later. The full
 license text is reproduced below, as this section's copy of it.
 
 FFmpeg's own copyright notices apply to FFmpeg's source; see
-<https://github.com/FFmpeg/FFmpeg/blob/release/8.1/COPYING.LGPLv2.1> and
+<https://github.com/FFmpeg/FFmpeg/blob/release/9.1/COPYING.LGPLv2.1> and
 that project's own `Changelog`/`MAINTAINERS` files for authorship.
 
 ### Written offer (LGPL-2.1 §6a/6c)
@@ -30,7 +30,7 @@ For at least three years from the release you obtained a static binary
 from, the project maintainer will provide, on request and at no more than
 the cost of performing the distribution, the complete corresponding
 machine-readable source code for the exact FFmpeg build linked into that
-binary (the `release/8.1` branch as cloned by `ffmpeg-sys-next`, unmodified
+binary (the `release/9.1` branch as cloned by `ffmpeg-sys-next`, unmodified
 from upstream), in a form sufficient to modify and relink it into a
 replacement binary.
 
@@ -38,8 +38,8 @@ To request this, open an issue at
 <https://github.com/Kenyon-J/cosmic-wpengine/issues> or email
 kenyon-j <99kenyonj@gmail.com>, stating which release/version you have.
 
-In practice, FFmpeg's `release/8.1` branch is public and unmodified at
-<https://github.com/FFmpeg/FFmpeg/tree/release/8.1> for anyone to obtain
+In practice, FFmpeg's `release/9.1` branch is public and unmodified at
+<https://github.com/FFmpeg/FFmpeg/tree/release/9.1> for anyone to obtain
 directly — this offer exists to satisfy LGPL-2.1 §6 formally and as a
 fallback should that upstream location ever become unavailable.
 

@@ -20,7 +20,15 @@ default-run = "cosmic-wallpaper"
 # these builds, so it must be asked for). It links libva/libva-drm
 # dynamically - ABI-stable libraries present on any desktop with a GPU
 # driver - and the build host needs libva's headers (libva-dev).
-static-ffmpeg = ["ffmpeg-next/build", "ffmpeg-sys-next/build-vaapi"]
+# build-portable omits -march=native/-mtune=native from FFmpeg's configure.
+# Without it the static FFmpeg is tuned for the BUILD machine with no runtime
+# fallback: a v1.3.1 release binary built on an AVX-512 CI runner SIGILLed on
+# every end-user CPU without AVX-512. Do not drop it from this feature.
+static-ffmpeg = [
+    "ffmpeg-next/build",
+    "ffmpeg-sys-next/build-vaapi",
+    "ffmpeg-sys-next/build-portable",
+]
 
 [dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync", "net"] }
@@ -34,7 +42,7 @@ mpris = "2"
 pipewire = "0.10"
 rustfft = "6"
 url = "2.5.0"
-image = { version = "0.25", features = ["jpeg", "png"] }
+image = { version = "0.25", default-features = false, features = ["bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
 palette = "0.7"
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
 serde = { version = "1", features = ["derive"] }
@@ -60,12 +68,12 @@ ksni = "0.3"
 cosmic = { package = "libcosmic", git = "https://github.com/pop-os/libcosmic.git", rev = "6359a9465b8fe4c3b0ada0cd2b87cddf644ca732", features = ["markdown"] }
 iced = { git = "https://github.com/pop-os/libcosmic.git", package = "iced", rev = "6359a9465b8fe4c3b0ada0cd2b87cddf644ca732", features = ["highlighter"] }
 mimalloc = "0.1"
-lru = "0.18"
-ffmpeg-next = "8.1.0"
+lru = "0.19"
+ffmpeg-next = "9.1.0"
 # Direct dependency only so the static-ffmpeg feature can enable
-# ffmpeg-sys-next's build-vaapi (ffmpeg-next doesn't forward it). Same crate
-# ffmpeg-next already uses; patched to the vendored copy below.
-ffmpeg-sys-next = { version = "8.1.0", default-features = false }
+# ffmpeg-sys-next's build-vaapi and build-portable (ffmpeg-next doesn't
+# forward them). Same crate ffmpeg-next already uses.
+ffmpeg-sys-next = { version = "9.1.1", default-features = false }
 rustc-hash = "2.1.2"
 # Already in the lockfile via wgpu/softbuffer; taken as a direct dep so GPU
 # uniform/vertex uploads can use checked casts instead of from_raw_parts.
@@ -74,7 +82,7 @@ sha2 = "0.11"
 libc = "0.2"
 # Verifies the minisign signature on release SHA256SUMS before the updater
 # trusts any hash in it. Pure-Rust, verification-only.
-minisign-verify = "0.2"
+minisign-verify = "0.3"
 # Theme packs (.cwtheme): a plain gzipped tar, deliberately not a bespoke
 # container, so a pack can be inspected with the standard `tar` CLI before
 # ever being pointed at by this app. Both pure-Rust, no new toolchain need.
@@ -86,15 +94,6 @@ flate2 = "1"
 i18n-embed = { version = "0.16", features = ["fluent-system", "desktop-requester"] }
 i18n-embed-fl = "0.10"
 rust-embed = "8"
-
-# Upstream's native-build path unconditionally passes -march=native
-# -mtune=native to FFmpeg's configure, baking in whatever SIMD extensions the
-# CI runner happens to support (e.g. AVX-512) with no runtime fallback - a
-# v1.3.1 release binary built this way SIGILLs on any end-user CPU without
-# AVX-512. Vendored fix at vendor/ffmpeg-sys-next-8.1.0 (see its README);
-# reapply on any version bump.
-[patch.crates-io]
-ffmpeg-sys-next = { path = "vendor/ffmpeg-sys-next-8.1.0" }
 
 # Debian packaging for Pop!_OS / Ubuntu, consumed by `cargo deb`. Built in CI
 # inside an Ubuntu 24.04 container so the runtime dependencies resolve against
@@ -145,7 +144,7 @@ fluent-bundle = "0.16"
 tempfile = "3.27.0"
 # Signing side of the updater tests: generates a throwaway keypair and signs
 # test data so minisign-verify's acceptance/rejection paths are both covered.
-minisign = "0.9"
+minisign = "0.10"
 
 [lib]
 path = "src/lib.rs"
