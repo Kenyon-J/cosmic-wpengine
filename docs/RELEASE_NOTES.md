@@ -1,3 +1,27 @@
+# cosmic-wallpaper 1.7.2
+
+A cap on video memory spikes and a dependency refresh, including FFmpeg
+9.1. No config or theme changes.
+
+## Performance
+
+- **Video backgrounds no longer pile up frames when the renderer falls
+  behind.** Each decoder now keeps at most three decoded frames alive.
+  Previously a renderer stall of about a second could queue dozens of
+  full-size frames (33 MB each for 4K video).
+
+## Changed
+
+- **The standalone binaries now ship FFmpeg 9.1** (previously 8.1).
+- **Building from source works against FFmpeg 9**, which Arch and other
+  rolling distros now ship. Older FFmpeg releases are still supported.
+- Rust dependencies updated to their latest releases.
+- The unused AVIF encoder is no longer compiled in, making builds
+  faster and the binaries smaller. Every wallpaper image format that
+  loaded before still loads.
+
+---
+
 # cosmic-wallpaper 1.7.1
 
 Security fix and lower memory use. No config or theme changes.
