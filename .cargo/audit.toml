@@ -13,8 +13,6 @@
 
 [advisories]
 ignore = [
-    # rustls 0.23.42 TLS 1.3 handshake boundary advisory (transitive dependency).
-    "RUSTSEC-2026-0285",
     # quick-xml (quadratic attr scan + unbounded ns alloc DoS) via zbus/atspi.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
@@ -25,7 +23,6 @@ ignore = [
     "RUSTSEC-2025-0141", # bincode unmaintained
     "RUSTSEC-2026-0173", # proc-macro-error2 unmaintained
     "RUSTSEC-2024-0320", # yaml-rust unmaintained
-    "RUSTSEC-2025-0134", # rustls-pemfile unmaintained
     # Unsound-but-not-reachable in our usage, transitive, no fix available.
     "RUSTSEC-2026-0186", # memmap2 unchecked pointer offset
     "RUSTSEC-2026-0097", # rand unsound only with a custom rng() logger (not our path)
