@@ -90,7 +90,17 @@ async fn main() -> Result<()> {
             // running via its own background task. Nothing here currently
             // needs to push a live update or shut it down through the
             // handle, so it's discarded.
-            tray.spawn().await?;
+            //
+            // At login autostart can win the race against cosmic-panel, so
+            // org.kde.StatusNotifierWatcher may not exist yet. By default ksni
+            // treats that as fatal (ServiceUnknown), which used to kill the
+            // whole engine on every login. assume_sni_available(true) makes
+            // it wait for the watcher and register once the panel is up.
+            // The wallpaper itself never depends on the tray, so any other
+            // tray failure is logged rather than propagated.
+            if let Err(e) = tray.assume_sni_available(true).spawn().await {
+                tracing::warn!("System tray unavailable, continuing without it: {}", e);
+            }
 
             let mut wayland_manager = WaylandManager::new()?;
 
